@@ -1,7 +1,7 @@
 import gradio as gr
 import pytest
 
-from conftest import no_progress
+from conftest import no_progress, write_tone
 from studiovoix import acestep
 
 
@@ -51,3 +51,41 @@ def test_serveur_injoignable(env, monkeypatch):
     monkeypatch.setattr(acestep.cfg, "ACESTEP_URL", "http://127.0.0.1:9")
     with pytest.raises(gr.Error):
         acestep.wait_acestep(no_progress, timeout=0.5)
+
+
+# --- Versions, graines, fichiers téléversés ---------------------------------------------------
+from conftest import energie  # noqa: E402
+
+
+def test_plusieurs_versions_et_graines(fake_acestep, env):
+    srv = fake_acestep()
+    res = acestep.generer({"prompt": "chiptune", "lyrics": "[Instrumental]"},
+                          [env / "a.wav", env / "b.wav"], no_progress, graine=1234)
+    (a, ga), (b, gb) = res
+    p = srv.payloads[0]
+    assert p["batch_size"] == 2 and p["use_random_seed"] is False and p["seed"] == f"1234,{gb}"
+    assert ga == 1234 and gb > 0
+    assert energie(a, 220) > 0.05 and energie(b, 440) > 0.05  # chaque fichier va à sa version
+
+
+def test_graine_aleatoire_mais_connue(fake_acestep, env):
+    srv = fake_acestep()
+    ((_, g),) = acestep.generer({"prompt": "x"}, [env / "a.wav"], no_progress, graine=0)
+    assert srv.payloads[0]["seed"] == str(g) and g > 0
+
+
+def test_fichiers_televerses_en_multipart(fake_acestep, env):
+    srv = fake_acestep()
+    ref = write_tone(env / "thème.wav", seconds=2)
+    acestep.generer({"prompt": "x", "task_type": "cover", "audio_cover_strength": 0.4, "thinking": False},
+                    [env / "a.wav"], no_progress, fichiers={"reference_audio": ref, "src_audio": ref})
+    p, f = srv.payloads[0], srv.fichiers[0]
+    assert p["task_type"] == "cover" and p["audio_cover_strength"] == "0.4"
+    assert p["thinking"] == "false" and p["use_cot_caption"] == "false"  # texte relu par _to_bool côté serveur
+    assert f["reference_audio"] == ("thème.wav", ref.read_bytes()) and f["src_audio"][1] == ref.read_bytes()
+
+
+def test_nouvel_essai_garde_la_graine(fake_acestep, env):
+    srv = fake_acestep(fail_with_thinking=True)
+    acestep.generer({"prompt": "x", "thinking": True}, [env / "a.wav"], no_progress, graine=77)
+    assert [p["seed"] for p in srv.payloads] == ["77", "77"]

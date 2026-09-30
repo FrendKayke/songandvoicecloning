@@ -1,6 +1,9 @@
 """Outils de test sans GPU : faux serveur ACE-Step (HTTP), faux Demucs et faux Seed-VC (sous-processus)."""
+import io
 import json
 import sys
+from email.parser import BytesParser
+from email.policy import default as politique_email
 import textwrap
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -61,6 +64,7 @@ class FakeAceStep:
 
     def __init__(self, wav_bytes, fail_with_thinking=False, pending_polls=1, broken_polls=0):
         self.wav_bytes = wav_bytes
+        self.fichiers = []  # fichiers téléversés à chaque /release_task : {champ: (nom, octets)}
         self.fail_with_thinking = fail_with_thinking
         self.pending_polls = pending_polls
         self.broken_polls = broken_polls
@@ -84,18 +88,34 @@ class FakeAceStep:
                 if self.path == "/health":
                     return self._json({"data": {"status": "ok"}, "code": 200})
                 if self.path.startswith("/v1/audio"):
+                    corps = fake.version(int(self.path.rsplit("v=", 1)[1])) if "v=" in self.path else fake.wav_bytes
                     self.send_response(200)
-                    self.send_header("Content-Length", str(len(fake.wav_bytes)))
+                    self.send_header("Content-Length", str(len(corps)))
                     self.end_headers()
-                    self.wfile.write(fake.wav_bytes)
+                    self.wfile.write(corps)
                     return
                 self._json({"error": "inconnu"}, 404)
 
             def do_POST(self):
                 n = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(n) or b"{}")
+                brut = self.rfile.read(n)
+                ctype = self.headers.get("Content-Type", "")
+                fichiers = {}
+                if ctype.startswith("multipart/form-data"):
+                    msg = BytesParser(policy=politique_email).parsebytes(
+                        b"Content-Type: " + ctype.encode() + b"\r\n\r\n" + brut)
+                    body = {}
+                    for part in msg.iter_parts():
+                        nom = part.get_param("name", header="content-disposition")
+                        if part.get_filename():
+                            fichiers[nom] = (part.get_filename(), part.get_payload(decode=True))
+                        else:
+                            body[nom] = part.get_content()
+                else:
+                    body = json.loads(brut or b"{}")
                 if self.path == "/release_task":
                     fake.payloads.append(body)
+                    fake.fichiers.append(fichiers)
                     return self._json({"data": {"task_id": f"t{len(fake.payloads)}"}, "code": 200})
                 if self.path == "/query_result":
                     fake.polls += 1
@@ -107,13 +127,22 @@ class FakeAceStep:
                         return self._json({"data": [{"task_id": tid, "status": 2, "result": "échec LM"}]})
                     if fake.polls <= fake.broken_polls + fake.pending_polls:
                         return self._json({"data": [{"task_id": tid, "status": 0, "result": None}]})
-                    result = json.dumps([{"file": "/v1/audio?path=%2Ftmp%2Fsong.wav"}])
+                    nb = int(last.get("batch_size") or 1)
+                    result = json.dumps([{"file": f"/v1/audio?path=%2Ftmp%2Fsong.wav&v={i}"} for i in range(nb)])
                     return self._json({"data": [{"task_id": tid, "status": 1, "result": result}]})
                 self._json({"error": "inconnu"}, 404)
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def version(self, i):
+        """Fichier de la version i : tonalité différente (220 Hz × (i+1)) pour vérifier l'ordre."""
+        t = np.arange(4 * SR) / SR
+        y = (0.3 * np.sin(2 * np.pi * 220 * (i + 1) * t)).astype("float32")
+        tampon = io.BytesIO()
+        sf.write(tampon, np.stack([y, y], 1), SR, format="WAV")
+        return tampon.getvalue()
 
     def close(self):
         self.server.shutdown()

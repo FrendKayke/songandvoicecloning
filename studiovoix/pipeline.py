@@ -1,8 +1,12 @@
 """Pipeline : ACE-Step → Demucs → Seed-VC → mixage, ou ACE-Step seul (musique seule).
 
 Si des instruments sont à retirer, Demucs sépare en 4 pistes et l'instrumental est remixé sans elles.
+Chaque création est décrite dans creation.json (réglages, graine de chaque version) : la galerie et
+« Refaire ce passage » s'en servent.
 """
+import json
 import shutil
+from datetime import datetime
 
 import gradio as gr
 
@@ -20,6 +24,13 @@ RETRAITS = {"bass": "basse", "drums": "batterie"}
 NEGATIFS = {"bass": "bass, bass guitar, sub-bass", "drums": "drums, drum kit, percussion"}
 PISTES_INSTRU = ("drums", "bass", "other")
 INSTRUMENTAL = "[Instrumental]"  # paroles reconnues par ACE-Step comme « sans voix » (server_utils.is_instrumental)
+MAX_VERSIONS = 2  # au-delà, la mémoire graphique (12 Go) risque de manquer
+
+
+def ecrire_creation(dossier, infos):
+    """Décrit une création (réglages, versions) dans creation.json, en UTF-8 lisible."""
+    infos = {"date": datetime.now().isoformat(timespec="seconds"), **infos}
+    (dossier / "creation.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 def creer_chanson(
@@ -29,12 +40,17 @@ def creer_chanson(
     mode=MODE_MA_VOIX,
     description=None,
     retirer=None,
+    versions=1,
+    graine=0,
     progress=gr.Progress(),
 ):
     """« description » : description finale (modifiable dans l'interface) ; vide = construite depuis les listes.
     « retirer » : pistes à supprimer du mix (« bass », « drums »), garanti par une séparation Demucs en 4 pistes.
+    « versions » : 1 ou 2 versions générées d'un coup ; « graine » : 0 = aléatoire, sinon graine de la version 1.
+    Renvoie (finale, brute, voix convertie, instrumental, message, finale de la version 2 ou None).
     """
     retirer = [p for p in (retirer or []) if p in RETRAITS]
+    versions = max(1, min(MAX_VERSIONS, int(versions or 1)))
     mode = mode or MODE_MA_VOIX
     if mode not in MODES:
         raise gr.Error(f"Mode inconnu : {mode}")
@@ -63,23 +79,50 @@ def creer_chanson(
 
     workdir = nouveau_dossier(cfg.SONGS_DIR)
     (workdir / "prompt.txt").write_text(f"{prompt}\n\n{lyrics}\n", encoding="utf-8")
+    # Une version : fichiers à la racine du dossier (comme avant) ; plusieurs : un sous-dossier par version
+    dossiers = [workdir] if versions == 1 else [workdir / f"version_{i}" for i in range(1, versions + 1)]
+    for d in dossiers:
+        d.mkdir(exist_ok=True)
 
     avec_voix = lyrics != INSTRUMENTAL
     conversion = avec_voix and mode == MODE_MA_VOIX
     separation = conversion or bool(retirer)
     total = 1 + separation + conversion + (avec_voix and separation)
-    numeros = iter(range(1, total + 1))
+
+    progress(0.05, desc=f"1/{total} — Génération (ACE-Step)…")
+    negatif = ", ".join(NEGATIFS[p] for p in retirer) or None
+    params = acestep.text2music_params(prompt, lyrics, cfg.LANGUES[langue_label], duree, bpm, thinking, negatif)
+    generes = acestep.generer(params, [d / "chanson_brute.wav" for d in dossiers], progress, f"1/{total}",
+                              graine=graine)
+
+    resultats = []
+    for n, ((song, seed), dossier) in enumerate(zip(generes, dossiers), 1):
+        prefixe = "" if versions == 1 else f"Version {n}/{versions} — "
+        resultats.append(_finaliser(song, dossier, prefixe, total, avec_voix, conversion, separation, retirer,
+                                    voice_ref, semitones, steps, gain_voix, gain_instru, progress))
+
+    ecrire_creation(workdir, {
+        "type": "chanson", "mode": mode, "description": prompt, "paroles": lyrics, "langue": langue_label,
+        "duree": float(duree), "bpm": int(bpm or 0), "reflexion": bool(thinking), "retirer": retirer,
+        "voix": voix if mode == MODE_MA_VOIX else None,
+        "versions": [{"graine": seed, "dossier": d.name if d != workdir else ".", "fichier": str(r[0])}
+                     for (_, seed), d, r in zip(generes, dossiers, resultats)],
+    })
+    final, brute, conv, instru, msg = resultats[0]
+    if versions > 1:
+        msg = f"{versions} versions générées (écoute-les ci-dessous). Dossier : {workdir}"
+    msg_graines = ", ".join(f"{seed}" for _, seed in generes)
+    msg = f"{msg} Graine{'s' if versions > 1 else ''} : {msg_graines}."
+    return final, brute, conv, instru, msg, (resultats[1][0] if versions > 1 else None)
+
+
+def _finaliser(song, workdir, prefixe, total, avec_voix, conversion, separation, retirer,
+               voice_ref, semitones, steps, gain_voix, gain_instru, progress):
+    """Tout ce qui suit la génération d'une version : séparation, conversion, mixage."""
+    numeros = iter(range(2, total + 1))
 
     def etape():
-        return f"{next(numeros)}/{total}"
-
-    e = etape()
-    progress(0.05, desc=f"{e} — Génération de la chanson (ACE-Step)…")
-    negatif = ", ".join(NEGATIFS[p] for p in retirer) or None
-    song = acestep.acestep_generate(
-        prompt, lyrics, cfg.LANGUES[langue_label], duree, bpm, thinking, workdir / "chanson_brute.wav",
-        progress, e, negatif,
-    )
+        return f"{prefixe}{next(numeros)}/{total}"
 
     if not separation:
         if not avec_voix:

@@ -133,6 +133,10 @@ def build_ui():
                 langue = gr.Dropdown(list(cfg.LANGUES), value="Français", label="Langue des paroles")
                 duree = gr.Slider(30, 240, value=120, step=10, label="Durée (s)")
                 bpm = gr.Number(value=0, precision=0, label="BPM (0 = auto)")
+                versions = gr.Radio([1, 2], value=1, label="Versions",
+                                    info="2 versions d'un coup pour garder la meilleure (plus long).")
+                graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)",
+                                   info="Reprends une graine affichée après une création pour obtenir un résultat proche.")
                 thinking = gr.Checkbox(value=True, label="Mode réflexion (LM) — meilleure structure",
                                        info="Si le style demandé n'est pas respecté, décoche-le : le générateur "
                                             "suivra alors la description seule.")
@@ -151,6 +155,7 @@ def build_ui():
             btn = gr.Button("🎵 Créer la chanson", variant="primary")
             statut = gr.Markdown()
             final = gr.Audio(label="Chanson finale (avec ta voix)", type="filepath")
+            final_2 = gr.Audio(label="Version 2", type="filepath", visible=False)
             with gr.Accordion("Étapes intermédiaires", open=False) as intermediaires:
                 brute = gr.Audio(label="Chanson brute ACE-Step", type="filepath")
                 voix_conv = gr.Audio(label="Voix convertie", type="filepath")
@@ -236,9 +241,10 @@ def build_ui():
         btn.click(
             creer_chanson,
             [voix, genre, style, instruments, ambiance, extra, voix_base, paroles, langue, duree, bpm,
-             thinking, semitones, steps, gain_voix, gain_instru, mode, description, retirer],
-            [final, brute, voix_conv, instru_out, statut],
+             thinking, semitones, steps, gain_voix, gain_instru, mode, description, retirer, versions, graine],
+            [final, brute, voix_conv, instru_out, statut, final_2],
         )
+        versions.change(lambda v: gr.update(visible=int(v) > 1), versions, final_2)
         champs_style = [genre, style, instruments, ambiance, extra, voix_base, mode]
         for champ in champs_style:
             champ.change(apercu_description, champs_style, description)

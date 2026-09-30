@@ -1,6 +1,7 @@
 """ACE-Step 1.5 : génération de la chanson via son API REST locale (port 8001)."""
 import json
 import os
+import random
 import shutil
 import time
 from pathlib import Path
@@ -50,36 +51,57 @@ def wait_acestep(progress, timeout=15 * 60):
     )
 
 
-def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, progress, etape="1/4",
-                     negatif=None):
-    """Génère la chanson et l'écrit dans dest. « etape » sert seulement à l'affichage (« 1/4 »…).
+def _valeur_formulaire(v):
+    """Les paramètres d'un envoi multipart arrivent en texte (le serveur relit « true »/« false »)."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return str(v)
 
-    « negatif » : ce qu'il faut éviter (lm_negative_prompt) ; seul le modèle de langage en tient compte,
-    donc seulement en mode réflexion (le générateur n'a pas de prompt négatif).
+
+def graines(versions, graine=None):
+    """Graine de chaque version : celle demandée pour la première (si > 0), aléatoires sinon.
+    On les choisit nous-mêmes car /query_result ne renvoie pas la graine de chaque fichier."""
+    tirage = [random.randint(1, 2**31 - 1) for _ in range(versions)]
+    if graine and int(graine) > 0:
+        tirage[0] = int(graine)
+    return tirage
+
+
+def generer(params, dests, progress, etape="1/1", fichiers=None, graine=None):
+    """Lance une tâche ACE-Step (/release_task), attend le résultat et écrit une version par fichier de dests.
+
+    params : paramètres de l'API (prompt, lyrics, task_type, repainting_start…), vérifiés dans
+             acestep/api/http/release_task_request_builder.py ;
+    fichiers : {"reference_audio": chemin, "src_audio": chemin} envoyés en multipart — le serveur refuse les
+               chemins absolus hors de son dossier temporaire (release_task_audio_paths.validate_audio_path) ;
+    Renvoie [(chemin, graine), …] dans l'ordre des versions (l'ordre des graines est celui des fichiers).
     """
     wait_acestep(progress)
+    seeds = graines(len(dests), graine)
     payload = {
-        "prompt": prompt,
-        "lyrics": lyrics,
-        "vocal_language": langue,
-        "audio_duration": float(duree),
         "audio_format": "wav",
-        "batch_size": 1,
-        "thinking": bool(thinking),
-        "use_random_seed": True,
+        "batch_size": len(dests),
+        "use_random_seed": False,
+        "seed": ",".join(str(x) for x in seeds),
         # Sans cela, le modèle de langage d'ACE-Step réécrit la description et la langue avant de les
         # passer au générateur (inference.py : dit_input_caption = caption du LM), même sans « thinking » :
         # les styles peu courants (8-bit…) se diluent alors en pop générique.
         "use_cot_caption": False,
         "use_cot_language": False,
+        **params,
     }
-    if bpm and int(bpm) > 0:
-        payload["bpm"] = int(bpm)
-    if negatif:
-        payload["lm_negative_prompt"] = negatif
-
+    fichiers = {k: v for k, v in (fichiers or {}).items() if v}
     try:
-        r = requests.post(f"{cfg.ACESTEP_URL}/release_task", json=payload, timeout=30)
+        if fichiers:
+            ouverts = {k: (Path(v).name, open(v, "rb")) for k, v in fichiers.items()}
+            try:
+                r = requests.post(f"{cfg.ACESTEP_URL}/release_task", timeout=120, files=ouverts,
+                                  data={k: _valeur_formulaire(v) for k, v in payload.items() if v is not None})
+            finally:
+                for _, f in ouverts.values():
+                    f.close()
+        else:
+            r = requests.post(f"{cfg.ACESTEP_URL}/release_task", json=payload, timeout=30)
         r.raise_for_status()
     except requests.RequestException as e:
         raise gr.Error(
@@ -103,7 +125,7 @@ def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, p
         except (requests.RequestException, ValueError):
             progress(0.1, desc=f"{etape} — Le serveur ACE-Step est occupé, génération en cours… ({ecoule} s)")
             continue
-        progress(0.1, desc=f"{etape} — Génération de la chanson (ACE-Step)… ({ecoule} s)")
+        progress(0.1, desc=f"{etape} — Génération de la musique (ACE-Step)… ({ecoule} s)")
         item = next((i for i in items if i.get("task_id") == task_id), None)
         if not item:
             continue
@@ -112,19 +134,45 @@ def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, p
             result = item["result"]
             if isinstance(result, str):
                 result = json.loads(result)
-            f = result[0]["file"]
-            audio = requests.get(
-                f if f.startswith("http") else f"{cfg.ACESTEP_URL}{f}", timeout=120
-            )
-            audio.raise_for_status()
-            dest.write_bytes(audio.content)
-            return dest
+            urls = [x["file"] for x in result if x.get("file")]
+            if len(urls) < len(dests):
+                raise gr.Error(f"ACE-Step n'a renvoyé que {len(urls)} version(s) sur {len(dests)}.")
+            for f, dest in zip(urls, dests):
+                audio = requests.get(f if f.startswith("http") else f"{cfg.ACESTEP_URL}{f}", timeout=120)
+                audio.raise_for_status()
+                Path(dest).write_bytes(audio.content)
+            return list(zip([Path(d) for d in dests], seeds))
         if status == 2:
-            if thinking:  # nouvel essai sans le LM
+            if params.get("thinking"):  # nouvel essai sans le LM
                 progress(0.15, desc="Échec avec le mode réflexion, nouvel essai sans…")
-                return acestep_generate(prompt, lyrics, langue, duree, bpm, False, dest, progress, etape, negatif)
+                return generer({**params, "thinking": False}, dests, progress, etape, fichiers, seeds[0])
             raise gr.Error(f"ACE-Step a échoué : {item.get('result')}")
-    raise gr.Error("Délai dépassé (30 min) pour la génération de la chanson. Regarde la fenêtre ACE-Step.")
+    raise gr.Error("Délai dépassé (30 min) pour la génération. Regarde la fenêtre ACE-Step.")
+
+
+def text2music_params(prompt, lyrics, langue, duree, bpm, thinking, negatif=None):
+    """Paramètres d'une génération à partir du texte (task_type par défaut : text2music)."""
+    params = {
+        "prompt": prompt,
+        "lyrics": lyrics,
+        "vocal_language": langue,
+        "audio_duration": float(duree),
+        "thinking": bool(thinking),
+    }
+    if bpm and int(bpm) > 0:
+        params["bpm"] = int(bpm)
+    # Ce qu'il faut éviter : seul le modèle de langage en tient compte, donc seulement en mode réflexion
+    # (le générateur n'a pas de prompt négatif).
+    if negatif:
+        params["lm_negative_prompt"] = negatif
+    return params
+
+
+def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, progress, etape="1/4",
+                     negatif=None):
+    """Génère une version et l'écrit dans dest. « etape » sert seulement à l'affichage (« 1/4 »…)."""
+    params = text2music_params(prompt, lyrics, langue, duree, bpm, thinking, negatif)
+    return generer(params, [dest], progress, etape)[0][0]
 
 
 # --- Modèles -----------------------------------------------------------------

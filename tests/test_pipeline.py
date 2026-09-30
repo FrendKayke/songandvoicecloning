@@ -16,7 +16,7 @@ ARGS = dict(genre="pop", style="", instruments="piano", ambiance="", extra="", v
 
 def _call(voix, paroles, mode=None, **kw):
     # Paramètres nommés ajoutés après « mode » : transmis seulement s'ils sont donnés (sinon valeur par défaut)
-    extra = {k: kw.pop(k) for k in ("description", "retirer") if k in kw}
+    extra = {k: kw.pop(k) for k in ("description", "retirer", "versions", "graine") if k in kw}
     if mode is not None:
         extra["mode"] = mode
     a = dict(ARGS, **kw)
@@ -29,7 +29,7 @@ def _call(voix, paroles, mode=None, **kw):
 def test_chanson_avec_ma_voix(fake_acestep, fake_engines):
     srv = fake_acestep()
     write_tone(cfg.VOICES_DIR / "moi.wav", seconds=10)
-    final, brute, conv, instru, msg = _call("moi", "[Verse]\nBonjour")
+    final, brute, conv, instru, msg, _v2 = _call("moi", "[Verse]\nBonjour")
     workdir = cfg.SONGS_DIR / next(cfg.SONGS_DIR.iterdir()).name
     assert final == str(workdir / "chanson_finale.wav") and sf.info(final).channels == 2
     assert brute == str(workdir / "chanson_brute.wav")
@@ -47,7 +47,7 @@ def test_chanson_avec_ma_voix(fake_acestep, fake_engines):
 def test_paroles_vides_donnent_un_instrumental(fake_acestep, fake_engines):
     srv = fake_acestep()
     write_tone(cfg.VOICES_DIR / "moi.wav", seconds=10)
-    final, brute, conv, instru, msg = _call("moi", "  ")
+    final, brute, conv, instru, msg, _v2 = _call("moi", "  ")
     assert final == brute and conv is None and instru is None
     assert srv.payloads[0]["lyrics"] == "[Instrumental]"
     assert not (cfg.SEEDVC_DIR / "appel.json").exists()
@@ -72,7 +72,7 @@ def test_seedvc_absent(fake_acestep, env):
 
 def test_mode_voix_ace_step_sans_conversion(fake_acestep, fake_engines):
     srv = fake_acestep()
-    final, brute, conv, instru, msg = _call(None, "[Verse]\nBonjour", mode=MODE_VOIX_ACE,
+    final, brute, conv, instru, msg, _v2 = _call(None, "[Verse]\nBonjour", mode=MODE_VOIX_ACE,
                                             voix_base="Voix féminine")
     assert final == brute and brute.endswith("chanson_brute.wav") and conv is None and instru is None
     assert "voix d'ACE-Step" in msg
@@ -90,7 +90,7 @@ def test_mode_voix_ace_step_exige_des_paroles(fake_acestep, env):
 
 def test_mode_instrumental_ignore_paroles_et_voix(fake_acestep, fake_engines):
     srv = fake_acestep()
-    final, brute, conv, instru, msg = _call(None, "[Verse]\nignoré", mode=MODE_INSTRU,
+    final, brute, conv, instru, msg, _v2 = _call(None, "[Verse]\nignoré", mode=MODE_INSTRU,
                                             voix_base="Voix masculine")
     assert final == brute and conv is None and instru is None and "Instrumental" in msg
     assert srv.payloads[0]["lyrics"] == "[Instrumental]"
@@ -129,7 +129,7 @@ def _presentes(path):
 
 def test_instrumental_sans_basse(fake_acestep, fake_engines):
     srv = fake_acestep()
-    final, brute, conv, instru, msg = _call(None, "", mode=MODE_INSTRU, retirer=["bass"])
+    final, brute, conv, instru, msg, _v2 = _call(None, "", mode=MODE_INSTRU, retirer=["bass"])
     assert final.endswith("instrumental.wav") and brute.endswith("chanson_brute.wav")
     assert _presentes(final) == {"drums", "other"}  # ni basse, ni résidus de voix
     assert "sans basse" in msg
@@ -138,7 +138,7 @@ def test_instrumental_sans_basse(fake_acestep, fake_engines):
 
 def test_voix_ace_step_sans_batterie_ni_basse(fake_acestep, fake_engines):
     srv = fake_acestep()
-    final, brute, conv, instru, msg = _call(None, "[Verse]\nla", mode=MODE_VOIX_ACE, retirer=["drums", "bass"])
+    final, brute, conv, instru, msg, _v2 = _call(None, "[Verse]\nla", mode=MODE_VOIX_ACE, retirer=["drums", "bass"])
     assert final.endswith("chanson_finale.wav") and conv is None
     assert _presentes(final) == {"other", "vocals"} and _presentes(instru) == {"other"}
     assert "sans batterie et basse" in msg
@@ -148,7 +148,7 @@ def test_voix_ace_step_sans_batterie_ni_basse(fake_acestep, fake_engines):
 def test_ma_voix_sans_basse(fake_acestep, fake_engines):
     fake_acestep()
     write_tone(cfg.VOICES_DIR / "moi.wav", seconds=10)
-    final, brute, conv, instru, msg = _call("moi", "[Verse]\nla", retirer=["bass"])
+    final, brute, conv, instru, msg, _v2 = _call("moi", "[Verse]\nla", retirer=["bass"])
     appel = json.loads((cfg.SEEDVC_DIR / "appel.json").read_text())
     assert appel[appel.index("--source") + 1].endswith("vocals.wav") and "demucs4" in appel[appel.index("--source") + 1]
     assert _presentes(final) == {"drums", "other", "vocals"}  # la « voix convertie » du faux Seed-VC = piste voix
@@ -160,3 +160,28 @@ def test_sans_retrait_pas_de_prompt_negatif(fake_acestep, fake_engines):
     _call(None, "", mode=MODE_INSTRU, retirer=["piano"])  # valeur inconnue ignorée
     assert "lm_negative_prompt" not in srv.payloads[0]
     assert not any(cfg.SONGS_DIR.rglob("demucs4"))
+
+
+# --- Plusieurs versions, graine, creation.json ------------------------------------------------
+def test_deux_versions_avec_ma_voix(fake_acestep, fake_engines):
+    srv = fake_acestep()
+    write_tone(cfg.VOICES_DIR / "moi.wav", seconds=10)
+    final, brute, conv, instru, msg, final2 = _call("moi", "[Verse]\nla", versions=2, graine=42)
+    workdir = next(cfg.SONGS_DIR.iterdir())
+    assert final == str(workdir / "version_1" / "chanson_finale.wav")
+    assert final2 == str(workdir / "version_2" / "chanson_finale.wav")
+    assert energie(brute, 220) > 0.05 and energie(workdir / "version_2" / "chanson_brute.wav", 440) > 0.05
+    assert srv.payloads[0]["batch_size"] == 2 and srv.payloads[0]["seed"].startswith("42,")
+    creation = json.loads((workdir / "creation.json").read_text(encoding="utf-8"))
+    assert creation["type"] == "chanson" and creation["voix"] == "moi" and creation["paroles"] == "[Verse]\nla"
+    assert [v["dossier"] for v in creation["versions"]] == ["version_1", "version_2"]
+    assert creation["versions"][0]["graine"] == 42 and "Graines : 42, " in msg
+
+
+def test_une_version_reste_a_la_racine(fake_acestep, fake_engines):
+    fake_acestep()
+    final, *_, final2 = _call(None, "", mode=MODE_INSTRU, graine=7, versions=1)
+    workdir = next(cfg.SONGS_DIR.iterdir())
+    assert final == str(workdir / "chanson_brute.wav") and final2 is None
+    creation = json.loads((workdir / "creation.json").read_text(encoding="utf-8"))
+    assert creation["versions"] == [{"graine": 7, "dossier": ".", "fichier": final}]
