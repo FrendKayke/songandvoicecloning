@@ -2,7 +2,7 @@
 
 Logiciel local pour Windows : tu enregistres ta voix, tu écris un prompt (genre, style, instruments, ambiance) et tes paroles, et il te rend une chanson chantée avec **ta** voix. Il sait aussi composer de la musique seule, lire un texte avec ta voix (synthèse vocale) et nettoyer un enregistrement fait avec un micro médiocre. Tout tourne sur ta machine, sans service en ligne.
 
-Moteurs utilisés : [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) (génération musicale), [Demucs](https://github.com/facebookresearch/demucs) (séparation voix / musique), [Seed-VC](https://github.com/Plachtaa/seed-vc) (conversion de voix chantée) et [Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox) (synthèse vocale, licence MIT), [ClearerVoice-Studio](https://github.com/modelscope/ClearerVoice-Studio) (MossFormer2, débruitage, Apache-2.0) et [VoiceFixer](https://github.com/haoheliu/voicefixer) (restauration de voix, code MIT, poids CC-BY 4.0). Ils sont téléchargés par l'installateur, ils ne sont pas inclus dans ce dépôt.
+Moteurs utilisés : [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) (génération musicale), [Demucs](https://github.com/facebookresearch/demucs) (séparation voix / musique), [Seed-VC](https://github.com/Plachtaa/seed-vc) (conversion de voix chantée) et [Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox) (synthèse vocale, licence MIT), [ClearerVoice-Studio](https://github.com/modelscope/ClearerVoice-Studio) (MossFormer2, débruitage, Apache-2.0) et [VoiceFixer](https://github.com/haoheliu/voicefixer) (restauration de voix, code MIT, poids CC-BY 4.0) et [Applio](https://github.com/IAHispano/Applio) (RVC : entraînement d'un modèle de ta voix, MIT). Ils sont téléchargés par l'installateur, ils ne sont pas inclus dans ce dépôt.
 
 Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 
@@ -12,7 +12,7 @@ Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 |---|---|
 | `studio_voix.py` | point d'entrée de l'application (lancé par `lancer.bat`) |
 | `studiovoix/` | le code de l'application, un module par rôle (voir ci-dessous) |
-| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`) |
+| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`, `rvc_voix.py`) |
 | `tests/` | tests automatiques sans carte graphique (moteurs simulés) |
 | `installer.ps1` / `INSTALLER.bat` | installation complète en un clic |
 | `lancer.bat` | démarrage (serveur ACE-Step + application) |
@@ -33,6 +33,7 @@ Modules de `studiovoix/` :
 | `seedvc.py` | conversion de voix chantée |
 | `chatterbox.py` | synthèse vocale (lance `moteurs/chatterbox_tts.py`) |
 | `nettoyage.py` | nettoyage de voix (lance `moteurs/nettoyage_voix.py`) |
+| `rvc.py` | RVC : entraîner un modèle de ta voix et convertir avec (lance `moteurs/rvc_voix.py`) |
 | `voix.py` | bibliothèque de voix (import, contrôle de qualité, renommage, suppression) |
 | `mixage.py` | mixage voix + instrumental |
 | `pipeline.py` | enchaînement complet des étapes |
@@ -52,11 +53,12 @@ C'est tout. Aucun droit administrateur n'est nécessaire, et ni Python ni Git n'
 - **Demucs** et son modèle ;
 - **Chatterbox Multilingual V3** et ses modèles (~3,2 Go, plus ~2,5 Go pour PyTorch) ;
 - le **nettoyage de voix** (MossFormer2 et VoiceFixer, ~0,8 Go de modèles ; il réutilise le PyTorch de Chatterbox) ;
+- **RVC** (Applio), pour entraîner un modèle de ta voix (~2,8 Go de PyTorch et ~1,8 Go de modèles de base) ;
 - l'environnement de l'application.
 
-Compte 27 à 32 Go à télécharger, soit une bonne heure selon ta connexion, et au moins 40 Go libres. Si l'installation s'interrompt, relance INSTALLER.bat : les étapes terminées sont sautées.
+Compte 32 à 37 Go à télécharger, soit une bonne heure ou deux selon ta connexion, et au moins 50 Go libres. Si l'installation s'interrompt, relance INSTALLER.bat : les étapes terminées sont sautées.
 
-**Tu avais déjà installé Studio Voix avant l'arrivée de la synthèse vocale ou du nettoyage ?** Relance simplement INSTALLER.bat : seules les étapes manquantes s'exécutent (Chatterbox : environ 6 Go, 10 à 25 minutes ; nettoyage : environ 1 Go de plus, 5 minutes). Sans cela, tout le reste fonctionne et l'application t'indique ce qui manque.
+**Tu avais déjà installé Studio Voix avant l'arrivée de la synthèse vocale ou du nettoyage ?** Relance simplement INSTALLER.bat : seules les étapes manquantes s'exécutent (Chatterbox : environ 6 Go, 10 à 25 minutes ; nettoyage : environ 1 Go, 5 minutes ; RVC : environ 5 Go, 10 à 20 minutes). Sans cela, tout le reste fonctionne et l'application t'indique ce qui manque.
 
 ### Où tout est installé
 
@@ -70,6 +72,7 @@ Les moteurs et les modèles vont dans **`<lecteur>:\StudioVoix`** (par exemple `
 | `StudioVoix\chatterbox` | Chatterbox (code, environnement, modèle de découpage `pkuseg`) |
 | `StudioVoix\hf-home` | modèles Chatterbox (cache Hugging Face) |
 | `StudioVoix\nettoyage` | nettoyage de voix (environnement, modèles dans `checkpoints\` et `voicefixer\`) |
+| `StudioVoix\rvc` | RVC (Applio) : modèles de base dans `rvc\models\`, **tes modèles entraînés dans `logs\<nom>\`**, tes enregistrements d'entraînement dans `datasets\` |
 | `StudioVoix\python`, `uv`, `uv-cache` | Python et outils d'installation |
 | `<dossier de l'application>\data` | tes voix, tes chansons, tes textes lus et tes voix nettoyées |
 
@@ -91,7 +94,8 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
 5. Onglet **Synthèse vocale** : choisis une voix de ta bibliothèque, la langue, écris le texte et clique sur « Lire le texte avec cette voix ». Les textes longs (jusqu'à 5 000 caractères) sont découpés en phrases. Chaque lecture est rangée dans `data\tts\<date>\` (texte et `parole.wav`).
 6. Onglet **Galerie** : toutes tes créations (chansons, pistes de jeu, lectures), la plus récente en premier, avec un filtre. Pour chacune : description, paroles, graine, écoute (et choix de la version s'il y en a deux), « 🔁 Recréer (même graine) » pour obtenir un résultat proche, « 📂 Ouvrir le dossier » et « 🗑️ Supprimer » (avec confirmation). Les créations faites avant cette version apparaissent aussi (écoute et suppression seulement).
    - **« ✏️ Refaire un passage »** : un refrain raté, une fin bizarre ? Indique le début et la fin en secondes : seul ce passage est réinventé, le reste est gardé, puis le reste du traitement est refait (ta voix, retrait d'instruments, boucle…). Tu peux changer la description ou les paroles du passage et choisir la force de la retouche (légère, équilibrée, complète). Le résultat est une nouvelle création ; l'originale est conservée.
-7. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
+7. Onglet **Entraîner ma voix (RVC)** : pour une ressemblance nettement meilleure, surtout au chant. Ajoute 10 à 30 minutes d'enregistrements de toi seul (plusieurs fichiers wav/mp3/flac, et/ou des voix de ta bibliothèque) ; le tableau vérifie la durée totale et signale les fichiers trop faibles ou saturés. Donne un nom, choisis la durée (300 époques conseillées, 1 à 2 heures sur une RTX 4070) et lance. Ensuite, dans « Créer une chanson » → Réglages voix → **Conversion de ta voix**, choisis « RVC — ton modèle ». Dans « Synthèse vocale », tu peux aussi faire passer la lecture dans ton modèle RVC. **Ferme la fenêtre ACE-Step pendant l'entraînement** : il a besoin de toute la mémoire graphique.
+8. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.
 
@@ -144,6 +148,33 @@ Mesures sur une voix dégradée comme par un micro médiocre dans une pièce qui
 
 Chaque message explique quoi changer (se rapprocher du micro, baisser le niveau d'entrée…).
 
+## Bien enregistrer sa voix (le plus important pour la ressemblance)
+
+Un casque-micro, même bon, capte une voix étroite et « nasale » : il est fait pour être compris, pas pour être fidèle. Pour cloner ta voix, **un vrai micro de studio change tout**, bien plus que n'importe quel réglage.
+
+### Quel micro ?
+
+Dans une pièce non traitée (le cas de la plupart des chambres et bureaux), préfère un **micro dynamique** : il capte ta voix de près et beaucoup moins l'écho et les bruits de la pièce. Un **micro statique** (« à condensateur ») est plus détaillé mais capte aussi toute la pièce : réserve-le à une pièce calme et amortie.
+
+| Budget | Micro | Type | Branchement | Pour qui |
+|---|---|---|---|---|
+| ~70 € | **Samson Q2U** (ou Fifine K688) | dynamique | USB **et** XLR | le meilleur rapport qualité-prix, pièce bruyante |
+| ~150 € | **Audio-Technica AT2020USB-X** | statique | USB | pièce calme, voix très naturelle |
+| ~170 € | **Rode NT-USB+** | statique | USB | pièce calme, excellent pour le chant |
+| ~250 € | **Shure MV7+** (ou MV7X en XLR) | dynamique | USB et XLR | le choix sûr en pièce non traitée, voix et chant |
+| ~250 € | **Shure SM58** + interface **Focusrite Scarlett Solo** | dynamique | XLR | le classique du chant, évolutif (tu pourras changer de micro plus tard) |
+
+Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de ces modèles). Ajoute un **filtre anti-pop** (~10 €) et un pied ou un bras articulé : le micro ne doit pas être tenu à la main.
+
+### Comment enregistrer
+
+- **Distance** : 5 à 10 cm pour un dynamique, 15 à 20 cm pour un statique, légèrement de biais pour éviter les « p » et les souffles.
+- **La pièce** : coupe ventilateurs et climatisation, ferme la fenêtre ; enregistre face à un mur couvert (rideaux, armoire ouverte pleine de vêtements, couette tendue derrière toi) plutôt que dans une pièce vide et carrelée.
+- **Le niveau** : règle le gain pour que tes passages les plus forts montent vers −12 à −6 dB, jamais au maximum (le contrôle de qualité signale la saturation).
+- **Windows** : dans Paramètres → Son → ton micro, désactive les « améliorations audio » et toute réduction de bruit ; elles abîment le timbre.
+- **Le navigateur** applique souvent sa propre suppression de bruit et d'écho au micro. Pour les enregistrements importants (surtout ceux pour RVC), enregistre plutôt avec **Audacity** (gratuit) en WAV 48 kHz, 24 bits, mono, puis importe le fichier.
+- **Pour RVC** : 10 à 30 minutes au total, en plusieurs fichiers, ta voix seule : chante des mélodies variées (graves, aiguës, douces, fortes), parle, lis un texte à voix haute. Pas de musique ni de chœurs, pas d'effets (réverbération, autotune).
+
 ## Réglages utiles
 
 - **Plusieurs versions et graine** : « Versions : 2 » génère deux versions d'un coup (plus long) pour garder la meilleure. Après chaque création, la **graine** s'affiche : remets-la dans « Graine » avec les mêmes réglages pour obtenir un résultat proche (0 = aléatoire). Tout est noté dans `creation.json`, dans le dossier de la création.
@@ -158,7 +189,7 @@ Chaque message explique quoi changer (se rapprocher du micro, baisser le niveau 
 
 - **Installation** : en cas d'erreur, l'installateur s'arrête avec un message en rouge. Relance-le après correction : les étapes réussies sont sautées.
 - **Pilote NVIDIA** : ACE-Step utilise CUDA 12.8, qui demande un pilote récent (570.65 ou plus). L'installateur le vérifie.
-- **Fidélité de la voix** : la conversion sans entraînement donne une ressemblance correcte mais pas parfaite, surtout sur les notes aiguës. Pour mieux faire, il faudrait entraîner un modèle sur 10 à 30 minutes de tes enregistrements (par exemple RVC).
+- **Fidélité de la voix** : la conversion sans entraînement (Seed-VC) donne une ressemblance correcte mais pas parfaite, surtout sur les notes aiguës. Pour mieux faire, entraîne un modèle RVC sur 10 à 30 minutes de tes enregistrements (onglet « Entraîner ma voix »). La qualité de ton micro et de ta pièce compte encore plus que la durée.
 - **Artefacts** : la séparation sur de la musique générée laisse parfois de légers résidus.
 - **Mémoire graphique et synthèse vocale** : Chatterbox a besoin de 3 à 4 Go de mémoire graphique. Si la fenêtre ACE-Step est ouverte et a déjà chargé ses modèles, la carte peut manquer de mémoire : l'application te demande alors de fermer cette fenêtre, puis de relancer la lecture.
 - **Nettoyage** : il ne fait pas de miracle sur une voix très saturée ou noyée dans la musique. Enregistre-toi au calme, à 15–30 cm du micro, c'est toujours le plus efficace.
@@ -176,4 +207,4 @@ uv run --python 3.12 --with-requirements requirements.txt --with pytest --with p
 
 ## Licences
 
-Ce dépôt ne contient que le code de l'application et de l'installation. Les poids de VoiceFixer sont sous licence CC-BY 4.0 (auteurs : Haohe Liu et al., « VoiceFixer: Toward General Speech Restoration with Neural Vocoder », 2021). Chaque moteur garde sa propre licence (voir leurs dépôts respectifs), à vérifier avant tout usage commercial des sons produits.
+Ce dépôt ne contient que le code de l'application et de l'installation. Applio (RVC) est sous licence MIT ; ses conditions d'utilisation demandent de n'utiliser que des voix dont tu as le droit (la tienne, ou avec l'accord de la personne). Les poids de VoiceFixer sont sous licence CC-BY 4.0 (auteurs : Haohe Liu et al., « VoiceFixer: Toward General Speech Restoration with Neural Vocoder », 2021). Chaque moteur garde sa propre licence (voir leurs dépôts respectifs), à vérifier avant tout usage commercial des sons produits.

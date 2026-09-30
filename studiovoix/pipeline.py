@@ -8,7 +8,7 @@ import shutil
 
 import gradio as gr
 
-from . import acestep, demucs, seedvc
+from . import acestep, demucs, rvc, seedvc
 from . import config as cfg
 from .mixage import mix, mixer
 from .outils import ecrire_creation, nouveau_dossier
@@ -23,6 +23,23 @@ NEGATIFS = {"bass": "bass, bass guitar, sub-bass", "drums": "drums, drum kit, pe
 PISTES_INSTRU = ("drums", "bass", "other")
 INSTRUMENTAL = "[Instrumental]"  # paroles reconnues par ACE-Step comme « sans voix » (server_utils.is_instrumental)
 MAX_VERSIONS = 2  # au-delà, la mémoire graphique (12 Go) risque de manquer
+SEEDVC = "seedvc"  # conversion sans entraînement ; « rvc:<nom> » = modèle RVC entraîné
+
+
+def convertisseur(moteur, voix, semitones, steps):
+    """(libellé, fonction(voix chantée, dossier) → voix convertie) selon le moteur de conversion choisi."""
+    moteur = moteur or SEEDVC
+    if moteur.startswith("rvc:"):
+        nom = moteur[4:]
+        rvc.modele(nom)  # erreur claire tout de suite si le modèle n'existe plus
+        return (f"ton modèle RVC « {nom} »",
+                lambda vocals, workdir: rvc.convertir(vocals, nom, semitones, workdir / "voix_convertie_rvc.wav"))
+    if not voix:
+        raise gr.Error("Choisis (ou enregistre) d'abord une voix dans l'onglet « Bibliothèque de voix ».")
+    voice_ref = cfg.VOICES_DIR / f"{voix}.wav"
+    if not voice_ref.exists():
+        raise gr.Error(f"Voix introuvable : {voix} (supprimée ou renommée ?)")
+    return "ta voix (Seed-VC)", lambda vocals, workdir: seedvc.convert_voice(vocals, voice_ref, semitones, steps, workdir)
 
 
 def creer_chanson(
@@ -34,11 +51,13 @@ def creer_chanson(
     retirer=None,
     versions=1,
     graine=0,
+    moteur=SEEDVC,
     progress=gr.Progress(),
 ):
     """« description » : description finale (modifiable dans l'interface) ; vide = construite depuis les listes.
     « retirer » : pistes à supprimer du mix (« bass », « drums »), garanti par une séparation Demucs en 4 pistes.
     « versions » : 1 ou 2 versions générées d'un coup ; « graine » : 0 = aléatoire, sinon graine de la version 1.
+    « moteur » : conversion de voix, SEEDVC (échantillon « voix » de la bibliothèque) ou « rvc:<nom> ».
     Renvoie (finale, brute, voix convertie, instrumental, message, finale de la version 2 ou None).
     """
     retirer = [p for p in (retirer or []) if p in RETRAITS]
@@ -46,13 +65,7 @@ def creer_chanson(
     mode = mode or MODE_MA_VOIX
     if mode not in MODES:
         raise gr.Error(f"Mode inconnu : {mode}")
-    voice_ref = None
-    if mode == MODE_MA_VOIX:
-        if not voix:
-            raise gr.Error("Choisis (ou enregistre) d'abord une voix dans l'onglet « Bibliothèque de voix ».")
-        voice_ref = cfg.VOICES_DIR / f"{voix}.wav"
-        if not voice_ref.exists():
-            raise gr.Error(f"Voix introuvable : {voix}")
+    conv = convertisseur(moteur, voix, semitones, steps) if mode == MODE_MA_VOIX else None
 
     if mode == MODE_INSTRU:
         lyrics = INSTRUMENTAL
@@ -91,12 +104,13 @@ def creer_chanson(
     for n, ((song, seed), dossier) in enumerate(zip(generes, dossiers), 1):
         prefixe = "" if versions == 1 else f"Version {n}/{versions} — "
         resultats.append(_finaliser(song, dossier, prefixe, total, avec_voix, conversion, separation, retirer,
-                                    voice_ref, semitones, steps, gain_voix, gain_instru, progress))
+                                    conv, gain_voix, gain_instru, progress))
 
     ecrire_creation(workdir, {
         "type": "chanson", "mode": mode, "description": prompt, "paroles": lyrics, "langue": langue_label,
         "duree": float(duree), "bpm": int(bpm or 0), "reflexion": bool(thinking), "retirer": retirer,
         "voix": voix if mode == MODE_MA_VOIX else None,
+        "conversion": (moteur or SEEDVC) if mode == MODE_MA_VOIX else None,
         "seedvc": {"demi_tons": int(semitones), "etapes": int(steps)},
         "gains": {"voix": float(gain_voix), "instrumental": float(gain_instru)},
         "versions": [{"graine": seed, "dossier": d.name if d != workdir else ".", "fichier": str(r[0])}
@@ -118,20 +132,18 @@ def finaliser_depuis_infos(song, workdir, infos, progress):
     avec_voix = (infos.get("paroles") or INSTRUMENTAL) != INSTRUMENTAL
     conversion = avec_voix and mode == MODE_MA_VOIX
     separation = conversion or bool(retirer)
-    voice_ref = None
-    if conversion:
-        voice_ref = cfg.VOICES_DIR / f"{infos.get('voix')}.wav"
-        if not voice_ref.exists():
-            raise gr.Error(f"Voix introuvable : {infos.get('voix')} (supprimée ou renommée depuis).")
     seedvc_infos, gains = infos.get("seedvc") or {}, infos.get("gains") or {}
+    conv = None
+    if conversion:
+        conv = convertisseur(infos.get("conversion") or SEEDVC, infos.get("voix"),
+                             seedvc_infos.get("demi_tons", 0), seedvc_infos.get("etapes", 40))
     total = 1 + separation + conversion + (avec_voix and separation)
-    return _finaliser(song, workdir, "", total, avec_voix, conversion, separation, retirer, voice_ref,
-                      seedvc_infos.get("demi_tons", 0), seedvc_infos.get("etapes", 40),
+    return _finaliser(song, workdir, "", total, avec_voix, conversion, separation, retirer, conv,
                       gains.get("voix", 1.0), gains.get("instrumental", 1.0), progress)
 
 
 def _finaliser(song, workdir, prefixe, total, avec_voix, conversion, separation, retirer,
-               voice_ref, semitones, steps, gain_voix, gain_instru, progress):
+               conv, gain_voix, gain_instru, progress):
     """Tout ce qui suit la génération d'une version : séparation, conversion, mixage."""
     numeros = iter(range(2, total + 1))
 
@@ -162,8 +174,9 @@ def _finaliser(song, workdir, prefixe, total, avec_voix, conversion, separation,
 
     voix_finale = vocals
     if conversion:
-        progress(0.6, desc=f"{etape()} — Remplacement par ta voix (Seed-VC)…")
-        voix_finale = seedvc.convert_voice(vocals, voice_ref, semitones, steps, workdir)
+        libelle, convertir = conv
+        progress(0.6, desc=f"{etape()} — Remplacement par {libelle}…")
+        voix_finale = convertir(vocals, workdir)
 
     progress(0.92, desc=f"{etape()} — Mixage…")
     final = mix(voix_finale, instru, workdir / "chanson_finale.wav", gain_voix, gain_instru)

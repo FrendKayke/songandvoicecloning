@@ -3,7 +3,6 @@ import json
 
 import gradio as gr
 import pytest
-import soundfile as sf
 
 from conftest import musique, no_progress, wav_octets, write_tone
 from studiovoix import config as cfg

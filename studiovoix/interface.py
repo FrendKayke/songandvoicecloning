@@ -1,7 +1,10 @@
 """Interface Gradio (onglets « Bibliothèque de voix », « Créer une chanson », « Synthèse vocale », « Modèles »)."""
+import json
+from pathlib import Path
+
 import gradio as gr
 
-from . import acestep, chatterbox, demucs, export, galerie, jeu, nettoyage, seedvc
+from . import acestep, chatterbox, demucs, export, galerie, jeu, nettoyage, rvc, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
@@ -19,6 +22,31 @@ def reprendre_voix(name):
     """Recharge une voix de la bibliothèque dans « Ajouter une voix » pour la nettoyer."""
     p = chemin_voix(name)
     return str(p), f"{name} propre", "Voix rechargée dans « Ajouter une voix » : choisis un niveau et clique sur « Nettoyer »."
+
+
+def choix_conversion():
+    return [("Seed-VC — sans entraînement (voix choisie ci-dessus)", "seedvc")] + [
+        (f"RVC — ton modèle « {nom} » ({lib.rsplit('(', 1)[1]}", f"rvc:{nom}") for lib, nom in rvc.choix_modeles()]
+
+
+def maj_conversion(actuelle):
+    choix = choix_conversion()
+    valeurs = [v for _, v in choix]
+    return gr.update(choices=choix, value=actuelle if actuelle in valeurs else "seedvc")
+
+
+def synthese_puis_rvc(voix, texte, langue, exag, cfg_w, temp, graine, modele_rvc, demi_tons, progress=gr.Progress()):
+    """Synthèse vocale, puis (facultatif) passage dans un modèle RVC pour coller davantage à ta voix."""
+    fichier, msg = chatterbox.synthese(voix, texte, langue, exag, cfg_w, temp, graine, progress=progress)
+    if not modele_rvc:
+        return fichier, msg
+    sortie = rvc.convertir(fichier, modele_rvc, demi_tons, Path(fichier).with_name("parole_rvc.wav"), progress=progress)
+    creation = Path(fichier).parent / "creation.json"
+    infos = json.loads(creation.read_text(encoding="utf-8"))
+    infos["rvc"] = modele_rvc
+    infos["versions"][0]["fichier"] = str(sortie)
+    creation.write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
+    return str(sortie), f"{msg} Passée dans le modèle RVC « {modele_rvc} » : {sortie}"
 
 
 def synchro_voix(courante):
@@ -147,6 +175,9 @@ def build_ui():
                     label="Voix chantée de base générée par ACE-Step",
                     info="Choisis le genre le plus proche de ta voix : moins de décalage à corriger.",
                 )
+                conversion = gr.Dropdown(choix_conversion(), value="seedvc", label="Conversion de ta voix",
+                                         info="Un modèle RVC entraîné sur 10 à 30 min de ta voix est plus fidèle "
+                                              "(onglet « Entraîner ma voix »).")
                 semitones = gr.Slider(-12, 12, value=0, step=1, label="Décalage de hauteur (demi-tons)",
                                       info="Voix de base féminine → voix masculine : essaie -12. L'inverse : +12.")
                 steps = gr.Slider(25, 50, value=40, step=5, label="Étapes de diffusion Seed-VC (30–50 conseillé pour le chant)")
@@ -248,6 +279,11 @@ def build_ui():
                                          "dans la langue du texte (évite de garder l'accent).")
                 tts_temp = gr.Slider(0.05, 5, value=0.8, step=0.05, label="Température (variété)")
                 tts_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire, sinon résultat reproductible)")
+            with gr.Row():
+                tts_rvc = gr.Dropdown([("Aucun", None)] + rvc.choix_modeles(), value=None,
+                                      label="Passer ensuite dans un modèle RVC (facultatif)",
+                                      info="Rapproche encore la lecture de ta voix si tu as entraîné un modèle.")
+                tts_rvc_ton = gr.Slider(-12, 12, value=0, step=1, label="Décalage de hauteur RVC (demi-tons)")
             tts_btn = gr.Button("🗣️ Lire le texte avec cette voix", variant="primary")
             tts_statut = gr.Markdown()
             tts_sortie = gr.Audio(label="Parole générée", type="filepath")
@@ -284,7 +320,37 @@ def build_ui():
                 gal_paroles = gr.Textbox(label="Paroles (chansons)", lines=6)
                 gal_refaire = gr.Button("✏️ Refaire ce passage", variant="primary")
 
-        with gr.Tab("6. Modèles"):
+        with gr.Tab("6. Entraîner ma voix (RVC)"):
+            gr.Markdown(
+                "Entraîne un **modèle de ta voix** (RVC) : bien plus fidèle que la conversion sans entraînement, "
+                "surtout pour le chant. Il faut **10 à 30 minutes** d'enregistrements de toi seul, propres (sans "
+                "musique, écho ni bruit), variés : chante des mélodies graves et aiguës, parle, lis un texte. "
+                "Plusieurs fichiers courts vont très bien. Nettoie-les d'abord dans la Bibliothèque si ton micro est "
+                "bruyant.\n\nSur ta RTX 4070, compte environ **1 à 2 heures** pour 300 époques avec 15 minutes "
+                "d'enregistrements. Laisse la page ouverte ; si tu la fermes, l'entraînement continue et le modèle "
+                "apparaîtra dans la liste. Relancer avec le même nom reprend un entraînement interrompu."
+            )
+            with gr.Row():
+                with gr.Column():
+                    rvc_fichiers = gr.File(file_count="multiple", file_types=[".wav", ".mp3", ".flac"],
+                                           label="Tes enregistrements (wav, mp3, flac)")
+                    rvc_biblio = gr.Dropdown(choices=list_voices(), value=[], multiselect=True,
+                                             label="Ajouter des voix de ta bibliothèque (facultatif)")
+                with gr.Column():
+                    rvc_nom = gr.Textbox(label="Nom du modèle", value="ma voix")
+                    rvc_duree = gr.Radio(list(rvc.DUREES), value=list(rvc.DUREES)[1], label="Durée d'entraînement")
+                    rvc_lot = gr.Slider(2, 16, value=8, step=2, label="Taille de lot",
+                                        info="8 convient à 12 Go de mémoire graphique ; baisse-la en cas d'erreur mémoire.")
+                    btn_rvc = gr.Button("🧠 Entraîner le modèle", variant="primary")
+            rvc_controle = gr.Markdown(rvc.analyser_enregistrements(None, None))
+            rvc_msg = gr.Markdown()
+            gr.Markdown("### Mes modèles")
+            rvc_tableau = gr.Markdown(rvc.tableau_modeles())
+            with gr.Row():
+                rvc_choix = gr.Dropdown(rvc.choix_modeles(), label="Modèle")
+                btn_rvc_suppr = gr.Button("🗑️ Supprimer ce modèle", variant="stop")
+
+        with gr.Tab("7. Modèles"):
             gr.Markdown(
                 "Les modèles sont volumineux (plusieurs Go au total) et ne sont téléchargés qu'une seule fois. "
                 "Vérifie ici leur présence et leur emplacement, ou lance le téléchargement."
@@ -298,17 +364,21 @@ def build_ui():
                 b_dm = gr.Button("⬇️ Télécharger Demucs", variant="primary")
                 b_cb = gr.Button("⬇️ Télécharger Chatterbox", variant="primary")
                 b_nt = gr.Button("⬇️ Télécharger le nettoyage", variant="primary")
+                b_rvc = gr.Button("⬇️ Télécharger RVC (modèles de base)", variant="primary")
             with gr.Row():
                 o_ace = gr.Button("📂 Ouvrir dossier ACE-Step")
                 o_sv = gr.Button("📂 Ouvrir dossier Seed-VC")
                 o_dm = gr.Button("📂 Ouvrir dossier Demucs")
                 o_cb = gr.Button("📂 Ouvrir dossier Chatterbox")
                 o_nt = gr.Button("📂 Ouvrir dossier nettoyage")
+                o_rvc = gr.Button("📂 Ouvrir dossier RVC")
                 o_data = gr.Button("📂 Ouvrir mes chansons")
 
         def synchro_autres(evt):
             """Après une opération sur la bibliothèque : listes de voix des autres onglets à jour."""
-            return evt.then(synchro_voix, voix, voix).then(synchro_voix, tts_voix, tts_voix)
+            return evt.then(synchro_voix, voix, voix).then(synchro_voix, tts_voix, tts_voix).then(
+                lambda v: gr.update(choices=list_voices(), value=[x for x in (v or []) if x in list_voices()]),
+                rvc_biblio, rvc_biblio)
 
         synchro_autres(btn_save.click(save_voice_choix, [audio_in, audio_clean, garder, nom], [msg_voice, biblio]))
         btn_clean.click(nettoyage.nettoyer, [audio_in, niveau], [audio_clean, garder, msg_clean])
@@ -321,25 +391,40 @@ def build_ui():
         # Voix ajoutées hors de l'application : listes à jour à chaque ouverture de la page
         synchro_autres(demo.load(synchro_voix, biblio, biblio)).then(infos_voix, biblio, [ecoute, desc_voix])
         tts_btn.click(
-            chatterbox.synthese,
-            [tts_voix, tts_texte, tts_langue, tts_exag, tts_cfg, tts_temp, tts_graine],
+            synthese_puis_rvc,
+            [tts_voix, tts_texte, tts_langue, tts_exag, tts_cfg, tts_temp, tts_graine, tts_rvc, tts_rvc_ton],
             [tts_sortie, tts_statut],
         )
         btn_refresh.click(models_status_md, None, status)
         for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download),
-                      (b_cb, chatterbox.download), (b_nt, nettoyage.download)):
+                      (b_cb, chatterbox.download), (b_nt, nettoyage.download), (b_rvc, rvc.download)):
             b.click(fn, None, log).then(models_status_md, None, status)
         o_ace.click(lambda: open_folder(acestep.ckpt_dir()))
         o_sv.click(lambda: open_folder(seedvc.ckpt_dir()))
         o_dm.click(lambda: open_folder(demucs.ckpt_dir()))
         o_cb.click(lambda: open_folder(chatterbox.ckpt_dir()))
         o_nt.click(lambda: open_folder(nettoyage.ckpt_dir()))
+        o_rvc.click(lambda: open_folder(cfg.RVC_DIR))
+        for champ in (rvc_fichiers, rvc_biblio):
+            champ.change(rvc.analyser_enregistrements, [rvc_fichiers, rvc_biblio], rvc_controle)
+
+        def apres_modeles(evt):
+            """Listes de modèles RVC à jour partout après un entraînement ou une suppression."""
+            return evt.then(rvc.tableau_modeles, None, rvc_tableau).then(rvc.maj_modeles, rvc_choix, rvc_choix).then(
+                maj_conversion, conversion, conversion).then(
+                lambda v: gr.update(choices=[("Aucun", None)] + rvc.choix_modeles(), value=v), tts_rvc, tts_rvc)
+
+        apres_modeles(btn_rvc.click(rvc.entrainer, [rvc_nom, rvc_fichiers, rvc_biblio, rvc_duree, rvc_lot], rvc_msg))
+        apres_modeles(btn_rvc_suppr.click(rvc.supprimer_modele, rvc_choix, [rvc_msg, rvc_tableau],
+                                          js="(m) => (m && confirm('Supprimer définitivement le modèle « ' + m + ' » ?')) ? m : null"))
+        apres_modeles(demo.load(lambda: None, None, None))
         o_data.click(lambda: open_folder(cfg.SONGS_DIR, create=True))
         demo.load(models_status_md, None, status)
         btn.click(
             creer_chanson,
             [voix, genre, style, instruments, ambiance, extra, voix_base, paroles, langue, duree, bpm,
-             thinking, semitones, steps, gain_voix, gain_instru, mode, description, retirer, versions, graine],
+             thinking, semitones, steps, gain_voix, gain_instru, mode, description, retirer, versions, graine,
+             conversion],
             [final, brute, voix_conv, instru_out, statut, final_2],
         )
         versions.change(lambda v: gr.update(visible=int(v) > 1), versions, final_2)

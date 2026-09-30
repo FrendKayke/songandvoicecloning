@@ -182,7 +182,8 @@ def recreer(chemin, version=1, progress=gr.Progress()):
             infos.get("voix"), "", "", "", "", "", "Automatique", infos.get("paroles"), infos.get("langue"),
             infos.get("duree"), infos.get("bpm"), infos.get("reflexion"), seedvc_infos.get("demi_tons", 0),
             seedvc_infos.get("etapes", 40), gains.get("voix", 1.0), gains.get("instrumental", 1.0),
-            infos.get("mode"), infos.get("description"), infos.get("retirer"), 1, graine, progress=progress)
+            infos.get("mode"), infos.get("description"), infos.get("retirer"), 1, graine,
+            infos.get("conversion") or "seedvc", progress=progress)
         return f"✅ Recréée avec la graine {graine}.", _dossier_de(res[0])
     if infos["type"] == "jeu":
         duree = infos.get("duree") if infos.get("boucle") else max(jeu.DUREE_MIN_ACESTEP, infos.get("duree_cible") or 0)

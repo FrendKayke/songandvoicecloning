@@ -1,7 +1,7 @@
 ﻿# Studio Voix — installation complète, sans droits administrateur.
 # Installe : uv (gestionnaire Python), Python 3.10 / 3.11 / 3.12, ACE-Step 1.5, Seed-VC, Demucs,
-# Chatterbox (synthèse vocale), le nettoyage de voix (MossFormer2, VoiceFixer), tous leurs modèles,
-# et l'environnement de l'application.
+# Chatterbox (synthèse vocale), le nettoyage de voix (MossFormer2, VoiceFixer), RVC (Applio : entraînement
+# d'un modèle de ta voix), tous leurs modèles, et l'environnement de l'application.
 # Relançable : chaque étape terminée est sautée.
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +23,10 @@ $CbPy = Join-Path $Cb '.venv\Scripts\python.exe'
 $CbCommit = '5de7a54aa4e5e2baadb0182dde554908b48b85c2'
 $Nt = Join-Path $Eng 'nettoyage'
 $NtPy = Join-Path $Nt '.venv\Scripts\python.exe'
+$Rvc = Join-Path $Eng 'rvc'
+$RvcPy = Join-Path $Rvc '.venv\Scripts\python.exe'
+# Version d'Applio (RVC) épinglée : moteurs\rvc_voix.py reprend les arguments de ses scripts à ce commit
+$RvcCommit = 'c7665ac9a305b3683570ed914f1577d53d4b75c4'
 $AppPy = Join-Path $App '.venv\Scripts\python.exe'
 
 # Tout reste sur ce disque (caches compris), rien d'important sur C:
@@ -35,7 +39,7 @@ $env:PKUSEG_HOME = Join-Path $Cb 'pkuseg'   # sinon spacy-pkuseg (Chatterbox) é
 $env:PYTHONIOENCODING = 'utf-8'
 $env:PATH = "$UvDir;$env:PATH"
 
-function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/12] $txt ===" -ForegroundColor Cyan }
+function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/14] $txt ===" -ForegroundColor Cyan }
 function Done($marker) { New-Item -ItemType File -Force -Path $marker | Out-Null }
 
 function Run([string]$exe, [string[]]$argList, [string]$cwd = $null) {
@@ -100,7 +104,7 @@ try {
     Write-Host 'Studio Voix — installation complète' -ForegroundColor Green
     Write-Host "Moteurs et modèles  : $Eng"
     Write-Host "Application         : $App"
-    Write-Host 'Environ 27 à 32 Go à télécharger : compte une bonne heure selon ta connexion.'
+    Write-Host 'Environ 32 à 37 Go à télécharger : compte une bonne heure selon ta connexion.'
     Write-Host 'Tu peux fermer et relancer INSTALLER.bat : les étapes finies seront sautées.'
 
     New-Item -ItemType Directory -Force -Path $Eng | Out-Null
@@ -109,8 +113,8 @@ try {
     $drive = Get-PSDrive -Name $Eng.Substring(0, 1)
     $freeGo = [math]::Round($drive.Free / 1GB)
     Write-Host "Espace libre sur $($drive.Name): : $freeGo Go"
-    if ($freeGo -lt 40) {
-        Write-Host 'Attention : moins de 40 Go libres, l''installation complète risque de manquer de place.' -ForegroundColor Yellow
+    if ($freeGo -lt 50) {
+        Write-Host 'Attention : moins de 50 Go libres, l''installation complète risque de manquer de place.' -ForegroundColor Yellow
         if ((Read-Host 'Continuer quand même ? (o/n)') -ne 'o') { exit 1 }
     }
     $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
@@ -140,11 +144,12 @@ try {
     Run $Uv @('--version')
 
     # --- 2. Code des moteurs ---
-    Step 2 'Code d''ACE-Step, de Seed-VC et de Chatterbox'
+    Step 2 'Code d''ACE-Step, de Seed-VC, de Chatterbox et de RVC (Applio)'
     Get-Repo 'https://github.com/ace-step/ACE-Step-1.5/archive/refs/heads/main.zip' $Ace
     Get-Repo 'https://github.com/Plachtaa/seed-vc/archive/refs/heads/main.zip' $Sv
     New-Item -ItemType Directory -Force -Path $Cb | Out-Null
     Get-Repo "https://github.com/resemble-ai/chatterbox/archive/$CbCommit.zip" $CbSrc
+    Get-Repo "https://github.com/IAHispano/Applio/archive/$RvcCommit.zip" $Rvc
 
     # --- 3. Environnement ACE-Step (Python 3.12 + PyTorch CUDA 12.8, via sa propre config) ---
     Step 3 'Environnement ACE-Step (le plus long : PyTorch ~3 Go)'
@@ -264,8 +269,32 @@ try {
         Done $m
     } else { Write-Host 'Déjà fait.' }
 
-    # --- 12. Environnement de l'application ---
-    Step 12 'Environnement de Studio Voix (Python 3.12)'
+    # --- 12. Environnement RVC (Applio, Python 3.12, PyTorch 2.11 CUDA 12.8) ---
+    Step 12 'Environnement RVC, entraînement de ta voix (Python 3.12, PyTorch ~2,8 Go)'
+    $m = Join-Path $Rvc '.env-ok'
+    if (-not (Test-Path $m)) {
+        $venv = Join-Path $Rvc '.venv'
+        Remove-Venv $venv
+        Run $Uv @('venv', '--python', '3.12', $venv)
+        # Même commande que l'installateur officiel d'Applio (run-install.bat), avec uv
+        Run $Uv @('pip', 'install', '--python', $RvcPy, '-r', (Join-Path $Rvc 'requirements.txt'),
+            '--extra-index-url', 'https://download.pytorch.org/whl/cu128', '--index-strategy', 'unsafe-best-match')
+        Repair-TorchOmp $RvcPy $venv
+        Run $RvcPy @('-c', 'import torch, faiss, librosa; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''RVC prêt, GPU :'', torch.cuda.get_device_name(0))')
+        Done $m
+    } else { Write-Host 'Déjà fait.' }
+
+    # --- 13. Modèles de base de RVC (~1,8 Go : pré-entraînés, RMVPE, ContentVec) ---
+    Step 13 'Modèles de base de RVC (~1,8 Go)'
+    $m = Join-Path $Rvc '.modeles-ok'
+    if (-not (Test-Path $m)) {
+        # Lancé depuis le dossier d'Applio : ses modèles vont dans rvc\models, ses entraînements dans logs
+        Run $RvcPy @((Join-Path $App 'moteurs\rvc_voix.py'), 'telecharger') $Rvc
+        Done $m
+    } else { Write-Host 'Déjà fait.' }
+
+    # --- 14. Environnement de l'application ---
+    Step 14 'Environnement de Studio Voix (Python 3.12)'
     $m = Join-Path $App '.venv\installe.ok'
     if (-not (Test-Path $m)) {
         $venv = Join-Path $App '.venv'

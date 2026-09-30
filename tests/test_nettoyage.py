@@ -5,7 +5,6 @@ import sys
 import textwrap
 
 import gradio as gr
-import numpy as np
 import pytest
 import soundfile as sf
 

@@ -23,6 +23,8 @@ CHATTERBOX_DIR = Path(os.environ.get("CHATTERBOX_DIR", str(ENG_DIR / "chatterbox
 CHATTERBOX_PYTHON = os.environ.get("CHATTERBOX_PYTHON", venv_python(CHATTERBOX_DIR))
 NETTOYAGE_DIR = Path(os.environ.get("NETTOYAGE_DIR", str(ENG_DIR / "nettoyage")))
 NETTOYAGE_PYTHON = os.environ.get("NETTOYAGE_PYTHON", venv_python(NETTOYAGE_DIR))
+RVC_DIR = Path(os.environ.get("RVC_DIR", str(ENG_DIR / "rvc")))  # Applio : code, modèles de base, logs/<modèle>
+RVC_PYTHON = os.environ.get("RVC_PYTHON", venv_python(RVC_DIR))
 # Scripts exécutés dans l'environnement d'un moteur (jamais importés par l'application)
 MOTEURS_DIR = APP_DIR / "moteurs"
 

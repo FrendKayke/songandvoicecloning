@@ -84,6 +84,10 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "DATA_DIR", data)
     monkeypatch.setattr(cfg, "VOICES_DIR", data / "voices")
     monkeypatch.setattr(cfg, "SONGS_DIR", data / "songs")
+    # Tous les dossiers de données sont redirigés : un test ne doit jamais écrire dans le vrai data/
+    for nom, sous in (("TTS_DIR", "tts"), ("CLEAN_DIR", "nettoyage"), ("GAMES_DIR", "jeux")):
+        (data / sous).mkdir(exist_ok=True)
+        monkeypatch.setattr(cfg, nom, data / sous)
     monkeypatch.setattr(cfg, "ENG_DIR", tmp_path / "StudioVoix")
     monkeypatch.setattr(cfg, "ACESTEP_DIR", tmp_path / "StudioVoix" / "ace-step")
     monkeypatch.setattr(cfg, "SEEDVC_DIR", tmp_path / "StudioVoix" / "seed-vc")
