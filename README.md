@@ -10,10 +10,27 @@ Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 
 | Fichier | Rôle |
 |---|---|
-| `studio_voix.py` | l'application (interface Gradio) |
+| `studio_voix.py` | point d'entrée de l'application (lancé par `lancer.bat`) |
+| `studiovoix/` | le code de l'application, un module par rôle (voir ci-dessous) |
+| `tests/` | tests automatiques sans carte graphique (moteurs simulés) |
 | `installer.ps1` / `INSTALLER.bat` | installation complète en un clic |
 | `lancer.bat` | démarrage (serveur ACE-Step + application) |
 | `CLAUDE.md` | contexte technique pour Claude Code |
+
+Modules de `studiovoix/` :
+
+| Module | Rôle |
+|---|---|
+| `config.py` | chemins, variables d'environnement, constantes |
+| `acestep.py` | génération de la chanson (API REST d'ACE-Step) |
+| `demucs.py` | séparation voix / instrumental |
+| `seedvc.py` | conversion de voix chantée |
+| `voix.py` | voix enregistrées |
+| `mixage.py` | mixage voix + instrumental |
+| `pipeline.py` | enchaînement complet des étapes |
+| `modeles.py` | état des modèles (onglet « Modèles ») |
+| `outils.py` | journal de commande en direct, ouverture de dossier |
+| `interface.py` | interface Gradio |
 
 ## Installation (une seule fois)
 
@@ -71,6 +88,14 @@ Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix conve
 - **Fidélité de la voix** : la conversion sans entraînement donne une ressemblance correcte mais pas parfaite, surtout sur les notes aiguës. Pour mieux faire, il faudrait entraîner un modèle sur 10 à 30 minutes de tes enregistrements (par exemple RVC).
 - **Artefacts** : la séparation sur de la musique générée laisse parfois de légers résidus.
 - **Consentement** : clone uniquement ta propre voix, ou celle de personnes d'accord.
+
+## Tests (pour le développement)
+
+Les tests n'ont pas besoin de carte graphique : ACE-Step est remplacé par un faux serveur HTTP, Demucs et Seed-VC par de faux scripts. Depuis le dossier de l'application :
+
+```
+uv run --python 3.12 --with-requirements requirements.txt --with pytest pytest tests
+```
 
 ## Licences
 

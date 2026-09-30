@@ -6,7 +6,12 @@ Machine cible : PC Windows 11, RTX 4070 (12 Go de VRAM), utilisateur francophone
 Toute l'interface, les messages et la documentation sont **en français**.
 
 ## Architecture actuelle
-- `studio_voix.py` : l'application Gradio (onglets « Ma voix », « Créer une chanson », « Modèles »).
+- `studio_voix.py` : point d'entrée mince (lancé par `lancer.bat`), qui appelle `studiovoix.interface.build_ui`.
+- `studiovoix/` : le code de l'application, un module par rôle :
+  - `config.py` (chemins, variables d'environnement, `SR`, `LANGUES`) — les autres modules lisent `cfg.X` au moment de l'appel, ce qui permet aux tests de rediriger les dossiers ;
+  - un module par moteur, chacun avec son action, `ckpt_dir()`, son état et `download()` : `acestep.py` (HTTP), `demucs.py` et `seedvc.py` (sous-processus) ;
+  - `voix.py` (voix de référence), `mixage.py`, `pipeline.py` (enchaînement), `modeles.py` (tableau de l'onglet « Modèles »), `outils.py` (journal de commande, ouverture de dossier), `interface.py` (Gradio : onglets « Ma voix », « Créer une chanson », « Modèles »).
+- `tests/` : pytest sans GPU. `conftest.py` fournit un faux serveur ACE-Step (HTTP), un faux Demucs (`python -m demucs`) et un faux Seed-VC (`inference.py`). Lancer : `uv run --python 3.12 --with-requirements requirements.txt --with pytest pytest tests`.
 - `installer.ps1` (lancé par `INSTALLER.bat`) : installation complète en un clic, sans droits admin.
 - `lancer.bat` : définit les variables d'environnement, démarre le serveur ACE-Step s'il ne tourne pas, lance l'application.
 
