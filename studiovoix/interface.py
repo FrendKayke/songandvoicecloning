@@ -181,6 +181,19 @@ def build_ui():
                      "taiko drums ») : elle sera générée comme musique en boucle.",
             )
             jeu_extra = liste_style("instruments", "Instruments à ajouter à toutes les pistes (facultatif)")
+            with gr.Accordion("🎼 Cohérence : partir d'un thème du projet", open=False):
+                gr.Markdown(
+                    "Génère d'abord un **thème principal** (par exemple l'écran titre), puis choisis-le ici : "
+                    "« Même son » donne à toutes les pistes le même timbre et le même mixage ; « Variation du thème » "
+                    "réarrange sa mélodie selon chaque situation (version combat, version calme…), comme les "
+                    "leitmotivs des JRPG. En variation, les musiques de fond prennent la durée du thème et les "
+                    "jingles utilisent seulement le même son."
+                )
+                with gr.Row():
+                    jeu_ref = gr.Dropdown([], label="Thème de référence (pistes du projet)")
+                    jeu_usage = gr.Radio(jeu.REFERENCES, value=jeu.REF_AUCUNE, label="Utilisation")
+                    jeu_fidelite = gr.Slider(0.1, 1.0, value=0.5, step=0.05, label="Fidélité au thème (variation)",
+                                             info="Haut : très proche du thème. Bas : plus libre.")
             with gr.Row():
                 jeu_duree = gr.Slider(30, 180, value=90, step=10, label="Durée des musiques en boucle (s)")
                 jeu_thinking = gr.Checkbox(value=False, label="Mode réflexion (LM)",
@@ -284,7 +297,11 @@ def build_ui():
         demo.load(jeu.apercu, champs_jeu, jeu_apercu)
         btn_jeu.click(jeu.generer_bande_son,
                       [jeu_projet, jeu_epoque, jeu_univers, jeu_situations, jeu_extra, jeu_duree, jeu_thinking,
-                       jeu_graine], [jeu_statut, jeu_liste, jeu_audio, jeu_jonction])
+                       jeu_graine, jeu_ref, jeu_usage, jeu_fidelite],
+                      [jeu_statut, jeu_liste, jeu_audio, jeu_jonction]).then(
+            jeu.maj_references, [jeu_projet, jeu_ref], jeu_ref)
+        jeu_projet.change(jeu.maj_references, [jeu_projet, jeu_ref], jeu_ref)
+        demo.load(jeu.maj_references, [jeu_projet, jeu_ref], jeu_ref)
         jeu_liste.change(jeu.ecouter, jeu_liste, [jeu_audio, jeu_jonction])
         champs_style = [genre, style, instruments, ambiance, extra, voix_base, mode]
         for champ in champs_style:

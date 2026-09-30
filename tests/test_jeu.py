@@ -88,3 +88,48 @@ def test_erreurs(jeux):
         jeu.generer_bande_son("x", EPOQUE, [], [], [], 60, False, progress=no_progress)
     with pytest.raises(gr.Error, match="époque"):
         jeu.generer_bande_son("x", "", [], ["titre"], [], 60, False, progress=no_progress)
+
+
+# --- Cohérence : thème de référence -------------------------------------------------------------
+def _theme(srv):
+    """Génère un thème (écran titre) et renvoie son chemin."""
+    _, _, piste, _ = jeu.generer_bande_son("p", EPOQUE, [], ["titre"], [], 60, False, progress=no_progress)
+    return piste
+
+
+def test_liste_des_pistes_du_projet(fake_acestep, jeux):
+    srv = fake_acestep()
+    theme = _theme(srv)
+    choix = jeu.pistes_projet("p")
+    assert [v for _, v in choix] == [theme] and choix[0][0].startswith("Écran titre — ")
+    assert jeu.maj_references("p", theme)["value"] == theme and jeu.pistes_projet("") == []
+
+
+def test_meme_son(fake_acestep, jeux):
+    srv = fake_acestep()
+    theme = _theme(srv)
+    jeu.generer_bande_son("p", EPOQUE, [], ["combat", "victoire"], [], 60, False, 0, theme, jeu.REF_TIMBRE,
+                          progress=no_progress)
+    for p, f in zip(srv.payloads[1:], srv.fichiers[1:]):
+        assert "reference_audio" in f and "src_audio" not in f and p.get("task_type", "text2music") == "text2music"
+        assert f["reference_audio"][1] == open(theme, "rb").read()
+
+
+def test_variation_du_theme(fake_acestep, jeux):
+    srv = fake_acestep()
+    theme = _theme(srv)
+    jeu.generer_bande_son("p", EPOQUE, [], ["combat", "victoire"], [], 60, True, 0, theme, jeu.REF_VARIATION, 0.35,
+                          progress=no_progress)
+    (p_combat, p_victoire), (f_combat, f_victoire) = srv.payloads[1:], srv.fichiers[1:]
+    assert p_combat["task_type"] == "cover" and p_combat["audio_cover_strength"] == "0.35"
+    assert p_combat["thinking"] == "false" and "src_audio" in f_combat
+    assert p_victoire.get("task_type") is None and "reference_audio" in f_victoire  # jingle : timbre seul
+    dossier = next((cfg.GAMES_DIR / "p" / "combat").iterdir())
+    infos = json.loads((dossier / "creation.json").read_text(encoding="utf-8"))
+    assert infos["usage_reference"] == "variation" and infos["fidelite"] == 0.35 and infos["reference"] == theme
+
+
+def test_reference_obligatoire(jeux):
+    with pytest.raises(gr.Error, match="thème de référence"):
+        jeu.generer_bande_son("p", EPOQUE, [], ["combat"], [], 60, False, 0, None, jeu.REF_TIMBRE,
+                              progress=no_progress)

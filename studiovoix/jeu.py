@@ -5,6 +5,7 @@ un type : « boucle » (musique de fond) ou « jingle » (effet court). On décr
 jamais une œuvre ou un nom (« Final Fantasy ») : le modèle ne les connaît pas de façon fiable et cela
 pousserait à l'imitation. Rangement : data/jeux/<projet>/<situation>/<horodatage>/.
 """
+import json
 import re
 import shutil
 from pathlib import Path
@@ -53,6 +54,36 @@ SITUATIONS = {
 }
 DUREE_MIN_ACESTEP = 10  # acestep/constants.py : DURATION_MIN
 
+# Cohérence de la bande-son à partir d'un thème (piste déjà générée du projet)
+REF_AUCUNE = "Aucune"
+REF_TIMBRE = "Même son (référence de timbre et de mixage)"
+REF_VARIATION = "Variation du thème (même mélodie réarrangée)"
+REFERENCES = [REF_AUCUNE, REF_TIMBRE, REF_VARIATION]
+
+
+def pistes_projet(projet):
+    """Pistes déjà générées d'un projet, les plus récentes d'abord : [(libellé, chemin)]."""
+    try:
+        racine = cfg.GAMES_DIR / nom_projet(projet)
+    except gr.Error:
+        return []
+    choix = []
+    for piste in sorted(racine.glob("*/*/piste.wav"), key=lambda p: p.parent.name, reverse=True):
+        try:
+            infos = json.loads((piste.parent / "creation.json").read_text(encoding="utf-8"))
+            libelle = infos.get("libelle", piste.parent.parent.name)
+        except (OSError, ValueError):
+            libelle = piste.parent.parent.name
+        date = piste.parent.name
+        choix.append((f"{libelle} — {date[6:8]}/{date[4:6]} {date[9:11]}h{date[11:13]}", str(piste)))
+    return choix
+
+
+def maj_references(projet, actuelle=None):
+    choix = pistes_projet(projet)
+    valeurs = [v for _, v in choix]
+    return gr.update(choices=choix, value=actuelle if actuelle in valeurs else None)
+
 
 def choix_situations():
     return [(v[0], k) for k, v in SITUATIONS.items()]
@@ -93,9 +124,19 @@ def apercu(epoque, univers, situations, extra, duree_boucles):
 
 
 def generer_bande_son(projet, epoque, univers, situations, extra, duree_boucles, thinking, graine=0,
-                      progress=gr.Progress()):
-    """Génère, une par une, les musiques des situations choisies. Renvoie (message, liste des pistes, piste 1)."""
+                      reference=None, usage=REF_AUCUNE, fidelite=0.5, progress=gr.Progress()):
+    """Génère, une par une, les musiques des situations choisies.
+
+    « reference » : piste du projet servant de thème ; « usage » : REF_TIMBRE (reference_audio : timbre et
+    mixage communs) ou REF_VARIATION (task_type « cover » : src_audio réarrangé selon la nouvelle description,
+    audio_cover_strength = fidélité). En cover, ACE-Step fixe la durée sur celle du thème : les jingles
+    n'utilisent donc que la référence de timbre.
+    Renvoie (message, liste des pistes, piste 1, aperçu de sa jonction).
+    """
     projet = nom_projet(projet)
+    usage = usage or REF_AUCUNE
+    if usage != REF_AUCUNE and not (reference and Path(reference).exists()):
+        raise gr.Error("Choisis le thème de référence (une piste déjà générée du projet), ou « Aucune ».")
     if not situations:
         raise gr.Error("Choisis au moins une situation (ou tape la tienne).")
     if not texte(epoque):
@@ -108,7 +149,14 @@ def generer_bande_son(projet, epoque, univers, situations, extra, duree_boucles,
         prompt = description(epoque, univers, txt, extra)
         dossier = nouveau_dossier(cfg.GAMES_DIR / projet / ident)
         params = acestep.text2music_params(prompt, INSTRUMENTAL, "en", duree_gen, 0, thinking)
-        ((brute, seed),) = acestep.generer(params, [dossier / "brute.wav"], progress, etape, graine=graine)
+        fichiers = None
+        if usage == REF_VARIATION and boucle:
+            params.update(task_type="cover", audio_cover_strength=float(fidelite), thinking=False)
+            fichiers = {"src_audio": reference}
+        elif usage != REF_AUCUNE:
+            fichiers = {"reference_audio": reference}
+        ((brute, seed),) = acestep.generer(params, [dossier / "brute.wav"], progress, etape, fichiers=fichiers,
+                                           graine=graine)
         piste = dossier / "piste.wav"
         infos_boucle, note = None, ""
         if boucle:
@@ -126,6 +174,9 @@ def generer_bande_son(projet, epoque, univers, situations, extra, duree_boucles,
             "type": "jeu", "projet": projet, "situation": ident, "libelle": libelle, "boucle": boucle,
             "description": prompt, "duree": round(float(duree_gen if boucle else duree), 2),
             "reflexion": bool(thinking), "boucle_points": infos_boucle,
+            "reference": str(reference) if fichiers else None,
+            "usage_reference": ("variation" if "src_audio" in (fichiers or {}) else "timbre") if fichiers else None,
+            "fidelite": float(fidelite) if fichiers and "src_audio" in fichiers else None,
             "versions": [{"graine": seed, "dossier": ".", "fichier": str(piste)}],
         })
         pistes.append((libelle, str(piste), note))
