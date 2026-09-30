@@ -396,9 +396,20 @@ def build_ui():
                 "jeu web, Blender, Unity ou Godot) et en OBJ si demandé. "
                 "Ferme la fenêtre ACE-Step avant : la texture demande beaucoup de mémoire graphique."
             )
+            with gr.Accordion("✍️ Pas d'image ? Décris l'objet : une image est générée d'abord (Qwen3-VL + Stable Diffusion XL)",
+                              open=False):
+                m3_texte = gr.Textbox(label="Description de l'objet (français ou anglais)", lines=2,
+                                      placeholder="une potion de soin, fiole en verre rouge avec un bouchon de liège")
+                btn_m3_prep = gr.Button("🧠 Préparer le prompt de l'image (traduction et précision)")
+                m3_prompt = gr.Textbox(label="Prompt envoyé à Stable Diffusion XL (anglais, modifiable)", lines=2)
+                with gr.Row():
+                    m3_img_graine = gr.Number(value=0, precision=0, label="Graine de l'image (0 = aléatoire)")
+                    btn_m3_image = gr.Button("🖼️ Générer l'image de l'objet", variant="primary")
+                m3_img_msg = gr.Markdown()
+            m3_img_graine_ok = gr.State()
             with gr.Row():
                 with gr.Column():
-                    m3_image = gr.Image(type="filepath", label="Image de l'objet (PNG ou JPG)")
+                    m3_image = gr.Image(type="filepath", label="Image de l'objet (PNG ou JPG, ou l'image générée ci-dessus)")
                 with gr.Column():
                     m3_nom = gr.Textbox(label="Nom", value="modele")
                     m3_qualite = gr.Radio(list(modele3d.QUALITES), value=modele3d.QUALITE_DEFAUT, label="Qualité")
@@ -499,8 +510,13 @@ def build_ui():
         btn_sfx_export.click(export.exporter_fichier_formats, [sfx_audio, sfx_cible, sfx_formats],
                              [sfx_export_msg])
         # Modèles 3D
-        btn_m3.click(modele3d.generer, [m3_image, m3_nom, m3_qualite, m3_texture, m3_graine, m3_formats],
+        btn_m3.click(modele3d.generer,
+                     [m3_image, m3_nom, m3_qualite, m3_texture, m3_graine, m3_formats, m3_prompt, m3_texte,
+                      m3_img_graine_ok],
                      [m3_statut, m3_vue, m3_detouree, m3_fichiers, m3_dossier])
+        btn_m3_prep.click(modele3d.preparer_prompt, m3_texte, m3_prompt)
+        btn_m3_image.click(modele3d.generer_image, [m3_prompt, m3_img_graine], [m3_image, m3_img_graine_ok, m3_img_msg])
+        m3_image.upload(lambda: None, None, m3_img_graine_ok)  # image importée : la graine de l'image générée ne vaut plus
         btn_m3_dossier.click(lambda d: open_folder(d) if d else None, m3_dossier)
         for champ in (rvc_fichiers, rvc_biblio):
             champ.change(rvc.analyser_enregistrements, [rvc_fichiers, rvc_biblio], rvc_controle)

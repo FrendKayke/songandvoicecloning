@@ -1,5 +1,9 @@
 """Onglet « Modèles 3D » : image d'un objet → modèle 3D (Hunyuan3D-2 : forme « turbo », puis texture peinte).
 
+Texte → 3D : la description française passe par Qwen3-VL (mode « objet » : prompt anglais d'un objet seul, vue de
+trois quarts, fond blanc), Stable Diffusion XL en fait une image (data/3d/images/), que l'utilisateur vérifie
+avant de lancer la 3D comme pour une image importée.
+
 Rangement : data/3d/<horodatage>/ : image.<ext> (image de départ), image_detouree.png (fond retiré par rembg),
 forme.glb (forme blanche), modele.glb (texturé) et, en option, modele.obj + material.mtl + texture PNG ;
 creation.json décrit les réglages et la graine (galerie : réafficher, recréer, supprimer).
@@ -35,6 +39,33 @@ def fichiers_produits(dossier, image=None):
     exclus = {"image_detouree.png", image}
     return sorted(str(p) for p in Path(dossier).iterdir()
                   if p.suffix.lower() in (".glb", ".obj", ".mtl", ".png", ".jpg") and p.name not in exclus)
+
+
+ETAPES_IMAGE = 30  # SDXL base : 30 pas, guidage 7 (valeurs usuelles de la carte du modèle)
+
+
+def preparer_prompt(texte, progress=gr.Progress()):
+    """Description française de l'objet → prompt anglais pour l'image (Qwen3-VL), modifiable avant génération."""
+    texte = (texte or "").strip()
+    if not texte:
+        raise gr.Error("Décris l'objet (en français ou en anglais) : « une potion de soin, fiole rouge, bouchon de liège ».")
+    return diffusion.decrire("objet", texte, progress=progress)
+
+
+def generer_image(prompt, graine, progress=gr.Progress()):
+    """Prompt anglais → image de l'objet (SDXL, 1024×1024, fond blanc) dans data/3d/images/.
+    Renvoie (image, graine de l'image, message)."""
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise gr.Error("Il manque le prompt de l'image : clique d'abord sur « Préparer le prompt », ou écris-le en anglais.")
+    dossier = cfg.MODELS3D_DIR / "images"
+    dossier.mkdir(parents=True, exist_ok=True)
+    sortie = nouveau_dossier(dossier)  # un dossier par image : pas de collision de nom
+    res = diffusion.image(prompt, sortie / "objet.png", graine, ETAPES_IMAGE, progress)
+    (sortie / "prompt.txt").write_text(prompt, encoding="utf-8")
+    return (res["fichier"], res["graine"],
+            f"✅ Image générée (graine {res['graine']}). Si elle te convient, lance « Créer le modèle 3D » ; "
+            "sinon change la graine ou le prompt et regénère.")
 
 
 def generer(image_path, nom, qualite, texture, graine, formats, description=None, description_fr=None,

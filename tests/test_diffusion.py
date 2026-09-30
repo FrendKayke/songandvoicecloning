@@ -44,6 +44,11 @@ FAUX_MOTEUR = textwrap.dedent("""
             fichiers.append(str(f))
         graines = [t["graine"] or 111] + [222, 333][: t["variantes"] - 1]
         print("RESULTAT " + json.dumps({"fichiers": fichiers, "graines": graines, "frequence": 44100}), flush=True)
+    elif action == "image":
+        print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
+        from PIL import Image
+        Image.new("RGB", (64, 64), (200, 30, 30)).save(t["sortie"])  # vrai PNG : gr.Image relit le fichier
+        print("RESULTAT " + json.dumps({"fichier": t["sortie"], "graine": t["graine"] or 999}), flush=True)
     elif action == "forme3d":
         if not Path(t["image"]).exists(): print("ERREUR : image introuvable", flush=True); sys.exit(2)
         n = 6 if t["texture"] else 4
@@ -222,3 +227,30 @@ def test_galerie_modele_3d(faux_diffusion):
     with pytest.raises(gr.Error, match="chansons et les pistes"):
         galerie.refaire_passage(dossier, 1, 0, 1, "", "", "", progress=no_progress)
     assert "supprimée" in galerie.supprimer(dossier) and galerie.lister("Modèles 3D")[0][1] == nouveau
+
+
+def test_texte_vers_3d(faux_diffusion):
+    from studiovoix import galerie
+
+    with pytest.raises(gr.Error, match="Décris l'objet"):
+        modele3d.preparer_prompt(" ", progress=no_progress)
+    assert modele3d.preparer_prompt("une potion rouge", progress=no_progress) == "a red potion bottle"
+    with pytest.raises(gr.Error, match="prompt de l'image"):
+        modele3d.generer_image("", 0, progress=no_progress)
+    image, graine, msg = modele3d.generer_image("a red potion bottle", 12, progress=no_progress)
+    assert graine == 12 and "graine 12" in msg and Path(image).read_bytes()[:4] == b"\x89PNG"
+    assert Path(image).parent.parent == cfg.MODELS3D_DIR / "images" and Path(image).name == "objet.png"
+    assert (Path(image).parent / "prompt.txt").read_text(encoding="utf-8") == "a red potion bottle"
+    t = _journal()[-1]
+    assert t["action"] == "image" and t["tache"]["etapes"] == 30 and t["tache"]["graine"] == 12
+    # le dossier des images n'est pas une création : la galerie l'ignore
+    assert galerie.lister("Modèles 3D") == []
+    *_, dossier = modele3d.generer(image, "Potion", "Normale", True, 0, ["glb"], "a red potion bottle",
+                                   "une potion rouge", graine, progress=no_progress)
+    infos = json.loads((Path(dossier) / "creation.json").read_text(encoding="utf-8"))
+    assert infos["description"] == "a red potion bottle" and infos["description_fr"] == "une potion rouge"
+    assert infos["image_graine"] == 12 and (Path(dossier) / "image.png").exists()
+    (lib, chemin), = galerie.lister("Modèles 3D")
+    assert chemin == dossier and "Potion — une potion rouge" in lib
+    md, *_ = galerie.details(dossier)
+    assert "demande : une potion rouge" in md
