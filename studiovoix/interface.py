@@ -5,8 +5,23 @@ from . import acestep, demucs, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
-from .pipeline import creer_chanson
+from .pipeline import MODE_INSTRU, MODE_MA_VOIX, MODES, creer_chanson
 from .voix import list_voices, save_voice
+
+
+def maj_mode(mode):
+    """Affiche seulement les réglages utiles au mode choisi."""
+    ma_voix = mode == MODE_MA_VOIX
+    instru = mode == MODE_INSTRU
+    label = {MODE_MA_VOIX: "Chanson finale (avec ta voix)", MODE_INSTRU: "Instrumental"}.get(mode, "Chanson (voix d'ACE-Step)")
+    return (
+        gr.update(visible=ma_voix),                     # voix de la bibliothèque
+        gr.update(visible=not instru),                  # paroles
+        gr.update(visible=not instru),                  # accordéon « Réglages voix »
+        *[gr.update(visible=ma_voix)] * 4,              # décalage, étapes Seed-VC, volumes
+        gr.update(label=label),                         # lecteur du résultat
+        gr.update(visible=ma_voix),                     # étapes intermédiaires
+    )
 
 
 def build_ui():
@@ -26,6 +41,10 @@ def build_ui():
                     msg_voice = gr.Markdown()
 
         with gr.Tab("2. Créer une chanson"):
+            mode = gr.Radio(
+                MODES, value=MODE_MA_VOIX, label="Mode",
+                info="« Voix d'ACE-Step » et « Instrumental » : musique seule, sans séparation ni conversion de voix.",
+            )
             with gr.Row():
                 with gr.Column():
                     voix = gr.Dropdown(choices=list_voices(), value=(list_voices() or [None])[0], label="Voix à utiliser")
@@ -44,7 +63,7 @@ def build_ui():
                 duree = gr.Slider(30, 240, value=120, step=10, label="Durée (s)")
                 bpm = gr.Number(value=0, precision=0, label="BPM (0 = auto)")
                 thinking = gr.Checkbox(value=True, label="Mode réflexion (LM) — meilleure qualité")
-            with gr.Accordion("Réglages voix (avancé)", open=False):
+            with gr.Accordion("Réglages voix (avancé)", open=False) as reglages:
                 voix_base = gr.Dropdown(
                     ["Automatique", "Voix masculine", "Voix féminine"], value="Automatique",
                     label="Voix chantée de base générée par ACE-Step",
@@ -59,7 +78,7 @@ def build_ui():
             btn = gr.Button("🎵 Créer la chanson", variant="primary")
             statut = gr.Markdown()
             final = gr.Audio(label="Chanson finale (avec ta voix)", type="filepath")
-            with gr.Accordion("Étapes intermédiaires", open=False):
+            with gr.Accordion("Étapes intermédiaires", open=False) as intermediaires:
                 brute = gr.Audio(label="Chanson brute ACE-Step", type="filepath")
                 voix_conv = gr.Audio(label="Voix convertie", type="filepath")
                 instru_out = gr.Audio(label="Instrumental", type="filepath")
@@ -94,7 +113,11 @@ def build_ui():
         btn.click(
             creer_chanson,
             [voix, genre, style, instruments, ambiance, extra, voix_base, paroles, langue, duree, bpm,
-             thinking, semitones, steps, gain_voix, gain_instru],
+             thinking, semitones, steps, gain_voix, gain_instru, mode],
             [final, brute, voix_conv, instru_out, statut],
+        )
+        mode.change(
+            maj_mode, mode,
+            [voix, paroles, reglages, semitones, steps, gain_voix, gain_instru, final, intermediaires],
         )
     return demo

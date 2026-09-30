@@ -21,6 +21,8 @@ Pipeline de création d'une chanson :
 3. **Seed-VC** (`inference.py`, `--f0-condition True`) convertit la voix chantée vers l'échantillon de l'utilisateur (zero-shot, 1 à 30 s de référence).
 4. Mixage numpy/soundfile en 44,1 kHz stéréo, sortie dans `data/songs/<horodatage>/`.
 
+Modes (`pipeline.MODES`, sélecteur en haut de l'onglet) : « Chanson avec ma voix » (pipeline complet ci-dessus), « Chanson avec la voix d'ACE-Step » et « Instrumental » (étape 1 seule, résultat = `chanson_brute.wav`). L'instrumental s'obtient avec `lyrics="[Instrumental]"` : c'est le signal reconnu par ACE-Step (`acestep/api/server_utils.py`, `is_instrumental`), `/release_task` n'a pas de paramètre dédié. `interface.maj_mode` masque les réglages inutiles au mode choisi.
+
 ## Trois environnements Python séparés (volontairement)
 Ils sont gérés par **uv** (Pythons « managed », jamais le Python système, qui est en 3.14) :
 

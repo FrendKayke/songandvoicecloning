@@ -48,7 +48,8 @@ def wait_acestep(progress, timeout=15 * 60):
     )
 
 
-def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, progress):
+def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, progress, etape="1/4"):
+    """Génère la chanson et l'écrit dans dest. « etape » sert seulement à l'affichage (« 1/4 »…)."""
     wait_acestep(progress)
     payload = {
         "prompt": prompt,
@@ -86,9 +87,9 @@ def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, p
             q.raise_for_status()
             items = _unwrap(q.json())
         except (requests.RequestException, ValueError):
-            progress(0.1, desc=f"1/4 — Le serveur ACE-Step est occupé, génération en cours… ({ecoule} s)")
+            progress(0.1, desc=f"{etape} — Le serveur ACE-Step est occupé, génération en cours… ({ecoule} s)")
             continue
-        progress(0.1, desc=f"1/4 — Génération de la chanson (ACE-Step)… ({ecoule} s)")
+        progress(0.1, desc=f"{etape} — Génération de la chanson (ACE-Step)… ({ecoule} s)")
         item = next((i for i in items if i.get("task_id") == task_id), None)
         if not item:
             continue
@@ -107,7 +108,7 @@ def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, p
         if status == 2:
             if thinking:  # nouvel essai sans le LM
                 progress(0.15, desc="Échec avec le mode réflexion, nouvel essai sans…")
-                return acestep_generate(prompt, lyrics, langue, duree, bpm, False, dest, progress)
+                return acestep_generate(prompt, lyrics, langue, duree, bpm, False, dest, progress, etape)
             raise gr.Error(f"ACE-Step a échoué : {item.get('result')}")
     raise gr.Error("Délai dépassé (30 min) pour la génération de la chanson. Regarde la fenêtre ACE-Step.")
 

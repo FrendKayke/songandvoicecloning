@@ -64,7 +64,10 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
 
 1. Double-clique sur **lancer.bat**. Il ouvre, réduite, une fenêtre « ACE-Step - ne pas fermer » (le serveur de génération), puis l'application dans ton navigateur. La première génération attend que ce serveur ait fini de charger ses modèles.
 2. Onglet **Ma voix** : enregistre 10 à 25 s de ta voix, dans une pièce calme, sans musique ni écho. Nomme-la et enregistre.
-3. Onglet **Créer une chanson** : remplis genre, style, instruments, ambiance et paroles (avec `[Verse]`, `[Chorus]`…), puis « Créer la chanson ».
+3. Onglet **Créer une chanson** : choisis le mode, remplis genre, style, instruments, ambiance et paroles (avec `[Verse]`, `[Chorus]`…), puis « Créer la chanson ». Trois modes :
+   - **Chanson avec ma voix** (par défaut) : la chanson est chantée avec ta voix ;
+   - **Chanson avec la voix d'ACE-Step** : musique seule, la voix générée par ACE-Step est gardée telle quelle (plus rapide : ni séparation ni conversion, pas besoin de voix enregistrée) ;
+   - **Instrumental** : musique sans voix, les paroles sont ignorées.
 4. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.
@@ -75,6 +78,8 @@ Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix conve
 2. **Demucs** sépare la voix de l'instrumental.
 3. **Seed-VC** (conversion de voix chantée, sans entraînement) remplace cette voix par la tienne.
 4. L'application remixe voix et instrumental.
+
+En mode « voix d'ACE-Step » ou « Instrumental », seule l'étape 1 a lieu.
 
 ## Réglages utiles
 
