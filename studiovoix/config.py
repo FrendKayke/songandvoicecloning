@@ -31,7 +31,8 @@ VOICES_DIR = DATA_DIR / "voices"
 SONGS_DIR = DATA_DIR / "songs"
 TTS_DIR = DATA_DIR / "tts"  # textes lus par la synthèse vocale
 CLEAN_DIR = DATA_DIR / "nettoyage"  # voix nettoyées (avant enregistrement dans la bibliothèque)
-for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR):
+GAMES_DIR = DATA_DIR / "jeux"  # bandes-son de jeu : jeux/<projet>/<situation>/<horodatage>/
+for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR, GAMES_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 SR = 44100  # fréquence de sortie (le modèle chanté de Seed-VC produit du 44,1 kHz)

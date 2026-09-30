@@ -30,3 +30,30 @@ def mixer(pistes, out_path):
         m = m / peak * 0.95
     sf.write(str(out_path), m.T, SR)
     return out_path
+
+
+def couper_jingle(src, out_path, duree, fondu=0.4, seuil_db=-45.0):
+    """Jingle court à partir d'une génération plus longue (ACE-Step génère au moins 10 s) :
+    retire le silence de début, coupe sur le creux d'énergie le plus proche de « duree » (± 1 s)
+    puis ajoute un fondu de sortie. Renvoie la durée obtenue."""
+    y = load_stereo(src)
+    mono = np.abs(y).max(axis=0)
+    seuil = 10 ** (seuil_db / 20)
+    debut = int(np.argmax(mono > seuil)) if np.any(mono > seuil) else 0
+    y = y[:, debut:]
+    trame = int(0.02 * SR)  # énergie par trames de 20 ms
+    n = y.shape[1] // trame
+    if n == 0:
+        raise ValueError("fichier trop court")
+    energie = np.sqrt((y[:, : n * trame].reshape(2, n, trame) ** 2).mean(axis=(0, 2)))
+    cible = int(duree * SR / trame)
+    lo, hi = max(1, cible - int(1 / 0.02)), min(n, cible + int(1 / 0.02) + 1)
+    fin = (lo + int(np.argmin(energie[lo:hi]))) * trame if lo < hi else min(y.shape[1], int(duree * SR))
+    y = y[:, :fin]
+    nf = min(int(fondu * SR), y.shape[1])
+    y[:, y.shape[1] - nf:] *= np.linspace(1.0, 0.0, nf, dtype=np.float32)
+    peak = float(np.max(np.abs(y))) or 1.0
+    if peak > 0.95:
+        y = y / peak * 0.95
+    sf.write(str(out_path), y.T, SR)
+    return y.shape[1] / SR

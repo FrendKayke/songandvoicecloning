@@ -1,7 +1,7 @@
 """Interface Gradio (onglets « Bibliothèque de voix », « Créer une chanson », « Synthèse vocale », « Modèles »)."""
 import gradio as gr
 
-from . import acestep, chatterbox, demucs, nettoyage, seedvc
+from . import acestep, chatterbox, demucs, jeu, nettoyage, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
@@ -161,7 +161,39 @@ def build_ui():
                 voix_conv = gr.Audio(label="Voix convertie", type="filepath")
                 instru_out = gr.Audio(label="Instrumental", type="filepath")
 
-        with gr.Tab("3. Synthèse vocale"):
+        with gr.Tab("3. Bande-son de jeu"):
+            gr.Markdown(
+                "Musiques **sans voix** pour ton jeu, par situation : écran titre, combat, victoire… "
+                "Les musiques de fond sont faites pour tourner en boucle, les jingles sont courts. "
+                "On décrit un style (JRPG, 16-bit…), jamais une œuvre existante : la musique produite est originale."
+            )
+            with gr.Row():
+                jeu_projet = gr.Textbox(label="Nom du projet", value="mon jeu de cartes")
+                jeu_epoque = gr.Dropdown(jeu.EPOQUES, value=jeu.EPOQUES[0][1], allow_custom_value=True,
+                                         label="Époque / style général",
+                                         info="Choisis dans la liste ou tape ton style (en anglais de préférence).")
+                jeu_univers = gr.Dropdown(jeu.UNIVERS, value=[], multiselect=True, allow_custom_value=True,
+                                          label="Univers", info="Facultatif ; plusieurs choix possibles.")
+            jeu_situations = gr.Dropdown(
+                jeu.choix_situations(), value=["titre", "combat", "victoire"], multiselect=True,
+                allow_custom_value=True, label="Situations à générer",
+                info="Tu peux taper ta propre situation (en anglais, par ex. « fire faction theme, aggressive "
+                     "taiko drums ») : elle sera générée comme musique en boucle.",
+            )
+            jeu_extra = liste_style("instruments", "Instruments à ajouter à toutes les pistes (facultatif)")
+            with gr.Row():
+                jeu_duree = gr.Slider(30, 180, value=90, step=10, label="Durée des musiques en boucle (s)")
+                jeu_thinking = gr.Checkbox(value=False, label="Mode réflexion (LM)",
+                                           info="Désactivé par défaut : la description est suivie plus fidèlement.")
+                jeu_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
+            jeu_apercu = gr.Markdown()
+            btn_jeu = gr.Button("🎮 Générer la bande-son", variant="primary")
+            jeu_statut = gr.Markdown()
+            with gr.Row():
+                jeu_liste = gr.Dropdown([], label="Écouter une piste générée")
+                jeu_audio = gr.Audio(label="Piste", type="filepath")
+
+        with gr.Tab("4. Synthèse vocale"):
             gr.Markdown(
                 "Fais lire un texte par une voix de ta bibliothèque (Chatterbox Multilingual, en local). "
                 "Les textes longs sont découpés en phrases. Le premier lancement charge le modèle (environ 30 s). "
@@ -186,7 +218,7 @@ def build_ui():
             tts_statut = gr.Markdown()
             tts_sortie = gr.Audio(label="Parole générée", type="filepath")
 
-        with gr.Tab("4. Modèles"):
+        with gr.Tab("5. Modèles"):
             gr.Markdown(
                 "Les modèles sont volumineux (plusieurs Go au total) et ne sont téléchargés qu'une seule fois. "
                 "Vérifie ici leur présence et leur emplacement, ou lance le téléchargement."
@@ -245,6 +277,14 @@ def build_ui():
             [final, brute, voix_conv, instru_out, statut, final_2],
         )
         versions.change(lambda v: gr.update(visible=int(v) > 1), versions, final_2)
+        champs_jeu = [jeu_epoque, jeu_univers, jeu_situations, jeu_extra, jeu_duree]
+        for champ in champs_jeu:
+            champ.change(jeu.apercu, champs_jeu, jeu_apercu)
+        demo.load(jeu.apercu, champs_jeu, jeu_apercu)
+        btn_jeu.click(jeu.generer_bande_son,
+                      [jeu_projet, jeu_epoque, jeu_univers, jeu_situations, jeu_extra, jeu_duree, jeu_thinking,
+                       jeu_graine], [jeu_statut, jeu_liste, jeu_audio])
+        jeu_liste.change(lambda p: p, jeu_liste, jeu_audio)
         champs_style = [genre, style, instruments, ambiance, extra, voix_base, mode]
         for champ in champs_style:
             champ.change(apercu_description, champs_style, description)
