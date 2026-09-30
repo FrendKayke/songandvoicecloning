@@ -28,7 +28,7 @@ def creer_chanson(
     voice_ref = None
     if mode == MODE_MA_VOIX:
         if not voix:
-            raise gr.Error("Choisis (ou enregistre) d'abord une voix dans l'onglet « Ma voix ».")
+            raise gr.Error("Choisis (ou enregistre) d'abord une voix dans l'onglet « Bibliothèque de voix ».")
         voice_ref = cfg.VOICES_DIR / f"{voix}.wav"
         if not voice_ref.exists():
             raise gr.Error(f"Voix introuvable : {voix}")

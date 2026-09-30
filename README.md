@@ -25,7 +25,7 @@ Modules de `studiovoix/` :
 | `acestep.py` | génération de la chanson (API REST d'ACE-Step) |
 | `demucs.py` | séparation voix / instrumental |
 | `seedvc.py` | conversion de voix chantée |
-| `voix.py` | voix enregistrées |
+| `voix.py` | bibliothèque de voix (import, contrôle de qualité, renommage, suppression) |
 | `mixage.py` | mixage voix + instrumental |
 | `pipeline.py` | enchaînement complet des étapes |
 | `modeles.py` | état des modèles (onglet « Modèles ») |
@@ -63,7 +63,7 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
 ## Utilisation
 
 1. Double-clique sur **lancer.bat**. Il ouvre, réduite, une fenêtre « ACE-Step - ne pas fermer » (le serveur de génération), puis l'application dans ton navigateur. La première génération attend que ce serveur ait fini de charger ses modèles.
-2. Onglet **Ma voix** : enregistre 10 à 25 s de ta voix, dans une pièce calme, sans musique ni écho. Nomme-la et enregistre.
+2. Onglet **Bibliothèque de voix** : importe un fichier (wav, mp3 ou flac) ou enregistre-toi au micro, 10 à 25 s, dans une pièce calme, sans musique ni écho. Nomme la voix et clique sur « Vérifier et enregistrer ». Dans « Mes voix », tu peux écouter, renommer ou supprimer chaque voix.
 3. Onglet **Créer une chanson** : choisis le mode, remplis genre, style, instruments, ambiance et paroles (avec `[Verse]`, `[Chorus]`…), puis « Créer la chanson ». Trois modes :
    - **Chanson avec ma voix** (par défaut) : la chanson est chantée avec ta voix ;
    - **Chanson avec la voix d'ACE-Step** : musique seule, la voix générée par ACE-Step est gardée telle quelle (plus rapide : ni séparation ni conversion, pas besoin de voix enregistrée) ;
@@ -80,6 +80,16 @@ Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix conve
 4. L'application remixe voix et instrumental.
 
 En mode « voix d'ACE-Step » ou « Instrumental », seule l'étape 1 a lieu.
+
+### Contrôle de qualité à l'import
+
+| Vérification | Refus | Avertissement (la voix est quand même enregistrée) |
+|---|---|---|
+| Durée | moins de 5 s | moins de 10 s ; au-delà de 30 s, seules les 30 premières secondes sont gardées |
+| Volume (niveau de la voix, pauses ignorées) | sous −40 dBFS | sous −30 dBFS |
+| Saturation | — | plus de 0,1 % des échantillons au maximum |
+
+Chaque message explique quoi changer (se rapprocher du micro, baisser le niveau d'entrée…).
 
 ## Réglages utiles
 

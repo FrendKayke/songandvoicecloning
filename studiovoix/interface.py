@@ -6,7 +6,16 @@ from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
 from .pipeline import MODE_INSTRU, MODE_MA_VOIX, MODES, creer_chanson
-from .voix import list_voices, save_voice
+from .voix import delete_voice, infos_voix, list_voices, rename_voice, save_voice
+
+# Fenêtre de confirmation du navigateur avant suppression (annuler → None → rien n'est supprimé)
+CONFIRMER_SUPPRESSION = "(v) => (v && confirm('Supprimer définitivement la voix « ' + v + ' » ?')) ? v : null"
+
+
+def synchro_voix(courante):
+    """Met à jour une liste de voix d'un autre onglet en gardant la sélection si elle existe encore."""
+    voices = list_voices()
+    return gr.update(choices=voices, value=courante if courante in voices else (voices[0] if voices else None))
 
 
 def maj_mode(mode):
@@ -28,17 +37,32 @@ def build_ui():
     with gr.Blocks(title="Studio Voix") as demo:
         gr.Markdown("# 🎤 Studio Voix\nClone ta voix, écris tes paroles, choisis le style : la chanson est générée en local.")
 
-        with gr.Tab("1. Ma voix"):
+        with gr.Tab("1. Bibliothèque de voix"):
             gr.Markdown(
-                "Enregistre **10 à 25 secondes** de toi, dans une pièce calme, sans musique ni écho "
-                "(idéalement en chantant, sinon en parlant). Seule une voix propre donne un bon résultat."
+                "### Ajouter une voix\n"
+                "Importe un fichier (**wav, mp3 ou flac**) ou enregistre-toi au micro : **10 à 25 secondes**, "
+                "dans une pièce calme, sans musique ni écho (idéalement en chantant, sinon en parlant). "
+                "La qualité est vérifiée à l'import (durée, volume, saturation)."
             )
             with gr.Row():
-                audio_in = gr.Audio(sources=["microphone", "upload"], type="filepath", label="Échantillon de ta voix")
+                audio_in = gr.Audio(sources=["upload", "microphone"], type="filepath",
+                                    label="Fichier audio ou enregistrement au micro")
                 with gr.Column():
                     nom = gr.Textbox(label="Nom de la voix", value="laurent")
-                    btn_save = gr.Button("Enregistrer cette voix", variant="primary")
+                    btn_save = gr.Button("Vérifier et enregistrer cette voix", variant="primary")
                     msg_voice = gr.Markdown()
+            gr.Markdown("### Mes voix")
+            with gr.Row():
+                with gr.Column():
+                    biblio = gr.Dropdown(choices=list_voices(), value=(list_voices() or [None])[0],
+                                         label="Voix enregistrées")
+                    desc_voix = gr.Markdown()
+                    ecoute = gr.Audio(label="Écouter", type="filepath", interactive=False)
+                with gr.Column():
+                    nouveau_nom = gr.Textbox(label="Nouveau nom")
+                    btn_ren = gr.Button("✏️ Renommer")
+                    btn_del = gr.Button("🗑️ Supprimer", variant="stop")
+                    msg_biblio = gr.Markdown()
 
         with gr.Tab("2. Créer une chanson"):
             mode = gr.Radio(
@@ -101,7 +125,14 @@ def build_ui():
                 o_dm = gr.Button("📂 Ouvrir dossier Demucs")
                 o_data = gr.Button("📂 Ouvrir mes chansons")
 
-        btn_save.click(save_voice, [audio_in, nom], [msg_voice, voix])
+        btn_save.click(save_voice, [audio_in, nom], [msg_voice, biblio]).then(synchro_voix, voix, voix)
+        btn_ren.click(rename_voice, [biblio, nouveau_nom], [msg_biblio, biblio]).then(synchro_voix, voix, voix)
+        btn_del.click(delete_voice, biblio, [msg_biblio, biblio], js=CONFIRMER_SUPPRESSION).then(
+            synchro_voix, voix, voix)
+        biblio.change(infos_voix, biblio, [ecoute, desc_voix])
+        # Voix ajoutées hors de l'application : listes à jour à chaque ouverture de la page
+        demo.load(synchro_voix, biblio, biblio).then(synchro_voix, voix, voix).then(
+            infos_voix, biblio, [ecoute, desc_voix])
         btn_refresh.click(models_status_md, None, status)
         for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download)):
             b.click(fn, None, log).then(models_status_md, None, status)
