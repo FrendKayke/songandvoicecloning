@@ -27,7 +27,7 @@ Modules de `studiovoix/` :
 | `styles.py` | listes déroulantes des styles (libellés français, termes anglais) |
 | `jeu.py` | bande-son de jeu : situations, génération en lot, jingles |
 | `boucle.py` | boucles parfaites pour les musiques de fond |
-| `galerie.py` | galerie des créations : écouter, recréer avec la même graine, supprimer |
+| `galerie.py` | galerie des créations : écouter, recréer avec la même graine, refaire un passage, supprimer |
 | `export.py` | export OGG/MP3 au volume harmonisé (LUFS), pack de bande-son avec `manifest.json` |
 | `demucs.py` | séparation voix / instrumental |
 | `seedvc.py` | conversion de voix chantée |
@@ -90,6 +90,7 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
    - Dans l'onglet « Créer une chanson », « 💾 Exporter la chanson en MP3 » fait de même pour une chanson (−14 LUFS par défaut).
 5. Onglet **Synthèse vocale** : choisis une voix de ta bibliothèque, la langue, écris le texte et clique sur « Lire le texte avec cette voix ». Les textes longs (jusqu'à 5 000 caractères) sont découpés en phrases. Chaque lecture est rangée dans `data\tts\<date>\` (texte et `parole.wav`).
 6. Onglet **Galerie** : toutes tes créations (chansons, pistes de jeu, lectures), la plus récente en premier, avec un filtre. Pour chacune : description, paroles, graine, écoute (et choix de la version s'il y en a deux), « 🔁 Recréer (même graine) » pour obtenir un résultat proche, « 📂 Ouvrir le dossier » et « 🗑️ Supprimer » (avec confirmation). Les créations faites avant cette version apparaissent aussi (écoute et suppression seulement).
+   - **« ✏️ Refaire un passage »** : un refrain raté, une fin bizarre ? Indique le début et la fin en secondes : seul ce passage est réinventé, le reste est gardé, puis le reste du traitement est refait (ta voix, retrait d'instruments, boucle…). Tu peux changer la description ou les paroles du passage et choisir la force de la retouche (légère, équilibrée, complète). Le résultat est une nouvelle création ; l'originale est conservée.
 7. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.

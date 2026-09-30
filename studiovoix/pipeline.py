@@ -110,6 +110,26 @@ def creer_chanson(
     return final, brute, conv, instru, msg, (resultats[1][0] if versions > 1 else None)
 
 
+def finaliser_depuis_infos(song, workdir, infos, progress):
+    """Refait séparation / conversion / mixage d'une création à partir de son creation.json
+    (utilisé après « Refaire un passage » dans la galerie)."""
+    retirer = [p for p in infos.get("retirer") or [] if p in RETRAITS]
+    mode = infos.get("mode") or MODE_MA_VOIX
+    avec_voix = (infos.get("paroles") or INSTRUMENTAL) != INSTRUMENTAL
+    conversion = avec_voix and mode == MODE_MA_VOIX
+    separation = conversion or bool(retirer)
+    voice_ref = None
+    if conversion:
+        voice_ref = cfg.VOICES_DIR / f"{infos.get('voix')}.wav"
+        if not voice_ref.exists():
+            raise gr.Error(f"Voix introuvable : {infos.get('voix')} (supprimée ou renommée depuis).")
+    seedvc_infos, gains = infos.get("seedvc") or {}, infos.get("gains") or {}
+    total = 1 + separation + conversion + (avec_voix and separation)
+    return _finaliser(song, workdir, "", total, avec_voix, conversion, separation, retirer, voice_ref,
+                      seedvc_infos.get("demi_tons", 0), seedvc_infos.get("etapes", 40),
+                      gains.get("voix", 1.0), gains.get("instrumental", 1.0), progress)
+
+
 def _finaliser(song, workdir, prefixe, total, avec_voix, conversion, separation, retirer,
                voice_ref, semitones, steps, gain_voix, gain_instru, progress):
     """Tout ce qui suit la génération d'une version : séparation, conversion, mixage."""

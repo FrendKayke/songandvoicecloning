@@ -269,6 +269,20 @@ def build_ui():
                         gal_dossier = gr.Button("📂 Ouvrir le dossier")
                         gal_suppr = gr.Button("🗑️ Supprimer", variant="stop")
             gal_msg = gr.Markdown()
+            with gr.Accordion("✏️ Refaire un passage (chansons et pistes de jeu)", open=False):
+                gr.Markdown(
+                    "Un refrain raté, une fin bizarre ? Indique le passage en secondes : seul ce passage est "
+                    "réinventé (tâche *repaint* d'ACE-Step), le reste est gardé, puis la suite du traitement est "
+                    "refaite (ta voix, retrait d'instruments, boucle…). Le résultat est une **nouvelle création**, "
+                    "l'originale reste dans la galerie. Tu peux modifier la description ou les paroles du passage."
+                )
+                with gr.Row():
+                    gal_debut = gr.Number(value=0, label="Début (s)")
+                    gal_fin = gr.Number(value=10, label="Fin (s)")
+                    gal_force = gr.Radio(list(galerie.FORCES), value=list(galerie.FORCES)[1], label="Retouche")
+                gal_desc = gr.Textbox(label="Description", lines=2)
+                gal_paroles = gr.Textbox(label="Paroles (chansons)", lines=6)
+                gal_refaire = gr.Button("✏️ Refaire ce passage", variant="primary")
 
         with gr.Tab("6. Modèles"):
             gr.Markdown(
@@ -330,13 +344,16 @@ def build_ui():
         )
         versions.change(lambda v: gr.update(visible=int(v) > 1), versions, final_2)
         btn_export_chanson.click(export.exporter_fichier, [final, chanson_cible], [chanson_mp3, chanson_export_msg])
-        sorties_details = [gal_details, gal_audio, gal_version]
+        sorties_details = [gal_details, gal_audio, gal_version, gal_desc, gal_paroles, gal_fin]
         for evt in (gal_filtre.change, gal_maj.click, demo.load):
             evt(galerie.maj_liste, [gal_filtre, gal_liste], gal_liste)
         gal_liste.change(galerie.details, [gal_liste], sorties_details)
         gal_version.input(galerie.details, [gal_liste, gal_version], sorties_details)
         gal_recreer.click(galerie.recreer, [gal_liste, gal_version], [gal_msg, gal_etat]).then(
             galerie.maj_liste, [gal_filtre, gal_etat], gal_liste)
+        gal_refaire.click(galerie.refaire_passage,
+                          [gal_liste, gal_version, gal_debut, gal_fin, gal_desc, gal_paroles, gal_force],
+                          [gal_msg, gal_etat]).then(galerie.maj_liste, [gal_filtre, gal_etat], gal_liste)
         gal_suppr.click(galerie.supprimer, gal_liste, gal_msg, js=CONFIRMER_SUPPRESSION_CREATION).then(
             galerie.maj_liste, [gal_filtre], gal_liste)
         gal_dossier.click(lambda c: open_folder(c) if c else None, gal_liste)

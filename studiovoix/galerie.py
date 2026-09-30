@@ -1,5 +1,5 @@
 """Galerie : toutes les créations (chansons, pistes de jeu, lectures) à réécouter, recréer avec la même
-graine ou supprimer.
+graine, retoucher (« Refaire un passage », tâche repaint d'ACE-Step) ou supprimer.
 
 Chaque création est un dossier décrit par creation.json (outils.ecrire_creation). Les chansons et lectures
 plus anciennes, sans creation.json, sont listées d'après prompt.txt / tache.json (écoute et suppression seulement).
@@ -9,13 +9,23 @@ import shutil
 from pathlib import Path
 
 import gradio as gr
+import soundfile as sf
 
 from . import acestep, chatterbox, jeu
 from . import config as cfg
-from .pipeline import INSTRUMENTAL
+from .outils import ecrire_creation, nouveau_dossier
+from .pipeline import INSTRUMENTAL, finaliser_depuis_infos
 
 TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture"}
 FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts"}
+# repaint_mode d'ACE-Step (release_task_models.py : conservative / balanced / aggressive)
+FORCES = {
+    "Légère (garde au maximum l'original)": "conservative",
+    "Équilibrée": "balanced",
+    "Complète (réinvente le passage)": "aggressive",
+}
+
+
 def _racines():
     return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR}
 
@@ -95,9 +105,9 @@ def _version(infos, version):
 
 
 def details(chemin, version=1):
-    """(description en Markdown, fichier de la version, choix des versions)."""
+    """(description en Markdown, fichier de la version, choix des versions, description, paroles, fin conseillée)."""
     if not chemin:
-        return "*Aucune création pour l'instant.*", None, gr.update(choices=[1], value=1, visible=False)
+        return "*Aucune création pour l'instant.*", None, gr.update(choices=[1], value=1, visible=False), "", "", 10
     infos = _infos(chemin)
     i, v = _version(infos, version)
     fichier = v.get("fichier")
@@ -115,10 +125,14 @@ def details(chemin, version=1):
     graines = ", ".join(str(x.get("graine")) for x in infos.get("versions") or [] if x.get("graine") is not None)
     if graines:
         lignes.append(f"Graine(s) : {graines}")
+    if infos.get("retouche_de"):
+        lignes.append(f"Retouche de `{infos['retouche_de']}` (passage {infos['passage'][0]}–{infos['passage'][1]} s)")
     if infos.get("ancienne"):
         lignes.append("*Création d'une ancienne version de Studio Voix : écoute et suppression seulement.*")
     n = len(infos.get("versions") or [])
-    return "\n\n".join(lignes), fichier, gr.update(choices=list(range(1, n + 1)), value=i + 1, visible=n > 1)
+    duree = round(sf.info(fichier).duration, 1) if fichier else 10
+    return ("\n\n".join(lignes), fichier, gr.update(choices=list(range(1, n + 1)), value=i + 1, visible=n > 1),
+            infos.get("description") or "", infos.get("paroles") or "", duree)
 
 
 def supprimer(chemin):
@@ -187,3 +201,39 @@ def recreer(chemin, version=1, progress=gr.Progress()):
     return f"✅ Lecture recréée{note}.", _dossier_de(fichier)
 
 
+def refaire_passage(chemin, version, debut, fin, description, paroles, force_label, progress=gr.Progress()):
+    """Redessine seulement [debut, fin] (secondes) d'une chanson ou d'une piste de jeu, puis refait le reste du
+    traitement (séparation, conversion, mixage, ou boucle / jingle). Nouvelle création, l'originale est gardée."""
+    infos = _infos(chemin)
+    if infos["type"] == "tts" or infos.get("ancienne"):
+        raise gr.Error("« Refaire un passage » marche sur les chansons et les pistes de jeu créées avec cette version.")
+    i, v = _version(infos, version)
+    d_version = Path(chemin) / (v.get("dossier") or ".")
+    brute = d_version / ("brute.wav" if infos["type"] == "jeu" else "chanson_brute.wav")
+    if not brute.exists():
+        raise gr.Error(f"Fichier d'origine introuvable : {brute}")
+    duree = sf.info(str(brute)).duration
+    debut, fin = float(debut or 0), float(fin or 0)
+    if not (0 <= debut < fin <= duree + 0.01) or fin - debut < 1:
+        raise gr.Error(f"Choisis un passage d'au moins 1 s entre 0 et {duree:.1f} s (début < fin).")
+    paroles = INSTRUMENTAL if infos["type"] == "jeu" else ((paroles or "").strip() or infos.get("paroles") or INSTRUMENTAL)
+    params = {
+        "task_type": "repaint", "prompt": (description or "").strip() or infos.get("description", ""),
+        "lyrics": paroles, "vocal_language": cfg.LANGUES.get(infos.get("langue"), "en"),
+        "repainting_start": debut, "repainting_end": min(fin, duree), "repaint_mode": FORCES.get(force_label, "balanced"),
+        "thinking": False,
+    }
+    retouche = {"retouche_de": str(chemin), "passage": [debut, min(fin, duree)]}
+    if infos["type"] == "jeu":
+        garde = {k: infos.get(k) for k in ("projet", "situation", "libelle", "boucle", "duree_cible", "reference",
+                                           "usage_reference", "fidelite")}
+        piste, note = jeu.generer_piste(params, {**garde, **retouche}, progress, "Retouche", {"src_audio": str(brute)})
+        return f"✅ Passage refait : {note}.", _dossier_de(piste)
+    workdir = nouveau_dossier(cfg.SONGS_DIR)
+    ((song, seed),) = acestep.generer(params, [workdir / "chanson_brute.wav"], progress, "Retouche",
+                                      fichiers={"src_audio": str(brute)})
+    final, *_ = finaliser_depuis_infos(song, workdir, {**infos, "paroles": paroles}, progress)
+    ecrire_creation(workdir, {**{k: val for k, val in infos.items() if k not in ("date", "versions")},
+                              "description": params["prompt"], "paroles": paroles, **retouche,
+                              "versions": [{"graine": seed, "dossier": ".", "fichier": str(final)}]})
+    return f"✅ Passage {debut:.1f}–{fin:.1f} s refait.", str(workdir)
