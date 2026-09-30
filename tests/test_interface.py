@@ -30,3 +30,23 @@ def test_affichage_selon_le_mode():
     assert vis(MODE_VOIX_ACE) == [False, True, True, False, False, False, False, None, False]
     assert vis(MODE_INSTRU) == [False, False, False, False, False, False, False, None, False]
     assert maj_mode(MODE_INSTRU)[7]["label"] == "Instrumental"
+
+
+def test_apercu_de_la_description():
+    from studiovoix.interface import apercu_description
+    from studiovoix.pipeline import MODE_INSTRU, MODE_VOIX_ACE
+
+    args = (["8-bit chiptune, retro video game music"], [], ["square wave synth, chiptune arpeggios"], ["happy, joyful"], [])
+    assert apercu_description(*args, "Voix féminine", MODE_VOIX_ACE).endswith("happy, joyful, female vocals")
+    assert "vocals" not in apercu_description(*args, "Voix féminine", MODE_INSTRU)
+
+
+def test_catalogue_des_styles():
+    from studiovoix.styles import LISTES
+
+    for cle, choix in LISTES.items():
+        libelles = [a for a, _ in choix]
+        valeurs = [b for _, b in choix]
+        assert len(set(libelles)) == len(libelles) and len(set(valeurs)) == len(valeurs), cle
+        assert all(v.isascii() for v in valeurs if v != "French variété pop"), cle  # termes anglais
+        assert not any(" sans " in f" {v} " for v in valeurs), cle

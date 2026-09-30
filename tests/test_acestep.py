@@ -11,6 +11,12 @@ def test_build_prompt():
     assert acestep.build_prompt("rock", "", "", "", "Automatique", None) == "rock"
 
 
+def test_build_prompt_avec_listes():
+    genre = ["8-bit chiptune, retro video game music", " vaporwave "]  # choix de liste + saisie libre
+    assert acestep.build_prompt(genre, [], ["square wave synth, chiptune arpeggios"], None, "Automatique", []) == (
+        "8-bit chiptune, retro video game music, vaporwave, square wave synth, chiptune arpeggios")
+
+
 def test_generation_nominale(fake_acestep, env):
     srv = fake_acestep(pending_polls=2)
     dest = acestep.acestep_generate("pop", "[Verse]\nla", "fr", 60, 120, True, env / "s.wav", no_progress)
@@ -18,6 +24,8 @@ def test_generation_nominale(fake_acestep, env):
     p = srv.payloads[0]
     assert p["prompt"] == "pop" and p["vocal_language"] == "fr" and p["bpm"] == 120
     assert p["audio_duration"] == 60.0 and p["thinking"] is True and p["audio_format"] == "wav"
+    # La description doit arriver telle quelle au générateur : pas de réécriture par le modèle de langage
+    assert p["use_cot_caption"] is False and p["use_cot_language"] is False
 
 
 def test_bpm_auto_non_envoye(fake_acestep, env):

@@ -14,9 +14,11 @@ ARGS = dict(genre="pop", style="", instruments="piano", ambiance="", extra="", v
             gain_voix=1.0, gain_instru=1.0)
 
 
-def _call(voix, paroles, mode=None, **kw):
+def _call(voix, paroles, mode=None, description=None, **kw):
     a = dict(ARGS, **kw)
     extra = {} if mode is None else {"mode": mode}  # sans mode : comportement par défaut (ma voix)
+    if description is not None:
+        extra["description"] = description
     return creer_chanson(voix, a["genre"], a["style"], a["instruments"], a["ambiance"], a["extra"],
                          a["voix_base"], paroles, a["langue_label"], a["duree"], a["bpm"], a["thinking"],
                          a["semitones"], a["steps"], a["gain_voix"], a["gain_instru"], **extra,
@@ -99,3 +101,18 @@ def test_mode_instrumental_ignore_paroles_et_voix(fake_acestep, fake_engines):
 def test_mode_inconnu(env):
     with pytest.raises(gr.Error):
         _call(None, "x", mode="Karaoké")
+
+
+def test_description_modifiee_prioritaire(fake_acestep, fake_engines):
+    srv = fake_acestep()
+    _call(None, "", mode=MODE_INSTRU, description="  8-bit chiptune, no drums fill  ")
+    assert srv.payloads[0]["prompt"] == "8-bit chiptune, no drums fill"
+    workdir = next(cfg.SONGS_DIR.iterdir())
+    assert (workdir / "prompt.txt").read_text(encoding="utf-8").startswith("8-bit chiptune, no drums fill\n")
+
+
+def test_listes_de_styles(fake_acestep, fake_engines):
+    srv = fake_acestep()
+    _call(None, "", mode=MODE_INSTRU, genre=["synthwave, retrowave"], instruments=["synth pads", "drum machine"],
+          description="")
+    assert srv.payloads[0]["prompt"] == "synthwave, retrowave, synth pads, drum machine"

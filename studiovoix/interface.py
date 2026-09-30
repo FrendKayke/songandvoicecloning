@@ -6,6 +6,7 @@ from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
 from .pipeline import MODE_INSTRU, MODE_MA_VOIX, MODES, creer_chanson
+from .styles import LISTES
 from .voix import delete_voice, infos_voix, list_voices, rename_voice, save_voice
 
 # Fenêtre de confirmation du navigateur avant suppression (annuler → None → rien n'est supprimé)
@@ -30,6 +31,21 @@ def maj_mode(mode):
         *[gr.update(visible=ma_voix)] * 4,              # décalage, étapes Seed-VC, volumes
         gr.update(label=label),                         # lecteur du résultat
         gr.update(visible=ma_voix),                     # étapes intermédiaires
+    )
+
+
+def apercu_description(genre, style, instruments, ambiance, extra, voix_base, mode):
+    """Description qui sera envoyée à ACE-Step, recalculée à chaque changement des listes."""
+    if mode == MODE_INSTRU:
+        voix_base = "Automatique"
+    return acestep.build_prompt(genre, style, instruments, ambiance, voix_base, extra)
+
+
+def liste_style(cle, label, info=None):
+    """Liste déroulante à choix multiples (libellés français, termes anglais) qui accepte aussi la saisie libre."""
+    return gr.Dropdown(
+        LISTES[cle], value=[], multiselect=True, allow_custom_value=True, label=label,
+        info=info or "Choisis dans la liste, ou tape ton propre terme (en anglais de préférence) puis Entrée.",
     )
 
 
@@ -72,21 +88,29 @@ def build_ui():
             with gr.Row():
                 with gr.Column():
                     voix = gr.Dropdown(choices=list_voices(), value=(list_voices() or [None])[0], label="Voix à utiliser")
-                    genre = gr.Textbox(label="Genre", placeholder="pop rock, chanson française, hip-hop…")
-                    style = gr.Textbox(label="Style / références sonores", placeholder="énergique, années 80, lo-fi, épique…")
-                    instruments = gr.Textbox(label="Instruments", placeholder="guitare acoustique, piano, batterie, synthé…")
-                    ambiance = gr.Textbox(label="Ambiance / thème", placeholder="mélancolique, joyeux, nocturne…")
-                    extra = gr.Textbox(label="Autres consignes (facultatif)", placeholder="refrain accrocheur, pont instrumental…")
+                    genre = liste_style("genre", "Genre")
+                    style = liste_style("style", "Style / époque / production")
+                    instruments = liste_style("instruments", "Instruments")
+                    ambiance = liste_style("ambiance", "Ambiance")
+                    extra = liste_style("extra", "Autres consignes (facultatif)")
                 with gr.Column():
                     paroles = gr.Textbox(
                         label="Paroles (avec [Verse], [Chorus], [Bridge]…)", lines=16,
                         placeholder="[Verse 1]\nTes paroles…\n\n[Chorus]\nLe refrain…",
                     )
+            description = gr.Textbox(
+                label="Description envoyée à ACE-Step (modifiable)", lines=2,
+                info="Construite à partir des listes ci-dessus, en anglais : c'est la langue que le modèle comprend le "
+                     "mieux. Tu peux la retoucher ; elle est recalculée si tu changes une liste. Pour exclure un "
+                     "instrument, ne l'écris pas ici (« sans basse » ajouterait de la basse).",
+            )
             with gr.Row():
                 langue = gr.Dropdown(list(cfg.LANGUES), value="Français", label="Langue des paroles")
                 duree = gr.Slider(30, 240, value=120, step=10, label="Durée (s)")
                 bpm = gr.Number(value=0, precision=0, label="BPM (0 = auto)")
-                thinking = gr.Checkbox(value=True, label="Mode réflexion (LM) — meilleure qualité")
+                thinking = gr.Checkbox(value=True, label="Mode réflexion (LM) — meilleure structure",
+                                       info="Si le style demandé n'est pas respecté, décoche-le : le générateur "
+                                            "suivra alors la description seule.")
             with gr.Accordion("Réglages voix (avancé)", open=False) as reglages:
                 voix_base = gr.Dropdown(
                     ["Automatique", "Voix masculine", "Voix féminine"], value="Automatique",
@@ -180,9 +204,12 @@ def build_ui():
         btn.click(
             creer_chanson,
             [voix, genre, style, instruments, ambiance, extra, voix_base, paroles, langue, duree, bpm,
-             thinking, semitones, steps, gain_voix, gain_instru, mode],
+             thinking, semitones, steps, gain_voix, gain_instru, mode, description],
             [final, brute, voix_conv, instru_out, statut],
         )
+        champs_style = [genre, style, instruments, ambiance, extra, voix_base, mode]
+        for champ in champs_style:
+            champ.change(apercu_description, champs_style, description)
         mode.change(
             maj_mode, mode,
             [voix, paroles, reglages, semitones, steps, gain_voix, gain_instru, final, intermediaires],

@@ -10,17 +10,19 @@ import requests
 
 from . import config as cfg
 from .outils import has_weights, stream_command
+from .styles import texte
 
 ACESTEP_COMPONENTS = ["acestep-v15-turbo", "vae", "Qwen3-Embedding-0.6B", "acestep-5Hz-lm-1.7B"]
 
 
 def build_prompt(genre, style, instruments, ambiance, voix_base, extra):
-    parts = [genre, style, instruments, ambiance]
+    """Description (« caption ») envoyée à ACE-Step. Chaque champ est un texte ou une sélection de liste."""
+    parts = [texte(genre), texte(style), texte(instruments), texte(ambiance)]
     if voix_base == "Voix masculine":
         parts.append("male vocals")
     elif voix_base == "Voix féminine":
         parts.append("female vocals")
-    parts.append(extra)
+    parts.append(texte(extra))
     return ", ".join(p.strip() for p in parts if p and p.strip())
 
 
@@ -60,6 +62,11 @@ def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, p
         "batch_size": 1,
         "thinking": bool(thinking),
         "use_random_seed": True,
+        # Sans cela, le modèle de langage d'ACE-Step réécrit la description et la langue avant de les
+        # passer au générateur (inference.py : dit_input_caption = caption du LM), même sans « thinking » :
+        # les styles peu courants (8-bit…) se diluent alors en pop générique.
+        "use_cot_caption": False,
+        "use_cot_language": False,
     }
     if bpm and int(bpm) > 0:
         payload["bpm"] = int(bpm)

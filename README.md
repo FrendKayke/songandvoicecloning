@@ -24,6 +24,7 @@ Modules de `studiovoix/` :
 |---|---|
 | `config.py` | chemins, variables d'environnement, constantes |
 | `acestep.py` | génération de la chanson (API REST d'ACE-Step) |
+| `styles.py` | listes déroulantes des styles (libellés français, termes anglais) |
 | `demucs.py` | séparation voix / instrumental |
 | `seedvc.py` | conversion de voix chantée |
 | `chatterbox.py` | synthèse vocale (lance `moteurs/chatterbox_tts.py`) |
@@ -71,7 +72,7 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
 
 1. Double-clique sur **lancer.bat**. Il ouvre, réduite, une fenêtre « ACE-Step - ne pas fermer » (le serveur de génération), puis l'application dans ton navigateur. La première génération attend que ce serveur ait fini de charger ses modèles.
 2. Onglet **Bibliothèque de voix** : importe un fichier (wav, mp3 ou flac) ou enregistre-toi au micro, 10 à 25 s, dans une pièce calme, sans musique ni écho. Nomme la voix et clique sur « Vérifier et enregistrer ». Dans « Mes voix », tu peux écouter, renommer ou supprimer chaque voix.
-3. Onglet **Créer une chanson** : choisis le mode, remplis genre, style, instruments, ambiance et paroles (avec `[Verse]`, `[Chorus]`…), puis « Créer la chanson ». Trois modes :
+3. Onglet **Créer une chanson** : choisis le mode, puis genre, style, instruments, ambiance et consignes dans les listes déroulantes (plusieurs choix possibles ; tu peux aussi taper ton propre terme, en anglais de préférence, puis Entrée). La **description envoyée à ACE-Step** s'affiche en dessous, en anglais, et tu peux la retoucher. Écris les paroles (avec `[Verse]`, `[Chorus]`…), puis « Créer la chanson ». Trois modes :
    - **Chanson avec ma voix** (par défaut) : la chanson est chantée avec ta voix ;
    - **Chanson avec la voix d'ACE-Step** : musique seule, la voix générée par ACE-Step est gardée telle quelle (plus rapide : ni séparation ni conversion, pas besoin de voix enregistrée) ;
    - **Instrumental** : musique sans voix, les paroles sont ignorées.
@@ -100,6 +101,9 @@ En mode « voix d'ACE-Step » ou « Instrumental », seule l'étape 1 a lieu.
 Chaque message explique quoi changer (se rapprocher du micro, baisser le niveau d'entrée…).
 
 ## Réglages utiles
+
+- **Style pas respecté ?** La description est transmise telle quelle à ACE-Step. Si le résultat reste trop « pop », décoche le **mode réflexion** : le générateur suit alors la description seule. Pour un style peu courant, répète les mots importants (« 8-bit chiptune, chiptune, retro video game music »).
+- **Exclure un instrument** : ne l'écris pas dans la description, même précédé de « sans » ou « no » : le mot suffit à l'ajouter.
 
 - **Voix chantée de base** : choisis masculine ou féminine selon ta voix. Sinon, joue sur le décalage de hauteur (−12 / +12 demi-tons).
 - **Étapes Seed-VC** : 40 par défaut. Monte à 50 pour plus de qualité, au prix du temps.

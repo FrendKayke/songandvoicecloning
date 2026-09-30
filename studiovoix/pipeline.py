@@ -20,8 +20,10 @@ def creer_chanson(
     paroles, langue_label, duree, bpm, thinking,
     semitones, steps, gain_voix, gain_instru,
     mode=MODE_MA_VOIX,
+    description=None,
     progress=gr.Progress(),
 ):
+    """« description » : description finale (modifiable dans l'interface) ; vide = construite depuis les listes."""
     mode = mode or MODE_MA_VOIX
     if mode not in MODES:
         raise gr.Error(f"Mode inconnu : {mode}")
@@ -32,8 +34,6 @@ def creer_chanson(
         voice_ref = cfg.VOICES_DIR / f"{voix}.wav"
         if not voice_ref.exists():
             raise gr.Error(f"Voix introuvable : {voix}")
-    if not (genre or style or instruments or ambiance or extra):
-        raise gr.Error("Renseigne au moins un élément de style (genre, instruments…).")
 
     if mode == MODE_INSTRU:
         lyrics = INSTRUMENTAL
@@ -45,9 +45,12 @@ def creer_chanson(
                 raise gr.Error("Écris des paroles, ou choisis le mode « Instrumental ».")
             lyrics = INSTRUMENTAL
 
-    workdir = nouveau_dossier(cfg.SONGS_DIR)
+    prompt = (description or "").strip() or acestep.build_prompt(
+        genre, style, instruments, ambiance, voix_base, extra)
+    if not prompt:
+        raise gr.Error("Renseigne au moins un élément de style (genre, instruments…).")
 
-    prompt = acestep.build_prompt(genre, style, instruments, ambiance, voix_base, extra)
+    workdir = nouveau_dossier(cfg.SONGS_DIR)
     (workdir / "prompt.txt").write_text(f"{prompt}\n\n{lyrics}\n", encoding="utf-8")
 
     etape = "1/4" if mode == MODE_MA_VOIX else "1/1"
