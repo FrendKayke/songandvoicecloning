@@ -191,7 +191,8 @@ def build_ui():
             jeu_statut = gr.Markdown()
             with gr.Row():
                 jeu_liste = gr.Dropdown([], label="Écouter une piste générée")
-                jeu_audio = gr.Audio(label="Piste", type="filepath")
+                jeu_audio = gr.Audio(label="Piste (en boucle dans le jeu)", type="filepath")
+                jeu_jonction = gr.Audio(label="Jonction : 5 s de fin puis 5 s de début", type="filepath")
 
         with gr.Tab("4. Synthèse vocale"):
             gr.Markdown(
@@ -283,8 +284,8 @@ def build_ui():
         demo.load(jeu.apercu, champs_jeu, jeu_apercu)
         btn_jeu.click(jeu.generer_bande_son,
                       [jeu_projet, jeu_epoque, jeu_univers, jeu_situations, jeu_extra, jeu_duree, jeu_thinking,
-                       jeu_graine], [jeu_statut, jeu_liste, jeu_audio])
-        jeu_liste.change(lambda p: p, jeu_liste, jeu_audio)
+                       jeu_graine], [jeu_statut, jeu_liste, jeu_audio, jeu_jonction])
+        jeu_liste.change(jeu.ecouter, jeu_liste, [jeu_audio, jeu_jonction])
         champs_style = [genre, style, instruments, ambiance, extra, voix_base, mode]
         for champ in champs_style:
             champ.change(apercu_description, champs_style, description)

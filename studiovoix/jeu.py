@@ -7,10 +7,11 @@ pousserait à l'imitation. Rangement : data/jeux/<projet>/<situation>/<horodatag
 """
 import re
 import shutil
+from pathlib import Path
 
 import gradio as gr
 
-from . import acestep
+from . import acestep, boucle as boucles
 from . import config as cfg
 from .mixage import couper_jingle
 from .outils import nouveau_dossier
@@ -109,16 +110,38 @@ def generer_bande_son(projet, epoque, univers, situations, extra, duree_boucles,
         params = acestep.text2music_params(prompt, INSTRUMENTAL, "en", duree_gen, 0, thinking)
         ((brute, seed),) = acestep.generer(params, [dossier / "brute.wav"], progress, etape, graine=graine)
         piste = dossier / "piste.wav"
+        infos_boucle, note = None, ""
         if boucle:
-            shutil.copy(brute, piste)
+            try:
+                b = boucles.creer_boucle(brute, piste, dossier / "apercu_jonction.wav")
+                infos_boucle = boucles.en_dict(b)
+                note = f"boucle de {b.duree:.0f} s ({b.mesures} mesures), jonction {b.qualite()}"
+            except ValueError:
+                shutil.copy(brute, piste)
+                note = "pas de boucle trouvée (morceau trop peu rythmé) : piste gardée telle quelle"
         else:
             duree = couper_jingle(brute, piste, duree)
+            note = f"jingle de {duree:.1f} s"
         ecrire_creation(dossier, {
             "type": "jeu", "projet": projet, "situation": ident, "libelle": libelle, "boucle": boucle,
             "description": prompt, "duree": round(float(duree_gen if boucle else duree), 2),
-            "reflexion": bool(thinking), "versions": [{"graine": seed, "dossier": ".", "fichier": str(piste)}],
+            "reflexion": bool(thinking), "boucle_points": infos_boucle,
+            "versions": [{"graine": seed, "dossier": ".", "fichier": str(piste)}],
         })
-        pistes.append((libelle, str(piste)))
-    choix = [(lib, p) for lib, p in pistes]
-    msg = f"✅ {len(pistes)} piste(s) générée(s) dans {cfg.GAMES_DIR / projet}."
-    return msg, gr.update(choices=choix, value=choix[0][1]), choix[0][1]
+        pistes.append((libelle, str(piste), note))
+    choix = [(lib, p) for lib, p, _ in pistes]
+    msg = (f"✅ {len(pistes)} piste(s) générée(s) dans {cfg.GAMES_DIR / projet} :\n\n"
+           + "\n".join(f"- **{lib}** : {note}" for lib, _, note in pistes))
+    return msg, gr.update(choices=choix, value=choix[0][1]), choix[0][1], jonction(choix[0][1])
+
+
+def jonction(piste):
+    """Aperçu de la jonction (5 s de fin puis 5 s de début) d'une piste en boucle, sinon None."""
+    if not piste:
+        return None
+    p = Path(piste).with_name("apercu_jonction.wav")
+    return str(p) if p.exists() else None
+
+
+def ecouter(piste):
+    return piste, jonction(piste)

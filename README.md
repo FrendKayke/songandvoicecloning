@@ -26,6 +26,7 @@ Modules de `studiovoix/` :
 | `acestep.py` | génération de la chanson (API REST d'ACE-Step) |
 | `styles.py` | listes déroulantes des styles (libellés français, termes anglais) |
 | `jeu.py` | bande-son de jeu : situations, génération en lot, jingles |
+| `boucle.py` | boucles parfaites pour les musiques de fond |
 | `demucs.py` | séparation voix / instrumental |
 | `seedvc.py` | conversion de voix chantée |
 | `chatterbox.py` | synthèse vocale (lance `moteurs/chatterbox_tts.py`) |
@@ -81,7 +82,7 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
    - **Chanson avec ma voix** (par défaut) : la chanson est chantée avec ta voix ;
    - **Chanson avec la voix d'ACE-Step** : musique seule, la voix générée par ACE-Step est gardée telle quelle (plus rapide : ni séparation ni conversion, pas besoin de voix enregistrée) ;
    - **Instrumental** : musique sans voix, les paroles sont ignorées.
-4. Onglet **Bande-son de jeu** : musiques sans voix pour un jeu. Donne un nom de projet, choisis l'époque (16-bit par défaut, 8-bit, orchestral…), l'univers et les situations (écran titre, menu, plateau, tension, combat, boss, boutique, et les jingles victoire, défaite, booster, carte rare). Tu peux taper ta propre situation en anglais (« fire faction theme, taiko drums »). Le tableau montre la description envoyée pour chaque piste. « Générer la bande-son » les crée une par une dans `data\jeux\<projet>\<situation>\<date>\` (`piste.wav`). Les jingles sont générés sur 10 s (le minimum d'ACE-Step) puis coupés proprement à leur durée.
+4. Onglet **Bande-son de jeu** : musiques sans voix pour un jeu. Donne un nom de projet, choisis l'époque (16-bit par défaut, 8-bit, orchestral…), l'univers et les situations (écran titre, menu, plateau, tension, combat, boss, boutique, et les jingles victoire, défaite, booster, carte rare). Tu peux taper ta propre situation en anglais (« fire faction theme, taiko drums »). Le tableau montre la description envoyée pour chaque piste. « Générer la bande-son » les crée une par une dans `data\jeux\<projet>\<situation>\<date>\` (`piste.wav`). Les jingles sont générés sur 10 s (le minimum d'ACE-Step) puis coupés proprement à leur durée. Les musiques de fond deviennent des **boucles parfaites** : le fichier `piste.wav` tourne en boucle sans coupure (`loop: true` dans Howler.js, `<audio loop>`…) ; l'aperçu « Jonction » te fait écouter le passage fin → début, et le message donne la qualité de la jonction.
 5. Onglet **Synthèse vocale** : choisis une voix de ta bibliothèque, la langue, écris le texte et clique sur « Lire le texte avec cette voix ». Les textes longs (jusqu'à 5 000 caractères) sont découpés en phrases. Chaque lecture est rangée dans `data\tts\<date>\` (texte et `parole.wav`).
 6. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
 

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from conftest import no_progress
+from conftest import musique, no_progress, wav_octets
 from studiovoix import config as cfg
 from studiovoix import jeu
 from studiovoix.mixage import couper_jingle
@@ -50,8 +50,8 @@ def test_apercu():
 
 
 def test_generation_en_lot(fake_acestep, jeux):
-    srv = fake_acestep()
-    msg, liste, premiere = jeu.generer_bande_son(
+    srv = fake_acestep()  # renvoie une tonalité pure de 4 s : pas de pulsation, donc pas de boucle possible
+    msg, liste, premiere, jonction = jeu.generer_bande_son(
         "Mon jeu!", EPOQUE, ["dark fantasy"], ["titre", "victoire", "fire faction theme"], ["electric guitar"],
         60, False, 0, progress=no_progress)
     racine = cfg.GAMES_DIR / "Mon jeu"
@@ -65,6 +65,20 @@ def test_generation_en_lot(fake_acestep, jeux):
     assert creation["type"] == "jeu" and creation["boucle"] is False and creation["projet"] == "Mon jeu"
     assert sf.info(str(victoire / "piste.wav")).duration < 4.1  # le faux serveur rend 4 s : coupé ≤ 4 s
     assert len(liste["choices"]) == 3 and premiere.endswith("piste.wav") and "3 piste(s)" in msg
+    assert "pas de boucle trouvée" in msg and "jingle de" in msg and jonction is None
+
+
+def test_musique_en_boucle(fake_acestep, jeux):
+    srv = fake_acestep()
+    y, intro, mesure = musique(bpm=120)
+    srv.version = lambda i: wav_octets(y)  # le faux ACE-Step rend une vraie petite musique rythmée
+    msg, _, piste, jonction = jeu.generer_bande_son("p", EPOQUE, [], ["combat"], [], 60, False, progress=no_progress)
+    dossier = next((cfg.GAMES_DIR / "p" / "combat").iterdir())
+    points = json.loads((dossier / "creation.json").read_text(encoding="utf-8"))["boucle_points"]
+    assert abs((points["fin"] - points["debut"]) / (4 * mesure) - round((points["fin"] - points["debut"]) / (4 * mesure))) < 0.01
+    assert sf.info(piste).duration == pytest.approx(points["duree"], abs=0.01)
+    assert jonction.endswith("apercu_jonction.wav") and sf.info(jonction).duration == pytest.approx(10, abs=0.01)
+    assert "mesures), jonction" in msg and jeu.ecouter(piste) == (piste, jonction)
 
 
 def test_erreurs(jeux):

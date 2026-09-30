@@ -37,6 +37,40 @@ def energie(path, freq):
     return float(spectre[int(round(freq * len(y) / sr))])
 
 
+def musique(bpm=120, mesures=16, intro=3.0, outro=4.0, seed=0):
+    """Intro (nappe seule), grille de 4 accords (1 par mesure) répétée, grosse caisse, charleston, fin en fondu."""
+    rng = np.random.default_rng(seed)
+    temps = 60 / bpm; mesure = 4 * temps
+    corps = mesures * mesure
+    total = intro + corps + outro
+    t = np.arange(int(total * SR)) / SR
+    y = np.zeros_like(t)
+    accords = [[261.6, 329.6, 392.0], [349.2, 440.0, 523.3], [392.0, 493.9, 587.3], [220.0, 261.6, 329.6]]
+    for k in range(int(np.ceil((corps + outro) / mesure))):
+        t0 = intro + k * mesure
+        m = (t >= t0) & (t < t0 + mesure)
+        for f in accords[k % 4]:
+            y[m] += 0.08 * np.sin(2 * np.pi * f * t[m])
+        for b in range(4):
+            tb = t0 + b * temps
+            m2 = (t >= tb) & (t < tb + 0.15)
+            y[m2] += 0.5 * np.sin(2 * np.pi * 60 * (t[m2] - tb)) * np.exp(-(t[m2] - tb) * 25)
+            th = tb + temps / 2
+            m3 = (t >= th) & (t < th + 0.05)
+            y[m3] += 0.05 * rng.standard_normal(m3.sum()) * np.exp(-(t[m3] - th) * 80)
+    y[t < intro] += 0.05 * np.sin(2 * np.pi * 130.8 * t[t < intro])
+    fade = t > intro + corps
+    y[fade] *= np.linspace(1, 0, fade.sum())
+    y = y / np.abs(y).max() * 0.8
+    return np.stack([y, y]).astype("float32"), intro, mesure
+
+
+def wav_octets(y, sr=SR):
+    tampon = io.BytesIO()
+    sf.write(tampon, y.T, sr, format="WAV")
+    return tampon.getvalue()
+
+
 def no_progress(*args, **kwargs):
     pass
 
