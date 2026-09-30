@@ -1,0 +1,18 @@
+# Environnement Python de l'application
+.venv/
+__pycache__/
+*.pyc
+
+# Données personnelles : voix enregistrées et chansons générées
+data/
+
+# Fichiers audio de test éventuels
+*.wav
+*.mp3
+!docs/**/*.wav
+
+# Divers
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
