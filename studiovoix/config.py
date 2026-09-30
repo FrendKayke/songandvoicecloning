@@ -21,6 +21,8 @@ SEEDVC_DIR = Path(os.environ.get("SEEDVC_DIR", str(ENG_DIR / "seed-vc")))
 SEEDVC_PYTHON = os.environ.get("SEEDVC_PYTHON", venv_python(SEEDVC_DIR))  # sert aussi à Demucs
 CHATTERBOX_DIR = Path(os.environ.get("CHATTERBOX_DIR", str(ENG_DIR / "chatterbox")))
 CHATTERBOX_PYTHON = os.environ.get("CHATTERBOX_PYTHON", venv_python(CHATTERBOX_DIR))
+NETTOYAGE_DIR = Path(os.environ.get("NETTOYAGE_DIR", str(ENG_DIR / "nettoyage")))
+NETTOYAGE_PYTHON = os.environ.get("NETTOYAGE_PYTHON", venv_python(NETTOYAGE_DIR))
 # Scripts exécutés dans l'environnement d'un moteur (jamais importés par l'application)
 MOTEURS_DIR = APP_DIR / "moteurs"
 
@@ -28,7 +30,8 @@ DATA_DIR = APP_DIR / "data"
 VOICES_DIR = DATA_DIR / "voices"
 SONGS_DIR = DATA_DIR / "songs"
 TTS_DIR = DATA_DIR / "tts"  # textes lus par la synthèse vocale
-for d in (VOICES_DIR, SONGS_DIR, TTS_DIR):
+CLEAN_DIR = DATA_DIR / "nettoyage"  # voix nettoyées (avant enregistrement dans la bibliothèque)
+for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 SR = 44100  # fréquence de sortie (le modèle chanté de Seed-VC produit du 44,1 kHz)

@@ -136,6 +136,19 @@ def save_voice(audio_path, name):
     return msg, gr.update(choices=list_voices(), value=name)
 
 
+GARDER_ORIGINAL = "Original"
+GARDER_NETTOYEE = "Version nettoyée"
+
+
+def save_voice_choix(original, nettoyee, garder, name):
+    """Enregistre l'original ou la version nettoyée, selon le choix de l'utilisateur."""
+    if garder == GARDER_NETTOYEE:
+        if not nettoyee:
+            raise gr.Error("Pas encore de version nettoyée : clique d'abord sur « Nettoyer », ou garde l'original.")
+        return save_voice(nettoyee, name)
+    return save_voice(original, name)
+
+
 def infos_voix(name):
     """Fichier à écouter et description de la voix choisie."""
     if not name or name not in list_voices():

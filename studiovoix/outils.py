@@ -27,6 +27,32 @@ def nouveau_dossier(parent: Path) -> Path:
     raise RuntimeError(f"Impossible de créer un dossier dans {parent}")
 
 
+def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None):
+    """Lance un script de moteurs/ en sous-processus et suit son protocole :
+    « PROGRESSION i/n … » → suivi(i, n) ; « ERREUR : message » → gr.Error(« <nom> : message »).
+    Si « attendu » (fichier de sortie) n'existe pas à la fin, c'est aussi une erreur. Renvoie les dernières lignes."""
+    env = os.environ.copy()
+    env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", **(extra_env or {})})
+    lignes = []
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+    )
+    for ligne in proc.stdout:
+        ligne = ligne.rstrip()
+        lignes = (lignes + [ligne])[-60:]
+        if ligne.startswith("PROGRESSION ") and suivi:
+            i, n = (int(x) for x in ligne.split()[1].split("/"))
+            suivi(i, n)
+    code = proc.wait()
+    erreur = next((l_ for l_ in reversed(lignes) if l_.startswith("ERREUR : ")), None)
+    if code != 0 or (attendu is not None and not Path(attendu).exists()):
+        if erreur:
+            raise gr.Error(f"{nom} : " + erreur[len("ERREUR : "):])
+        raise gr.Error(f"{nom} a échoué :\n" + "\n".join(lignes)[-1500:])
+    return lignes
+
+
 def stream_command(cmd, cwd, header, extra_env=None):
     """Lance une commande et renvoie sa sortie au fur et à mesure (pour l'affichage)."""
     log = header + "\n"

@@ -1,6 +1,7 @@
 ﻿# Studio Voix — installation complète, sans droits administrateur.
 # Installe : uv (gestionnaire Python), Python 3.10 / 3.11 / 3.12, ACE-Step 1.5, Seed-VC, Demucs,
-# Chatterbox (synthèse vocale), tous leurs modèles, et l'environnement de l'application.
+# Chatterbox (synthèse vocale), le nettoyage de voix (MossFormer2, VoiceFixer), tous leurs modèles,
+# et l'environnement de l'application.
 # Relançable : chaque étape terminée est sautée.
 
 $ErrorActionPreference = 'Stop'
@@ -20,6 +21,8 @@ $CbSrc = Join-Path $Cb 'src'
 $CbPy = Join-Path $Cb '.venv\Scripts\python.exe'
 # Version de Chatterbox épinglée (Multilingual V3) : le paquet PyPI 0.1.7 ne contient pas encore V3
 $CbCommit = '5de7a54aa4e5e2baadb0182dde554908b48b85c2'
+$Nt = Join-Path $Eng 'nettoyage'
+$NtPy = Join-Path $Nt '.venv\Scripts\python.exe'
 $AppPy = Join-Path $App '.venv\Scripts\python.exe'
 
 # Tout reste sur ce disque (caches compris), rien d'important sur C:
@@ -32,7 +35,7 @@ $env:PKUSEG_HOME = Join-Path $Cb 'pkuseg'   # sinon spacy-pkuseg (Chatterbox) é
 $env:PYTHONIOENCODING = 'utf-8'
 $env:PATH = "$UvDir;$env:PATH"
 
-function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/10] $txt ===" -ForegroundColor Cyan }
+function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/12] $txt ===" -ForegroundColor Cyan }
 function Done($marker) { New-Item -ItemType File -Force -Path $marker | Out-Null }
 
 function Run([string]$exe, [string[]]$argList, [string]$cwd = $null) {
@@ -97,7 +100,7 @@ try {
     Write-Host 'Studio Voix — installation complète' -ForegroundColor Green
     Write-Host "Moteurs et modèles  : $Eng"
     Write-Host "Application         : $App"
-    Write-Host 'Environ 26 à 31 Go à télécharger : compte une bonne heure selon ta connexion.'
+    Write-Host 'Environ 27 à 32 Go à télécharger : compte une bonne heure selon ta connexion.'
     Write-Host 'Tu peux fermer et relancer INSTALLER.bat : les étapes finies seront sautées.'
 
     New-Item -ItemType Directory -Force -Path $Eng | Out-Null
@@ -230,8 +233,39 @@ try {
         Done $m
     } else { Write-Host 'Déjà fait.' }
 
-    # --- 10. Environnement de l'application ---
-    Step 10 'Environnement de Studio Voix (Python 3.12)'
+    # --- 10. Environnement du nettoyage de voix (Python 3.11, même PyTorch 2.6 que Chatterbox) ---
+    Step 10 'Environnement du nettoyage de voix (Python 3.11)'
+    $m = Join-Path $Nt '.env-ok'
+    if (-not (Test-Path $m)) {
+        New-Item -ItemType Directory -Force -Path $Nt | Out-Null
+        $venv = Join-Path $Nt '.venv'
+        Remove-Venv $venv
+        Run $Uv @('venv', '--python', '3.11', $venv)
+        # Même PyTorch que Chatterbox : uv le reprend de son cache, sans nouveau téléchargement
+        Run $Uv @('pip', 'install', '--python', $NtPy, 'torch==2.6.0', 'torchaudio==2.6.0', 'torchvision==0.21.0',
+            '--index-url', 'https://download.pytorch.org/whl/cu124')
+        # ClearerVoice (MossFormer2) avec ses dépendances ; matplotlib et torchlibrosa pour VoiceFixer
+        Run $Uv @('pip', 'install', '--python', $NtPy, 'torch==2.6.0', 'torchaudio==2.6.0', 'torchvision==0.21.0',
+            'clearvoice==0.1.2', 'matplotlib==3.11.2', 'torchlibrosa==0.1.0')
+        # VoiceFixer sans ses dépendances inutiles ici (streamlit, GitPython)
+        Run $Uv @('pip', 'install', '--python', $NtPy, '--no-deps', 'voicefixer==0.1.3')
+        Repair-TorchOmp $NtPy $venv
+        # Surtout pas « import voicefixer » ici : il téléchargerait ses modèles dans le dossier personnel (C:)
+        Run $NtPy @('-c', 'import importlib.util, torch, clearvoice; assert importlib.util.find_spec(''voicefixer''), ''VoiceFixer absent''; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''Nettoyage prêt, GPU :'', torch.cuda.get_device_name(0))')
+        Done $m
+    } else { Write-Host 'Déjà fait.' }
+
+    # --- 11. Modèles du nettoyage (~0,8 Go), rangés dans StudioVoix\nettoyage ---
+    Step 11 'Modèles du nettoyage de voix (~0,8 Go)'
+    $m = Join-Path $Nt '.modeles-ok'
+    if (-not (Test-Path $m)) {
+        # Lancé depuis $Nt : ClearerVoice y range ses modèles (checkpoints\), VoiceFixer aussi (voicefixer\)
+        Run $NtPy @((Join-Path $App 'moteurs\nettoyage_voix.py'), '--telecharger') $Nt
+        Done $m
+    } else { Write-Host 'Déjà fait.' }
+
+    # --- 12. Environnement de l'application ---
+    Step 12 'Environnement de Studio Voix (Python 3.12)'
     $m = Join-Path $App '.venv\installe.ok'
     if (-not (Test-Path $m)) {
         $venv = Join-Path $App '.venv'

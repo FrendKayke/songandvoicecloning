@@ -19,6 +19,8 @@ set "ACESTEP_DIR="
 set "ACESTEP_PYTHON="
 set "CHATTERBOX_DIR="
 set "CHATTERBOX_PYTHON="
+set "NETTOYAGE_DIR="
+set "NETTOYAGE_PYTHON="
 
 curl -s -f -o nul -m 2 %ACESTEP_URL%/health
 if not errorlevel 1 goto serveur_ok

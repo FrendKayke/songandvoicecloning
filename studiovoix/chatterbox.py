@@ -6,13 +6,12 @@ en sous-processus, dont elle lit la progression (« PROGRESSION i/n ») et les e
 """
 import json
 import os
-import subprocess
 from pathlib import Path
 
 import gradio as gr
 
 from . import config as cfg
-from .outils import nouveau_dossier, stream_command
+from .outils import lancer_moteur, nouveau_dossier, stream_command
 from .voix import chemin_voix
 
 HF_REPO = "models--ResembleAI--chatterbox"
@@ -87,27 +86,14 @@ def synthese(voix, texte, langue_label, exaggeration, cfg_weight, temperature, g
         "temperature": float(temperature), "graine": int(graine or 0),
     }, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    env = os.environ.copy()
-    env.update(_env())
+    env = _env()
     if not missing_components():
         env["HF_HUB_OFFLINE"] = "1"  # modèles présents : pas de vérification en ligne à chaque lecture
 
     progress(0.02, desc="Chargement de Chatterbox…")
-    lignes = []
-    proc = subprocess.Popen(
-        [cfg.CHATTERBOX_PYTHON, str(script()), str(tache)], cwd=workdir, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+    lancer_moteur(
+        [cfg.CHATTERBOX_PYTHON, str(script()), str(tache)], workdir, env, "Chatterbox",
+        lambda i, n: progress(0.1 + 0.85 * (i - 1) / n, desc=f"Synthèse vocale : morceau {i}/{n}…"),
+        attendu=sortie,
     )
-    for ligne in proc.stdout:
-        ligne = ligne.rstrip()
-        lignes = (lignes + [ligne])[-60:]
-        if ligne.startswith("PROGRESSION "):
-            i, n = (int(x) for x in ligne.split()[1].split("/"))
-            progress(0.1 + 0.85 * (i - 1) / n, desc=f"Synthèse vocale : morceau {i}/{n}…")
-    code = proc.wait()
-    erreur = next((l_ for l_ in reversed(lignes) if l_.startswith("ERREUR : ")), None)
-    if code != 0 or not sortie.exists():
-        if erreur:
-            raise gr.Error("Chatterbox : " + erreur[len("ERREUR : "):])
-        raise gr.Error("Chatterbox a échoué :\n" + "\n".join(lignes)[-1500:])
     return str(sortie), f"Terminé. Fichier : {sortie}"

@@ -9,9 +9,10 @@ Toute l'interface, les messages et la documentation sont **en français**.
 - `studio_voix.py` : point d'entrée mince (lancé par `lancer.bat`), qui appelle `studiovoix.interface.build_ui`.
 - `studiovoix/` : le code de l'application, un module par rôle :
   - `config.py` (chemins, variables d'environnement, `SR`, `LANGUES`) — les autres modules lisent `cfg.X` au moment de l'appel, ce qui permet aux tests de rediriger les dossiers ;
-  - un module par moteur, chacun avec son action, `ckpt_dir()`, son état et `download()` : `acestep.py` (HTTP), `demucs.py`, `seedvc.py` et `chatterbox.py` (sous-processus) ;
+  - un module par moteur, chacun avec son action, `ckpt_dir()`, son état et `download()` : `acestep.py` (HTTP), `demucs.py`, `seedvc.py`, `chatterbox.py` et `nettoyage.py` (sous-processus) ; les scripts de `moteurs/` sont lancés par `outils.lancer_moteur` (protocole `PROGRESSION i/n`, `ERREUR : …`, fichier de sortie attendu) ;
   - `styles.py` : catalogue des listes déroulantes de l'onglet « Créer une chanson » (couples libellé français → termes anglais ; listes `multiselect` + `allow_custom_value`, la saisie libre passe telle quelle) ; `styles.texte()` accepte un texte ou une sélection ;
   - `voix.py` (bibliothèque de voix : `data/voices/<nom>.wav`, 44,1 kHz mono, 30 s au plus, normalisée à 0,95 ; import wav/mp3/flac ou micro avec contrôle de qualité `analyser()` — durée, niveau de la voix au 95e centile du RMS sur 50 ms, saturation —, écoute, renommage, suppression ; les noms sont comparés sans tenir compte de la casse, comme Windows, et toute opération vérifie que le nom est dans la liste), `mixage.py`, `pipeline.py` (enchaînement), `modeles.py` (tableau de l'onglet « Modèles »), `outils.py` (journal de commande, ouverture de dossier), `interface.py` (Gradio : onglets « Bibliothèque de voix », « Créer une chanson », « Synthèse vocale », « Modèles » ; après chaque opération sur la bibliothèque, `synchro_voix` met à jour les listes de voix des autres onglets ; la suppression passe par un `confirm()` du navigateur).
+- `moteurs/nettoyage_voix.py` : script exécuté **dans l'environnement du nettoyage**, depuis `StudioVoix\nettoyage` (dossier de travail = dossier des modèles). Tâche JSON `{entree, sortie, niveau}` avec `leger` (MossFormer2_SE_48K de ClearerVoice, sortie 48 kHz), `fort` (VoiceFixer, 44,1 kHz) ou `maximal` (les deux). Dans la bibliothèque, l'utilisateur écoute la version nettoyée et choisit (`voix.save_voice_choix`) ; « Reprendre cette voix » recharge une voix enregistrée pour la nettoyer.
 - `moteurs/chatterbox_tts.py` : script exécuté **dans l'environnement de Chatterbox** (jamais importé par l'application, qui n'a pas torch ; ses imports lourds sont dans les fonctions pour que `decouper()` soit testable). Protocole : `python chatterbox_tts.py <tache.json>` (JSON UTF-8 : texte, langue, voix, sortie, exaggeration, cfg_weight, temperature, graine) ; il écrit `PROGRESSION i/n`, `ERREUR : …` (erreur prévue, par exemple manque de mémoire graphique) et `TERMINE <fichier>`. `--telecharger` charge le modèle sur CPU (téléchargement + vérification). Le fichier de tâche évite de passer du texte accentué par la ligne de commande Windows.
 - `tests/` : pytest sans GPU. `conftest.py` fournit un faux serveur ACE-Step (HTTP), un faux Demucs (`python -m demucs`, 2 ou 4 pistes) et un faux Seed-VC (`inference.py`). Lancer : `uv run --python 3.12 --with-requirements requirements.txt --with pytest pytest tests`.
 - `installer.ps1` (lancé par `INSTALLER.bat`) : installation complète en un clic, sans droits admin.
@@ -31,7 +32,7 @@ Modes (`pipeline.MODES`, sélecteur en haut de l'onglet) : « Chanson avec ma vo
 
 Synthèse vocale : `chatterbox.synthese` → `ChatterboxMultilingualTTS.from_pretrained(device, t3_model="v3")` puis `generate(text, language_id, audio_prompt_path, exaggeration, cfg_weight, temperature)` (API vérifiée dans `src/chatterbox/mtl_tts.py`), sortie 24 kHz dans `data/tts/<horodatage>/parole.wav`. `generate()` plafonne à 1000 jetons (≈ 40 s) : le texte est découpé en morceaux de 300 caractères au plus (limite de l'interface officielle), recollés avec 0,25 s de silence. Seules les 10 premières secondes de la référence sont utilisées. Chaque sortie porte le filigrane Perth.
 
-## Quatre environnements Python séparés (volontairement)
+## Cinq environnements Python séparés (volontairement)
 Ils sont gérés par **uv** (Pythons « managed », jamais le Python système, qui est en 3.14) :
 
 | Environnement | Python | Contenu | Emplacement |
@@ -39,9 +40,10 @@ Ils sont gérés par **uv** (Pythons « managed », jamais le Python système, q
 | ACE-Step | 3.11/3.12 (choisi par son `pyproject`) | `uv sync` officiel, torch cu128 | `<lecteur>:\StudioVoix\ace-step\.venv` |
 | Seed-VC + Demucs | 3.10 | torch 2.4.0 cu124 + dépendances minimales | `<lecteur>:\StudioVoix\seed-vc\.venv` |
 | Chatterbox | 3.11 | torch 2.6.0 cu124 + dépendances épinglées + Chatterbox (`--no-deps`, source au commit `$CbCommit`) | `<lecteur>:\StudioVoix\chatterbox\.venv` |
+| Nettoyage de voix | 3.11 | torch 2.6.0 + torchvision 0.21.0 cu124 (repris du cache uv de Chatterbox), `clearvoice==0.1.2`, `voicefixer==0.1.3` en `--no-deps` | `<lecteur>:\StudioVoix\nettoyage\.venv` |
 | Application | 3.12 | gradio, requests, numpy, librosa, soundfile (**pas de torch**) | `<appli>\.venv` |
 
-L'application n'importe jamais les moteurs : elle les appelle en **sous-processus** (Seed-VC, Demucs, Chatterbox) ou en **HTTP** (ACE-Step). Garde ce découplage pour tout nouveau moteur (par exemple un moteur de synthèse vocale) : un environnement dédié, installé par `installer.ps1`, appelé en sous-processus ou en HTTP.
+L'application n'importe jamais les moteurs : elle les appelle en **sous-processus** (Seed-VC, Demucs, Chatterbox, nettoyage) ou en **HTTP** (ACE-Step). Garde ce découplage pour tout nouveau moteur (par exemple un moteur de synthèse vocale) : un environnement dédié, installé par `installer.ps1`, appelé en sous-processus ou en HTTP.
 
 ## Contraintes apprises en déboguant (à respecter)
 - **Chemins courts** : les moteurs vont dans `<lecteur de l'appli>:\StudioVoix`, pas dans le dossier de l'appli (`D:\Projets 3d\Voix et chanson` contient des espaces et le cache Hugging Face produit des chemins proches de la limite de 260 caractères).
@@ -60,6 +62,11 @@ L'application n'importe jamais les moteurs : elle les appelle en **sous-processu
   - **`PKUSEG_HOME`** (dans `installer.ps1`, `lancer.bat` et par défaut dans `chatterbox._env()`) : sinon `spacy-pkuseg` télécharge un modèle de 35 Mo dans `~\.pkuseg`, donc sur C: ;
   - les modèles (~3,2 Go : `t3_mtl23ls_v3.safetensors`, `s3gen.pt`, `ve.pt`, vocabulaire) vont dans le cache Hugging Face (`HF_HOME`) ; quand ils sont présents, l'application lance le moteur avec `HF_HUB_OFFLINE=1` (chargement vérifié hors ligne) ;
   - VRAM : ACE-Step (serveur resté ouvert) + Chatterbox peuvent dépasser 12 Go ; le script intercepte `torch.cuda.OutOfMemoryError` et demande de fermer la fenêtre ACE-Step.
+- **Nettoyage de voix** (étapes 10 et 11, marqueurs `nettoyage\.env-ok` et `nettoyage\.modeles-ok`) :
+  - **`import voicefixer` télécharge ~600 Mo dans `~\.cache\voicefixer`** (donc sur C:), chemin calculé à l'import (`vocoder/config.py`, `__init__.py`) : le script redirige `USERPROFILE`/`HOME` vers `.\voicefixer` **avant** l'import ; la vérification de l'étape 10 utilise `importlib.util.find_spec('voicefixer')`, jamais `import voicefixer` ;
+  - ClearerVoice range ses modèles dans `./checkpoints/<modèle>` relatif au dossier de travail et ne télécharge que si `last_best_checkpoint` manque : `_reparer_mossformer2()` le retire si `last_best_checkpoint.pt` est absent (téléchargement interrompu) ;
+  - VoiceFixer : `--no-deps` pour éviter streamlit et GitPython ; il importe matplotlib et torchlibrosa, installés explicitement ; `clearvoice` réclame torchvision (installé depuis l'index cu124 avec torch) ;
+  - écartés après essais : Resemble Enhance (importe `deepspeed`, quasi impossible à installer sous Windows), DeepFilterNet (abandonné depuis 2023, bruit seulement), `noisereduce` (dégrade la ressemblance), super-résolution MossFormer2_SR_48K (2,1 Go sans gain mesuré).
 - **Seed-VC** : le dépôt n'a pas de commande de téléchargement ; les modèles se téléchargent au premier `inference.py` (dans `checkpoints/hf_cache`, relatif à son dossier). Le fichier de sortie s'appelle `vc_<source>_<cible>_<...>.wav`.
 
 ## Règles de travail

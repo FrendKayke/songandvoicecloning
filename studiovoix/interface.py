@@ -1,16 +1,23 @@
 """Interface Gradio (onglets « Bibliothèque de voix », « Créer une chanson », « Synthèse vocale », « Modèles »)."""
 import gradio as gr
 
-from . import acestep, chatterbox, demucs, seedvc
+from . import acestep, chatterbox, demucs, nettoyage, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
 from .pipeline import MODE_INSTRU, MODE_MA_VOIX, MODES, RETRAITS, creer_chanson
 from .styles import LISTES
-from .voix import delete_voice, infos_voix, list_voices, rename_voice, save_voice
+from .voix import (GARDER_NETTOYEE, GARDER_ORIGINAL, chemin_voix, delete_voice, infos_voix, list_voices,
+                   rename_voice, save_voice_choix)
 
 # Fenêtre de confirmation du navigateur avant suppression (annuler → None → rien n'est supprimé)
 CONFIRMER_SUPPRESSION = "(v) => (v && confirm('Supprimer définitivement la voix « ' + v + ' » ?')) ? v : null"
+
+
+def reprendre_voix(name):
+    """Recharge une voix de la bibliothèque dans « Ajouter une voix » pour la nettoyer."""
+    p = chemin_voix(name)
+    return str(p), f"{name} propre", "Voix rechargée dans « Ajouter une voix » : choisis un niveau et clique sur « Nettoyer »."
 
 
 def synchro_voix(courante):
@@ -61,10 +68,21 @@ def build_ui():
                 "La qualité est vérifiée à l'import (durée, volume, saturation)."
             )
             with gr.Row():
-                audio_in = gr.Audio(sources=["upload", "microphone"], type="filepath",
-                                    label="Fichier audio ou enregistrement au micro")
+                with gr.Column():
+                    audio_in = gr.Audio(sources=["upload", "microphone"], type="filepath",
+                                        label="Fichier audio ou enregistrement au micro")
+                    with gr.Accordion("🧽 Nettoyer la voix (micro bruyant, pièce qui résonne)", open=True):
+                        niveau = gr.Radio(list(nettoyage.NIVEAUX), value=list(nettoyage.NIVEAUX)[0],
+                                          label="Niveau de nettoyage",
+                                          info="« Léger » garde l'articulation intacte ; « Fort » retire aussi l'écho "
+                                               "mais peut adoucir la diction. Écoute et compare avant d'enregistrer.")
+                        btn_clean = gr.Button("🧽 Nettoyer l'échantillon")
+                        audio_clean = gr.Audio(label="Version nettoyée", type="filepath", interactive=False)
+                        msg_clean = gr.Markdown()
                 with gr.Column():
                     nom = gr.Textbox(label="Nom de la voix", value="laurent")
+                    garder = gr.Radio([GARDER_ORIGINAL, GARDER_NETTOYEE], value=GARDER_ORIGINAL,
+                                      label="Version à enregistrer")
                     btn_save = gr.Button("Vérifier et enregistrer cette voix", variant="primary")
                     msg_voice = gr.Markdown()
             gr.Markdown("### Mes voix")
@@ -77,6 +95,7 @@ def build_ui():
                 with gr.Column():
                     nouveau_nom = gr.Textbox(label="Nouveau nom")
                     btn_ren = gr.Button("✏️ Renommer")
+                    btn_reprendre = gr.Button("🧽 Reprendre cette voix pour la nettoyer")
                     btn_del = gr.Button("🗑️ Supprimer", variant="stop")
                     msg_biblio = gr.Markdown()
 
@@ -175,18 +194,24 @@ def build_ui():
                 b_sv = gr.Button("⬇️ Télécharger Seed-VC", variant="primary")
                 b_dm = gr.Button("⬇️ Télécharger Demucs", variant="primary")
                 b_cb = gr.Button("⬇️ Télécharger Chatterbox", variant="primary")
+                b_nt = gr.Button("⬇️ Télécharger le nettoyage", variant="primary")
             with gr.Row():
                 o_ace = gr.Button("📂 Ouvrir dossier ACE-Step")
                 o_sv = gr.Button("📂 Ouvrir dossier Seed-VC")
                 o_dm = gr.Button("📂 Ouvrir dossier Demucs")
                 o_cb = gr.Button("📂 Ouvrir dossier Chatterbox")
+                o_nt = gr.Button("📂 Ouvrir dossier nettoyage")
                 o_data = gr.Button("📂 Ouvrir mes chansons")
 
         def synchro_autres(evt):
             """Après une opération sur la bibliothèque : listes de voix des autres onglets à jour."""
             return evt.then(synchro_voix, voix, voix).then(synchro_voix, tts_voix, tts_voix)
 
-        synchro_autres(btn_save.click(save_voice, [audio_in, nom], [msg_voice, biblio]))
+        synchro_autres(btn_save.click(save_voice_choix, [audio_in, audio_clean, garder, nom], [msg_voice, biblio]))
+        btn_clean.click(nettoyage.nettoyer, [audio_in, niveau], [audio_clean, garder, msg_clean])
+        # Nouvel échantillon : l'ancienne version nettoyée ne lui correspond plus
+        audio_in.change(lambda: (None, GARDER_ORIGINAL, ""), None, [audio_clean, garder, msg_clean])
+        btn_reprendre.click(reprendre_voix, biblio, [audio_in, nom, msg_biblio])
         synchro_autres(btn_ren.click(rename_voice, [biblio, nouveau_nom], [msg_biblio, biblio]))
         synchro_autres(btn_del.click(delete_voice, biblio, [msg_biblio, biblio], js=CONFIRMER_SUPPRESSION))
         biblio.change(infos_voix, biblio, [ecoute, desc_voix])
@@ -199,12 +224,13 @@ def build_ui():
         )
         btn_refresh.click(models_status_md, None, status)
         for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download),
-                      (b_cb, chatterbox.download)):
+                      (b_cb, chatterbox.download), (b_nt, nettoyage.download)):
             b.click(fn, None, log).then(models_status_md, None, status)
         o_ace.click(lambda: open_folder(acestep.ckpt_dir()))
         o_sv.click(lambda: open_folder(seedvc.ckpt_dir()))
         o_dm.click(lambda: open_folder(demucs.ckpt_dir()))
         o_cb.click(lambda: open_folder(chatterbox.ckpt_dir()))
+        o_nt.click(lambda: open_folder(nettoyage.ckpt_dir()))
         o_data.click(lambda: open_folder(cfg.SONGS_DIR, create=True))
         demo.load(models_status_md, None, status)
         btn.click(
