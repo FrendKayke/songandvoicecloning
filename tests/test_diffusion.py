@@ -3,13 +3,14 @@ import importlib.util
 import json
 import sys
 import textwrap
+from pathlib import Path
 
 import gradio as gr
 import pytest
 import soundfile as sf
 
 from conftest import no_progress
-from studiovoix import bruitages, config as cfg, diffusion
+from studiovoix import bruitages, config as cfg, diffusion, modele3d
 from studiovoix.modeles import models_status_md
 
 _spec = importlib.util.spec_from_file_location("diffusion_moteur", cfg.MOTEURS_DIR / "diffusion.py")
@@ -43,6 +44,20 @@ FAUX_MOTEUR = textwrap.dedent("""
             fichiers.append(str(f))
         graines = [t["graine"] or 111] + [222, 333][: t["variantes"] - 1]
         print("RESULTAT " + json.dumps({"fichiers": fichiers, "graines": graines, "frequence": 44100}), flush=True)
+    elif action == "forme3d":
+        if not Path(t["image"]).exists(): print("ERREUR : image introuvable", flush=True); sys.exit(2)
+        n = 6 if t["texture"] else 4
+        for i in range(1, n + 1): print(f"PROGRESSION {i}/{n} x", flush=True)
+        d = Path(t["dossier"]); d.mkdir(parents=True, exist_ok=True)
+        (d / "image_detouree.png").write_bytes(b"png"); (d / "forme.glb").write_bytes(b"glTF")
+        res = {"forme": str(d / "forme.glb"), "faces": 1234, "graine": t["graine"] or 555, "texture": None, "obj": None}
+        if t["texture"]:
+            (d / "modele.glb").write_bytes(b"glTF"); res["texture"] = str(d / "modele.glb")
+        if "obj" in t["formats"]:
+            base = "modele" if t["texture"] else "forme"
+            (d / f"{base}.obj").write_text("o x"); (d / "material.mtl").write_text("newmtl material_0")
+            (d / "material_0.png").write_bytes(b"png"); res["obj"] = str(d / f"{base}.obj")
+        print("RESULTAT " + json.dumps(res), flush=True)
     print("TERMINE -", flush=True)
 """)
 
@@ -56,7 +71,6 @@ def faux_diffusion(env, monkeypatch):
     monkeypatch.setattr(cfg, "DIFFUSION_PYTHON", sys.executable)
     monkeypatch.setattr(cfg, "DIFFUSION_DIR", env / "StudioVoix" / "diffusion")
     cfg.DIFFUSION_DIR.mkdir(parents=True)
-    monkeypatch.setattr(cfg, "SFX_DIR", env / "data" / "bruitages")
     monkeypatch.setenv("HF_HOME", str(env / "StudioVoix" / "hf-home"))
     monkeypatch.delenv("U2NET_HOME", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
@@ -148,3 +162,63 @@ def test_galerie_bruitage(faux_diffusion):
     assert "graine 222" in msg and _journal()[-1]["tache"]["graine"] == 222 and _journal()[-1]["tache"]["variantes"] == 1
     with pytest.raises(gr.Error, match="chansons et les pistes"):
         galerie.refaire_passage(dossier, 1, 0, 1, "", "", "", progress=no_progress)
+
+
+def test_modele_3d_depuis_une_image(faux_diffusion):
+    im = faux_diffusion / "tasse.PNG"
+    im.write_bytes(b"png")
+    etapes = []
+    msg, glb, detouree, fichiers, dossier = modele3d.generer(str(im), "Tasse!", "Fine (plus lente, plus de mémoire)",
+                                                            True, 7, ["obj"], progress=lambda p, desc="": etapes.append(desc))
+    d = next(cfg.MODELS3D_DIR.iterdir())
+    assert dossier == str(d) and glb == str(d / "modele.glb") and detouree == str(d / "image_detouree.png")
+    assert (d / "image.png").read_bytes() == b"png"  # image de départ copiée (extension normalisée)
+    assert [Path(f).name for f in fichiers] == ["forme.glb", "material.mtl", "material_0.png", "modele.glb", "modele.obj"]
+    assert "1234 faces, graine 7" in msg and "non peinte" not in msg
+    infos = json.loads((d / "creation.json").read_text(encoding="utf-8"))
+    assert infos["type"] == "3d" and infos["nom"] == "Tasse" and infos["image"] == "image.png"
+    assert infos["octree"] == 384 and infos["faces"] == 100000 and infos["etapes"] == 5 and infos["texture"]
+    assert infos["formats"] == ["glb", "obj"] and infos["versions"][0]["graine"] == 7
+    t = _journal()[0]["tache"]
+    assert t["formats"] == ["glb", "obj"] and t["octree"] == 384 and t["faces"] == 100000 and t["image"] == str(d / "image.png")
+    assert any("peinture de la texture" in e for e in etapes)
+
+
+def test_modele_3d_sans_texture_et_erreurs(faux_diffusion):
+    im = faux_diffusion / "epee.jpg"
+    im.write_bytes(b"jpg")
+    msg, glb, _, fichiers, dossier = modele3d.generer(str(im), "", "Normale", False, 0, [], progress=no_progress)
+    d = Path(dossier)
+    assert glb == str(d / "forme.glb") and fichiers == [str(d / "forme.glb")] and "graine 555" in msg
+    infos = json.loads((d / "creation.json").read_text(encoding="utf-8"))
+    assert infos["nom"] == "modele" and infos["octree"] == 256 and not infos["texture"] and infos["formats"] == ["glb"]
+    with pytest.raises(gr.Error, match="Importe une image"):
+        modele3d.generer(None, "x", "Normale", True, 0, ["glb"], progress=no_progress)
+    (faux_diffusion / "doc.txt").write_text("x")
+    with pytest.raises(gr.Error, match="Format d'image"):
+        modele3d.generer(str(faux_diffusion / "doc.txt"), "x", "Normale", True, 0, ["glb"], progress=no_progress)
+    (diffusion.ckpt_dir("texture3d") / "snapshots" / "abc" / "hunyuan3d-paint-v2-0-turbo" / "unet"
+     / "diffusion_pytorch_model.safetensors").unlink()
+    with pytest.raises(gr.Error, match="Hunyuan3D-2 texture"):
+        modele3d.generer(str(im), "x", "Normale", True, 0, ["glb"], progress=no_progress)
+    *_, dossier = modele3d.generer(str(im), "x", "Normale", False, 0, ["glb"], progress=no_progress)  # forme seule : OK
+    assert Path(dossier).is_dir()
+
+
+def test_galerie_modele_3d(faux_diffusion):
+    from studiovoix import galerie
+
+    im = faux_diffusion / "tasse.png"
+    im.write_bytes(b"png")
+    modele3d.generer(str(im), "Tasse", "Normale", True, 7, ["glb"], progress=no_progress)
+    (lib, dossier), = galerie.lister("Modèles 3D")
+    assert "🧊 Modèle 3D · Tasse — depuis une image" in lib
+    md, audio, versions, desc, paroles, fin, modele = galerie.details(dossier)
+    assert "qualité Normale, 1234 faces, texturé" in md and audio is None and not versions["visible"]
+    assert modele["value"] == str(Path(dossier) / "modele.glb") and modele["visible"]
+    msg, nouveau = galerie.recreer(dossier, 1, progress=no_progress)
+    assert "graine 7" in msg and nouveau != dossier and _journal()[-1]["tache"]["graine"] == 7
+    assert galerie.lire(nouveau)["nom"] == "Tasse" and (Path(nouveau) / "image.png").exists()
+    with pytest.raises(gr.Error, match="chansons et les pistes"):
+        galerie.refaire_passage(dossier, 1, 0, 1, "", "", "", progress=no_progress)
+    assert "supprimée" in galerie.supprimer(dossier) and galerie.lister("Modèles 3D")[0][1] == nouveau

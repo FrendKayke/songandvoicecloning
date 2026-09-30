@@ -127,11 +127,13 @@ def image(prompt, sortie, graine, etapes=30, progress=None):
                   {1: "chargement de Stable Diffusion XL", 2: "génération de l'image"})
 
 
-def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, progress=None):
+def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None):
+    """Image → forme.glb (+ modele.glb texturé si `texture` et carte graphique ; + OBJ si demandé).
+    RESULTAT {forme, faces, graine, texture: chemin ou None, obj: chemin ou None}."""
     _verifier("forme3d", *(["texture3d"] if texture else []))
     return lancer("forme3d", {"image": str(image_path), "dossier": str(dossier), "etapes": int(etapes),
                               "octree": int(octree), "faces": int(faces), "graine": int(graine or 0),
-                              "texture": bool(texture)}, dossier, "Hunyuan3D", progress,
+                              "texture": bool(texture), "formats": list(formats)}, dossier, "Hunyuan3D", progress,
                   {1: "détourage de l'image", 2: "chargement du générateur de forme", 3: "génération de la forme",
                    4: "nettoyage et simplification", 5: "chargement du peintre de texture",
                    6: "peinture de la texture (plusieurs minutes)"})

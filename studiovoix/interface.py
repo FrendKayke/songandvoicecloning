@@ -4,7 +4,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from . import acestep, bruitages, chatterbox, demucs, diffusion, export, galerie, jeu, nettoyage, rvc, seedvc
+from . import acestep, bruitages, chatterbox, demucs, diffusion, export, galerie, jeu, modele3d, nettoyage, rvc, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
@@ -288,7 +288,7 @@ def build_ui():
             tts_statut = gr.Markdown()
             tts_sortie = gr.Audio(label="Parole générée", type="filepath")
 
-        with gr.Tab("5. Galerie"):
+        with gr.Tab("5. Galerie") as gal_tab:
             with gr.Row():
                 gal_filtre = gr.Radio(list(galerie.FILTRES), value="Tout", label="Afficher")
                 gal_maj = gr.Button("🔄 Actualiser", scale=0)
@@ -300,6 +300,7 @@ def build_ui():
                 with gr.Column(scale=2):
                     gal_version = gr.Radio([1], value=1, label="Version", visible=False)
                     gal_audio = gr.Audio(type="filepath", label="Écouter")
+                    gal_modele = gr.Model3D(label="Modèle 3D", visible=False, clear_color=(0.92, 0.92, 0.92, 1.0))
                     with gr.Row():
                         gal_recreer = gr.Button("🔁 Recréer (même graine)")
                         gal_dossier = gr.Button("📂 Ouvrir le dossier")
@@ -387,7 +388,35 @@ def build_ui():
                 btn_sfx_export = gr.Button("📦 Exporter la variante écoutée")
             sfx_export_msg = gr.Markdown()
 
-        with gr.Tab("8. Modèles"):
+        with gr.Tab("8. Modèles 3D"):
+            gr.Markdown(
+                "Un **modèle 3D** à partir d'une **image** d'objet (personnage, arme, objet de carte…) : Hunyuan3D-2 "
+                "retire le fond, sculpte la forme puis peint la texture. Une image nette, un seul objet, fond simple : "
+                "c'est ce qui marche le mieux. Résultat en GLB (visionneuse ci-dessous, utilisable tel quel dans un "
+                "jeu web, Blender, Unity ou Godot) et en OBJ si demandé. "
+                "Ferme la fenêtre ACE-Step avant : la texture demande beaucoup de mémoire graphique."
+            )
+            with gr.Row():
+                with gr.Column():
+                    m3_image = gr.Image(type="filepath", label="Image de l'objet (PNG ou JPG)")
+                with gr.Column():
+                    m3_nom = gr.Textbox(label="Nom", value="modele")
+                    m3_qualite = gr.Radio(list(modele3d.QUALITES), value=modele3d.QUALITE_DEFAUT, label="Qualité")
+                    m3_texture = gr.Checkbox(value=True, label="Peindre la texture (plusieurs minutes de plus)")
+                    m3_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
+                    m3_formats = gr.CheckboxGroup(modele3d.FORMATS, value=["glb"], label="Formats")
+            btn_m3 = gr.Button("🧊 Créer le modèle 3D", variant="primary")
+            m3_statut = gr.Markdown()
+            m3_dossier = gr.State()
+            with gr.Row():
+                m3_vue = gr.Model3D(label="Modèle 3D (glisser pour tourner, molette pour zoomer)",
+                                    clear_color=(0.92, 0.92, 0.92, 1.0), scale=3)
+                with gr.Column(scale=1):
+                    m3_detouree = gr.Image(label="Image détourée", interactive=False)
+                    m3_fichiers = gr.File(label="Fichiers produits", file_count="multiple", interactive=False)
+                    btn_m3_dossier = gr.Button("📂 Ouvrir le dossier")
+
+        with gr.Tab("9. Modèles"):
             gr.Markdown(
                 "Les modèles sont volumineux (plusieurs Go au total) et ne sont téléchargés qu'une seule fois. "
                 "Vérifie ici leur présence et leur emplacement, ou lance le téléchargement."
@@ -469,6 +498,10 @@ def build_ui():
         sfx_liste.change(lambda p: p, sfx_liste, sfx_audio)
         btn_sfx_export.click(export.exporter_fichier_formats, [sfx_audio, sfx_cible, sfx_formats],
                              [sfx_export_msg])
+        # Modèles 3D
+        btn_m3.click(modele3d.generer, [m3_image, m3_nom, m3_qualite, m3_texture, m3_graine, m3_formats],
+                     [m3_statut, m3_vue, m3_detouree, m3_fichiers, m3_dossier])
+        btn_m3_dossier.click(lambda d: open_folder(d) if d else None, m3_dossier)
         for champ in (rvc_fichiers, rvc_biblio):
             champ.change(rvc.analyser_enregistrements, [rvc_fichiers, rvc_biblio], rvc_controle)
 
@@ -493,10 +526,13 @@ def build_ui():
         )
         versions.change(lambda v: gr.update(visible=int(v) > 1), versions, final_2)
         btn_export_chanson.click(export.exporter_fichier, [final, chanson_cible], [chanson_mp3, chanson_export_msg])
-        sorties_details = [gal_details, gal_audio, gal_version, gal_desc, gal_paroles, gal_fin]
+        sorties_details = [gal_details, gal_audio, gal_version, gal_desc, gal_paroles, gal_fin, gal_modele]
         for evt in (gal_filtre.change, gal_maj.click, demo.load):
             evt(galerie.maj_liste, [gal_filtre, gal_liste], gal_liste)
         gal_liste.change(galerie.details, [gal_liste], sorties_details)
+        # La visionneuse 3D (Babylon.js) ne s'initialise pas si sa valeur arrive pendant que l'onglet est caché
+        # (chargement de la page) et ignore une valeur identique : on la vide puis on réaffiche la création.
+        gal_tab.select(lambda: None, None, gal_modele).then(galerie.details, [gal_liste, gal_version], sorties_details)
         gal_version.input(galerie.details, [gal_liste, gal_version], sorties_details)
         gal_recreer.click(galerie.recreer, [gal_liste, gal_version], [gal_msg, gal_etat]).then(
             galerie.maj_liste, [gal_filtre, gal_etat], gal_liste)

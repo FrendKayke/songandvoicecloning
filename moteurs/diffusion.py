@@ -227,13 +227,13 @@ def image(chemin_tache):
 
 # --- Hunyuan3D-2 : image → forme → texture -------------------------------------------------------------
 def forme3d(chemin_tache):
-    """Tâche : {image, dossier, etapes, octree, faces, graine, texture: bool}.
-    Écrit dossier/forme.glb (blanc) et, si texture, dossier/modele.glb (texturé) ; RESULTAT {…}."""
+    """Tâche : {image, dossier, etapes, octree, faces, graine, texture: bool, formats: ["glb", "obj"]}.
+    Écrit dossier/forme.glb (blanc) et, si texture, dossier/modele.glb (texturé) ; avec « obj », le modèle final
+    est aussi écrit en OBJ (+ material.mtl et texture PNG à côté, écrits par trimesh) ; RESULTAT {…}."""
     import torch
     from PIL import Image
     from rembg import new_session, remove
-    from hy3dgen.shapegen import (DegenerateFaceRemover, FaceReducer, FloaterRemover,
-                                  Hunyuan3DDiTFlowMatchingPipeline)
+    from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
     from hy3dgen.shapegen.pipelines import export_to_trimesh
 
     t = _lire(chemin_tache)
@@ -268,13 +268,14 @@ def forme3d(chemin_tache):
     _liberer(pipe)
 
     print(f"PROGRESSION 4/{total} nettoyage et simplification", flush=True)
-    mesh = FloaterRemover()(mesh)
-    mesh = DegenerateFaceRemover()(mesh)
-    mesh = FaceReducer()(mesh, max_facenum=int(t.get("faces", 40000)))
+    mesh = _nettoyer(mesh, int(t.get("faces", 40000)))
     forme = dossier / "forme.glb"
     mesh.export(str(forme))
-    resultat = {"forme": str(forme), "faces": int(len(mesh.faces)), "graine": graine, "texture": None}
+    formats = [f.lower() for f in t.get("formats") or ["glb"]]
+    resultat = {"forme": str(forme), "faces": int(len(mesh.faces)), "graine": graine, "texture": None, "obj": None}
     if not texture:
+        if "obj" in formats:
+            resultat["obj"] = _exporter_obj(mesh, dossier / "forme.obj")
         _resultat(resultat)
         print(f"TERMINE {forme}", flush=True)
         return
@@ -289,8 +290,39 @@ def forme3d(chemin_tache):
     modele = dossier / "modele.glb"
     texture_mesh.export(str(modele), include_normals=True)
     resultat["texture"] = str(modele)
+    if "obj" in formats:
+        resultat["obj"] = _exporter_obj(texture_mesh, dossier / "modele.obj")
     _resultat(resultat)
     print(f"TERMINE {modele}", flush=True)
+
+
+def _nettoyer(mesh, faces):
+    """Post-traitement d'Hunyuan3D (pymeshlab) : retrait des morceaux flottants (< 0,5 % des faces), des faces
+    dégénérées, puis simplification à `faces` faces. Si pymeshlab ne peut pas charger ses greffons (bibliothèque
+    système absente, vu sous Linux sans libOpenGL), nettoyage de secours avec trimesh, sans simplification."""
+    import trimesh
+    from hy3dgen.shapegen import DegenerateFaceRemover, FaceReducer, FloaterRemover
+
+    try:
+        mesh = FloaterRemover()(mesh)
+        mesh = DegenerateFaceRemover()(mesh)
+        return FaceReducer()(mesh, max_facenum=faces)
+    except Exception as e:  # noqa: BLE001 - pymeshlab lève une exception de son cru
+        print(f"AVERTISSEMENT : nettoyage pymeshlab impossible ({e}) ; nettoyage simplifié avec trimesh.", flush=True)
+    morceaux = mesh.split(only_watertight=False)
+    if len(morceaux) > 1:
+        seuil = 0.005 * len(mesh.faces)
+        mesh = trimesh.util.concatenate([m for m in morceaux if len(m.faces) >= seuil])
+    mesh.update_faces(mesh.nondegenerate_faces())
+    mesh.remove_unreferenced_vertices()
+    return mesh
+
+
+def _exporter_obj(mesh, chemin):
+    """OBJ à côté du GLB : trimesh écrit material.mtl et l'image de texture dans le même dossier
+    (export_mesh crée un FilePathResolver quand on lui donne un chemin)."""
+    mesh.export(str(chemin))
+    return str(chemin)
 
 
 # --- Téléchargement des modèles --------------------------------------------------------------------------

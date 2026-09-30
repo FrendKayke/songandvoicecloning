@@ -1,4 +1,4 @@
-"""Galerie : toutes les créations (chansons, pistes de jeu, lectures) à réécouter, recréer avec la même
+"""Galerie : toutes les créations (chansons, pistes de jeu, lectures, bruitages, modèles 3D) à réécouter, recréer avec la même
 graine, retoucher (« Refaire un passage », tâche repaint d'ACE-Step) ou supprimer.
 
 Chaque création est un dossier décrit par creation.json (outils.ecrire_creation). Les chansons et lectures
@@ -16,9 +16,10 @@ from . import config as cfg
 from .outils import ecrire_creation, nouveau_dossier
 from .pipeline import INSTRUMENTAL, finaliser_depuis_infos
 
-TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture", "bruitage": "🔊 Bruitage"}
+TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture", "bruitage": "🔊 Bruitage",
+         "3d": "🧊 Modèle 3D"}
 FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts",
-           "Bruitages": "bruitage"}
+           "Bruitages": "bruitage", "Modèles 3D": "3d"}
 # repaint_mode d'ACE-Step (release_task_models.py : conservative / balanced / aggressive)
 FORCES = {
     "Légère (garde au maximum l'original)": "conservative",
@@ -28,7 +29,8 @@ FORCES = {
 
 
 def _racines():
-    return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR, "bruitage": cfg.SFX_DIR}
+    return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR, "bruitage": cfg.SFX_DIR,
+            "3d": cfg.MODELS3D_DIR}
 
 
 def lire(dossier):
@@ -58,13 +60,14 @@ def _dossiers():
     yield from (d for d in r["jeu"].glob("*/*/*") if d.is_dir() and "export" not in d.parts[-3:])
     yield from (d for d in r["tts"].glob("*") if d.is_dir())
     yield from (d for d in r["bruitage"].glob("*") if d.is_dir())
+    yield from (d for d in r["3d"].glob("*") if d.is_dir())
 
 
 def _resume(infos):
     if infos["type"] == "jeu":
         return f"{infos.get('projet')} — {infos.get('libelle')}"
-    if infos["type"] == "bruitage":
-        return f"{infos.get('nom')} — {infos.get('description_fr') or infos.get('description')}"
+    if infos["type"] in ("bruitage", "3d"):
+        return f"{infos.get('nom')} — {infos.get('description_fr') or infos.get('description') or 'depuis une image'}"
     txt = infos.get("texte") if infos["type"] == "tts" else infos.get("description")
     txt = (txt or "").replace("\n", " ")
     return txt[:60] + ("…" if len(txt) > 60 else "")
@@ -109,9 +112,12 @@ def _version(infos, version):
 
 
 def details(chemin, version=1):
-    """(description en Markdown, fichier de la version, choix des versions, description, paroles, fin conseillée)."""
+    """(description en Markdown, fichier audio de la version, choix des versions, description, paroles,
+    fin conseillée, modèle 3D à afficher)."""
+    pas_de_3d = gr.update(value=None, visible=False)
     if not chemin:
-        return "*Aucune création pour l'instant.*", None, gr.update(choices=[1], value=1, visible=False), "", "", 10
+        return ("*Aucune création pour l'instant.*", None, gr.update(choices=[1], value=1, visible=False), "", "", 10,
+                pas_de_3d)
     infos = _infos(chemin)
     i, v = _version(infos, version)
     fichier = v.get("fichier")
@@ -126,6 +132,10 @@ def details(chemin, version=1):
         lignes.append(f"Texte : {infos.get('texte', '')[:500]}")
     if infos["type"] == "bruitage" and infos.get("description_fr"):
         lignes.append(f"Demande : {infos['description_fr']} ({infos.get('duree')} s)")
+    if infos["type"] == "3d":
+        texture = "texturé" if v.get("fichier") and v.get("fichier") != v.get("forme") else "forme seule"
+        lignes.append(f"Modèle **{infos.get('nom')}** : qualité {infos.get('qualite')}, {infos.get('faces_obtenues')} "
+                      f"faces, {texture}" + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
     elif infos.get("paroles") and infos["paroles"] != INSTRUMENTAL:
         lignes.append("Paroles :\n\n```\n" + infos["paroles"][:1500] + "\n```")
     graines = ", ".join(str(x.get("graine")) for x in infos.get("versions") or [] if x.get("graine") is not None)
@@ -136,9 +146,13 @@ def details(chemin, version=1):
     if infos.get("ancienne"):
         lignes.append("*Création d'une ancienne version de Studio Voix : écoute et suppression seulement.*")
     n = len(infos.get("versions") or [])
+    versions = gr.update(choices=list(range(1, n + 1)), value=i + 1, visible=n > 1)
+    if infos["type"] == "3d":
+        return ("\n\n".join(lignes), None, versions, infos.get("description") or "", "", 10,
+                gr.update(value=fichier, visible=True))
     duree = round(sf.info(fichier).duration, 1) if fichier else 10
-    return ("\n\n".join(lignes), fichier, gr.update(choices=list(range(1, n + 1)), value=i + 1, visible=n > 1),
-            infos.get("description") or "", infos.get("paroles") or "", duree)
+    return ("\n\n".join(lignes), fichier, versions, infos.get("description") or "", infos.get("paroles") or "", duree,
+            pas_de_3d)
 
 
 def supprimer(chemin):
@@ -207,6 +221,16 @@ def recreer(chemin, version=1, progress=gr.Progress()):
                                                      1, graine, infos.get("etapes", 100), None,
                                                      infos.get("description_fr"), progress=progress)
         return f"✅ Bruitage recréé avec la graine {graine}.", dossier
+    if infos["type"] == "3d":
+        from . import modele3d
+
+        image = Path(chemin) / (infos.get("image") or "image.png")
+        if not image.exists():
+            raise gr.Error(f"Image de départ introuvable : {image}")
+        *_, dossier = modele3d.generer(str(image), infos.get("nom"), infos.get("qualite"), infos.get("texture", True),
+                                       graine, infos.get("formats"), infos.get("description"),
+                                       infos.get("description_fr"), infos.get("image_graine"), progress=progress)
+        return f"✅ Modèle 3D recréé avec la graine {graine}.", dossier
     reg = infos.get("reglages") or {}
     fichier, _ = chatterbox.synthese(infos.get("voix"), infos.get("texte"), infos.get("langue"),
                                      reg.get("exaggeration", 0.5), reg.get("cfg_weight", 0.5),

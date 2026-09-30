@@ -27,7 +27,7 @@ Modules de `studiovoix/` :
 | `styles.py` | listes déroulantes des styles (libellés français, termes anglais) |
 | `jeu.py` | bande-son de jeu : situations, génération en lot, jingles |
 | `boucle.py` | boucles parfaites pour les musiques de fond |
-| `galerie.py` | galerie des créations : écouter, recréer avec la même graine, refaire un passage, supprimer |
+| `galerie.py` | galerie des créations : écouter ou afficher (modèles 3D), recréer avec la même graine, refaire un passage, supprimer |
 | `export.py` | export OGG/MP3 au volume harmonisé (LUFS), pack de bande-son avec `manifest.json` |
 | `demucs.py` | séparation voix / instrumental |
 | `seedvc.py` | conversion de voix chantée |
@@ -36,6 +36,7 @@ Modules de `studiovoix/` :
 | `rvc.py` | RVC : entraîner un modèle de ta voix et convertir avec (lance `moteurs/rvc_voix.py`) |
 | `diffusion.py` | client du moteur de diffusion (Qwen3-VL, Stable Audio Open, SDXL, Hunyuan3D-2 ; lance `moteurs/diffusion.py`), jeton Hugging Face |
 | `bruitages.py` | bruitages : description ou image → prompt anglais → variantes |
+| `modele3d.py` | modèles 3D : image d'objet → forme puis texture (Hunyuan3D-2), GLB et OBJ |
 | `voix.py` | bibliothèque de voix (import, contrôle de qualité, renommage, suppression) |
 | `mixage.py` | mixage voix + instrumental |
 | `pipeline.py` | enchaînement complet des étapes |
@@ -105,11 +106,12 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
    - **Export pour le jeu** (« 📦 ») : toutes les pistes du projet (la plus récente de chaque situation) au même volume (−16 LUFS conseillé), en OGG et MP3, avec un `manifest.json`, dans `data\jeux\<projet>\export\` et en archive zip à télécharger.
    - Dans l'onglet « Créer une chanson », « 💾 Exporter la chanson en MP3 » fait de même pour une chanson (−14 LUFS par défaut).
 5. Onglet **Synthèse vocale** : choisis une voix de ta bibliothèque, la langue, écris le texte et clique sur « Lire le texte avec cette voix ». Les textes longs (jusqu'à 5 000 caractères) sont découpés en phrases. Chaque lecture est rangée dans `data\tts\<date>\` (texte et `parole.wav`).
-6. Onglet **Galerie** : toutes tes créations (chansons, pistes de jeu, lectures), la plus récente en premier, avec un filtre. Pour chacune : description, paroles, graine, écoute (et choix de la version s'il y en a deux), « 🔁 Recréer (même graine) » pour obtenir un résultat proche, « 📂 Ouvrir le dossier » et « 🗑️ Supprimer » (avec confirmation). Les créations faites avant cette version apparaissent aussi (écoute et suppression seulement).
+6. Onglet **Galerie** : toutes tes créations (chansons, pistes de jeu, lectures, bruitages, modèles 3D), la plus récente en premier, avec un filtre. Pour chacune : description, paroles, graine, écoute (et choix de la version s'il y en a deux), « 🔁 Recréer (même graine) » pour obtenir un résultat proche, « 📂 Ouvrir le dossier » et « 🗑️ Supprimer » (avec confirmation). Les créations faites avant cette version apparaissent aussi (écoute et suppression seulement).
    - **« ✏️ Refaire un passage »** : un refrain raté, une fin bizarre ? Indique le début et la fin en secondes : seul ce passage est réinventé, le reste est gardé, puis le reste du traitement est refait (ta voix, retrait d'instruments, boucle…). Tu peux changer la description ou les paroles du passage et choisir la force de la retouche (légère, équilibrée, complète). Le résultat est une nouvelle création ; l'originale est conservée.
 7. Onglet **Entraîner ma voix (RVC)** : pour une ressemblance nettement meilleure, surtout au chant. Ajoute 10 à 30 minutes d'enregistrements de toi seul (plusieurs fichiers wav/mp3/flac, et/ou des voix de ta bibliothèque) ; le tableau vérifie la durée totale et signale les fichiers trop faibles ou saturés. Donne un nom, choisis la durée (300 époques conseillées, 1 à 2 heures sur une RTX 4070) et lance. Ensuite, dans « Créer une chanson » → Réglages voix → **Conversion de ta voix**, choisis « RVC — ton modèle ». Dans « Synthèse vocale », tu peux aussi faire passer la lecture dans ton modèle RVC. **Ferme la fenêtre ACE-Step pendant l'entraînement** : il a besoin de toute la mémoire graphique.
 8. Onglet **Bruitages** : décris l'effet en français (ou choisis un exemple, ou importe une image de la scène), clique sur « Préparer le prompt » : Qwen3-VL le traduit en un prompt anglais précis, que tu peux retoucher. Règle la durée (1 à 30 s), le nombre de variantes (1 à 3), la graine, puis « Générer ». Écoute les variantes et exporte celle que tu gardes (OGG, MP3, WAV, au volume harmonisé). Tout est rangé dans `data\bruitages\<date>\` et visible dans la Galerie. **Ferme la fenêtre ACE-Step avant** : ces modèles ont besoin de la carte graphique.
-9. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
+9. Onglet **Modèles 3D** : importe une image de l'objet (PNG ou JPG : un seul objet, net, sur un fond simple ; une carte, un personnage, une arme…), donne un nom, choisis la qualité (« Normale » convient ; « Fine » demande plus de mémoire et de temps), garde « Peindre la texture » coché pour un modèle coloré, et clique sur « Créer le modèle 3D ». Hunyuan3D-2 retire le fond (l'image détourée s'affiche), sculpte la forme (quelques dizaines de secondes) puis peint la texture (plusieurs minutes). Le modèle s'affiche dans la visionneuse (glisser pour tourner, molette pour zoomer). Fichiers dans `data\3d\<date>\` : `modele.glb` (texturé, prêt pour un jeu web avec three.js ou Babylon.js, Blender, Unity, Godot), `forme.glb` (forme blanche) et, si tu coches OBJ, `modele.obj` + `material.mtl` + la texture PNG. La graine permet de retrouver le même modèle ; la Galerie les affiche aussi. **Ferme la fenêtre ACE-Step avant** : la texture a besoin de toute la carte graphique.
+10. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.
 
@@ -208,6 +210,7 @@ Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de
 - **Mémoire graphique et synthèse vocale** : Chatterbox a besoin de 3 à 4 Go de mémoire graphique. Si la fenêtre ACE-Step est ouverte et a déjà chargé ses modèles, la carte peut manquer de mémoire : l'application te demande alors de fermer cette fenêtre, puis de relancer la lecture.
 - **Nettoyage** : il ne fait pas de miracle sur une voix très saturée ou noyée dans la musique. Enregistre-toi au calme, à 15–30 cm du micro, c'est toujours le plus efficace.
 - **Mémoire graphique et diffusion** : Hunyuan3D, SDXL et Stable Audio se chargent tour à tour et occupent jusqu'à 10 Go. Ferme la fenêtre ACE-Step avant de les utiliser ; l'application te le rappelle si la mémoire manque.
+- **Modèles 3D** : Hunyuan3D-2 travaille à partir d'une seule image : le dos de l'objet est inventé, les parties fines (lames, cheveux, anses) peuvent être épaissies ou coupées, et la texture est parfois floue au dos. Une image bien cadrée sur fond uni change tout. Si la carte manque de mémoire pendant la texture, décoche « Peindre la texture » : la forme seule tient dans 6 Go. Les modèles sortent normalisés (environ 1 unité de côté) : remets-les à l'échelle dans ton moteur de jeu.
 - **Filigrane** : chaque fichier produit par la synthèse vocale porte un filigrane inaudible ([Perth](https://github.com/resemble-ai/perth)) qui permet de reconnaître une voix de synthèse. Il est ajouté par Chatterbox lui-même.
 - **Référence de voix pour la synthèse** : Chatterbox n'utilise que les 10 premières secondes de l'échantillon.
 - **Consentement** : clone uniquement ta propre voix, ou celle de personnes d'accord.
