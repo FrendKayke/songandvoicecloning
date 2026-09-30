@@ -11,7 +11,7 @@ Quatre modèles qui partagent la même pile (diffusers, transformers) :
     python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | image | detourage
 
 Sortie : « PROGRESSION i/n … », « RESULTAT <json> », « ERREUR : message » et « TERMINE <fichier> ».
-API vérifiées dans les dépôts : diffusers 0.40 (StableAudioPipeline.__call__, StableDiffusionXLPipeline),
+API vérifiées dans les dépôts : diffusers 0.39 (StableAudioPipeline.__call__, StableDiffusionXLPipeline),
 Qwen3-VL (carte du modèle), Hunyuan3D-2 commit f8db630 (hy3dgen.shapegen.pipelines,
 hy3dgen.texgen.pipelines, gradio_app.py pour l'ordre des étapes et le mode basse mémoire).
 """

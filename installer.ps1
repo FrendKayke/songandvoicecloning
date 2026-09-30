@@ -315,9 +315,10 @@ try {
         Run $Uv @('pip', 'install', '--python', $DifPy, 'torch==2.6.0', 'torchvision==0.21.0', 'torchaudio==2.6.0',
             '--index-url', 'https://download.pytorch.org/whl/cu126')
         # Pile commune (versions testées) ; transformers 4.57 : la 5 renomme les poids de l'encodeur d'image de
-        # Hunyuan3D-2 (échec de chargement) ; torchsde : ordonnanceur de Stable Audio ; rembg/onnxruntime : détourage
+        # Hunyuan3D-2 (échec de chargement) ; diffusers 0.39 : la 0.40 exige huggingface-hub >= 1.23, incompatible
+        # avec transformers 4.57 (< 1.0) ; torchsde : ordonnanceur de Stable Audio ; rembg/onnxruntime : détourage
         Run $Uv @('pip', 'install', '--python', $DifPy, 'torch==2.6.0', 'torchvision==0.21.0', 'torchaudio==2.6.0',
-            'diffusers==0.40.0', 'transformers==4.57.6', 'accelerate', 'torchsde', 'einops', 'omegaconf',
+            'diffusers==0.39.0', 'transformers==4.57.6', 'accelerate', 'torchsde', 'einops', 'omegaconf',
             'opencv-python-headless', 'numpy', 'trimesh', 'pymeshlab', 'pygltflib', 'xatlas', 'rembg', 'onnxruntime',
             'scikit-image', 'soundfile', 'pillow', 'huggingface-hub', 'sentencepiece', 'protobuf')
         # Hunyuan3D-2 sans ses dépendances (déjà listées ci-dessus, sans gradio ni outils d'entraînement), en mode
