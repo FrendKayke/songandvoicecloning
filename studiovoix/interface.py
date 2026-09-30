@@ -4,7 +4,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from . import acestep, chatterbox, demucs, export, galerie, jeu, nettoyage, rvc, seedvc
+from . import acestep, bruitages, chatterbox, demucs, diffusion, export, galerie, jeu, nettoyage, rvc, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
@@ -350,7 +350,44 @@ def build_ui():
                 rvc_choix = gr.Dropdown(rvc.choix_modeles(), label="Modèle")
                 btn_rvc_suppr = gr.Button("🗑️ Supprimer ce modèle", variant="stop")
 
-        with gr.Tab("7. Modèles"):
+        with gr.Tab("7. Bruitages"):
+            gr.Markdown(
+                "Effets sonores pour ton jeu, à partir d'une **description** (en français ou en anglais) ou d'une "
+                "**image**. « Préparer le prompt » traduit et précise ta description en anglais (Qwen3-VL) ; tu peux "
+                "le retoucher avant de générer. Stable Audio Open produit 1 à 3 variantes en 44,1 kHz. "
+                "Ferme la fenêtre ACE-Step avant : les modèles ont besoin de la carte graphique."
+            )
+            with gr.Row():
+                with gr.Column():
+                    sfx_texte = gr.Textbox(label="Description du bruitage", lines=3,
+                                           placeholder="une porte de château en bois qui grince puis claque")
+                    sfx_exemples = gr.Dropdown([(lib, txt) for lib, txt in bruitages.EXEMPLES], label="Exemples (jeu de cartes)",
+                                               allow_custom_value=True,
+                                               info="Choisis un exemple : il remplit le prompt anglais directement.")
+                with gr.Column():
+                    sfx_image = gr.Image(type="filepath", label="Ou une image (facultatif) : les sons de la scène")
+            btn_sfx_prep = gr.Button("🧠 Préparer le prompt (traduction et précision)")
+            sfx_prompt = gr.Textbox(label="Prompt envoyé à Stable Audio (anglais, modifiable)", lines=2)
+            with gr.Row():
+                sfx_nom = gr.Textbox(label="Nom", value="bruitage")
+                sfx_duree = gr.Slider(1, bruitages.DUREE_MAX, value=3, step=0.5, label="Durée (s)")
+                sfx_variantes = gr.Radio([1, 2, 3], value=2, label="Variantes")
+                sfx_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
+                sfx_etapes = gr.Slider(20, 200, value=100, step=10, label="Étapes (qualité / temps)")
+            btn_sfx = gr.Button("🔊 Générer le bruitage", variant="primary")
+            sfx_statut = gr.Markdown()
+            sfx_dossier = gr.State()
+            with gr.Row():
+                sfx_liste = gr.Dropdown([], label="Écouter une variante")
+                sfx_audio = gr.Audio(label="Bruitage", type="filepath")
+            with gr.Row():
+                sfx_cible = gr.Dropdown(list(export.CIBLES), value=list(export.CIBLES)[1], label="Volume de l'export")
+                sfx_formats = gr.CheckboxGroup([("OGG", "ogg"), ("MP3", "mp3"), ("WAV", "wav")], value=["ogg", "mp3"],
+                                               label="Formats")
+                btn_sfx_export = gr.Button("📦 Exporter la variante écoutée")
+            sfx_export_msg = gr.Markdown()
+
+        with gr.Tab("8. Modèles"):
             gr.Markdown(
                 "Les modèles sont volumineux (plusieurs Go au total) et ne sont téléchargés qu'une seule fois. "
                 "Vérifie ici leur présence et leur emplacement, ou lance le téléchargement."
@@ -366,12 +403,26 @@ def build_ui():
                 b_nt = gr.Button("⬇️ Télécharger le nettoyage", variant="primary")
                 b_rvc = gr.Button("⬇️ Télécharger RVC (modèles de base)", variant="primary")
             with gr.Row():
+                b_dif = gr.Button("⬇️ Télécharger Qwen3-VL, Hunyuan3D et SDXL", variant="primary")
+                b_sfx = gr.Button("⬇️ Télécharger Stable Audio Open (jeton requis)", variant="primary")
+            with gr.Accordion("🔑 Jeton Hugging Face (nécessaire pour Stable Audio Open)", open=not diffusion.jeton_present()):
+                gr.Markdown(
+                    f"1. Connecte-toi sur Hugging Face et accepte la licence sur {diffusion.LICENCE_BRUITAGES} ; "
+                    f"2. crée un jeton (type « Read ») sur {diffusion.JETONS} ; 3. colle-le ici. "
+                    "Il est enregistré dans `StudioVoix\\hf-home\\token`, jamais ailleurs."
+                )
+                with gr.Row():
+                    hf_jeton = gr.Textbox(label="Jeton", type="password", placeholder="hf_…")
+                    btn_jeton = gr.Button("Enregistrer le jeton")
+                hf_msg = gr.Markdown("✅ Un jeton est déjà enregistré." if diffusion.jeton_present() else "")
+            with gr.Row():
                 o_ace = gr.Button("📂 Ouvrir dossier ACE-Step")
                 o_sv = gr.Button("📂 Ouvrir dossier Seed-VC")
                 o_dm = gr.Button("📂 Ouvrir dossier Demucs")
                 o_cb = gr.Button("📂 Ouvrir dossier Chatterbox")
                 o_nt = gr.Button("📂 Ouvrir dossier nettoyage")
                 o_rvc = gr.Button("📂 Ouvrir dossier RVC")
+                o_dif = gr.Button("📂 Ouvrir dossier des modèles de diffusion")
                 o_data = gr.Button("📂 Ouvrir mes chansons")
 
         def synchro_autres(evt):
@@ -397,7 +448,9 @@ def build_ui():
         )
         btn_refresh.click(models_status_md, None, status)
         for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download),
-                      (b_cb, chatterbox.download), (b_nt, nettoyage.download), (b_rvc, rvc.download)):
+                      (b_cb, chatterbox.download), (b_nt, nettoyage.download), (b_rvc, rvc.download),
+                      (b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "image"])),
+                      (b_sfx, lambda: diffusion.download(["bruitages"]))):
             b.click(fn, None, log).then(models_status_md, None, status)
         o_ace.click(lambda: open_folder(acestep.ckpt_dir()))
         o_sv.click(lambda: open_folder(seedvc.ckpt_dir()))
@@ -405,6 +458,17 @@ def build_ui():
         o_cb.click(lambda: open_folder(chatterbox.ckpt_dir()))
         o_nt.click(lambda: open_folder(nettoyage.ckpt_dir()))
         o_rvc.click(lambda: open_folder(cfg.RVC_DIR))
+        o_dif.click(lambda: open_folder(diffusion.hf_home() / "hub", create=True))
+        btn_jeton.click(diffusion.enregistrer_jeton, hf_jeton, hf_msg)
+        # Bruitages
+        sfx_exemples.change(lambda v: v or "", sfx_exemples, sfx_prompt)
+        btn_sfx_prep.click(bruitages.preparer, [sfx_texte, sfx_image], sfx_prompt)
+        btn_sfx.click(bruitages.generer,
+                      [sfx_prompt, sfx_nom, sfx_duree, sfx_variantes, sfx_graine, sfx_etapes, sfx_image, sfx_texte],
+                      [sfx_statut, sfx_liste, sfx_audio, sfx_dossier])
+        sfx_liste.change(lambda p: p, sfx_liste, sfx_audio)
+        btn_sfx_export.click(export.exporter_fichier_formats, [sfx_audio, sfx_cible, sfx_formats],
+                             [sfx_export_msg])
         for champ in (rvc_fichiers, rvc_biblio):
             champ.change(rvc.analyser_enregistrements, [rvc_fichiers, rvc_biblio], rvc_controle)
 

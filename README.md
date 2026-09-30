@@ -1,8 +1,8 @@
 # Studio Voix
 
-Logiciel local pour Windows : tu enregistres ta voix, tu écris un prompt (genre, style, instruments, ambiance) et tes paroles, et il te rend une chanson chantée avec **ta** voix. Il sait aussi composer de la musique seule, lire un texte avec ta voix (synthèse vocale) et nettoyer un enregistrement fait avec un micro médiocre. Tout tourne sur ta machine, sans service en ligne.
+Logiciel local pour Windows : tu enregistres ta voix, tu écris un prompt (genre, style, instruments, ambiance) et tes paroles, et il te rend une chanson chantée avec **ta** voix. Il sait aussi composer de la musique seule, lire un texte avec ta voix (synthèse vocale), nettoyer un enregistrement fait avec un micro médiocre, créer des bruitages pour un jeu et des modèles 3D à partir d'une image ou d'un texte. Tout tourne sur ta machine, sans service en ligne.
 
-Moteurs utilisés : [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) (génération musicale), [Demucs](https://github.com/facebookresearch/demucs) (séparation voix / musique), [Seed-VC](https://github.com/Plachtaa/seed-vc) (conversion de voix chantée) et [Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox) (synthèse vocale, licence MIT), [ClearerVoice-Studio](https://github.com/modelscope/ClearerVoice-Studio) (MossFormer2, débruitage, Apache-2.0) et [VoiceFixer](https://github.com/haoheliu/voicefixer) (restauration de voix, code MIT, poids CC-BY 4.0) et [Applio](https://github.com/IAHispano/Applio) (RVC : entraînement d'un modèle de ta voix, MIT). Ils sont téléchargés par l'installateur, ils ne sont pas inclus dans ce dépôt.
+Moteurs utilisés : [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) (génération musicale), [Demucs](https://github.com/facebookresearch/demucs) (séparation voix / musique), [Seed-VC](https://github.com/Plachtaa/seed-vc) (conversion de voix chantée) et [Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox) (synthèse vocale, licence MIT), [ClearerVoice-Studio](https://github.com/modelscope/ClearerVoice-Studio) (MossFormer2, débruitage, Apache-2.0) et [VoiceFixer](https://github.com/haoheliu/voicefixer) (restauration de voix, code MIT, poids CC-BY 4.0) [Applio](https://github.com/IAHispano/Applio) (RVC : entraînement d'un modèle de ta voix, MIT), [Stable Audio Open](https://huggingface.co/stabilityai/stable-audio-open-1.0) (bruitages, licence Stability AI Community), [Qwen3-VL](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct) (descriptions et traductions, Apache 2.0), [Hunyuan3D-2](https://github.com/Tencent-Hunyuan/Hunyuan3D-2) (modèles 3D, licence Tencent Hunyuan Community) et [Stable Diffusion XL](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) (texte → image, OpenRAIL++). Ils sont téléchargés par l'installateur, ils ne sont pas inclus dans ce dépôt.
 
 Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 
@@ -12,7 +12,7 @@ Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 |---|---|
 | `studio_voix.py` | point d'entrée de l'application (lancé par `lancer.bat`) |
 | `studiovoix/` | le code de l'application, un module par rôle (voir ci-dessous) |
-| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`, `rvc_voix.py`) |
+| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`, `rvc_voix.py`, `diffusion.py`) |
 | `tests/` | tests automatiques sans carte graphique (moteurs simulés) |
 | `installer.ps1` / `INSTALLER.bat` | installation complète en un clic |
 | `lancer.bat` | démarrage (serveur ACE-Step + application) |
@@ -34,6 +34,8 @@ Modules de `studiovoix/` :
 | `chatterbox.py` | synthèse vocale (lance `moteurs/chatterbox_tts.py`) |
 | `nettoyage.py` | nettoyage de voix (lance `moteurs/nettoyage_voix.py`) |
 | `rvc.py` | RVC : entraîner un modèle de ta voix et convertir avec (lance `moteurs/rvc_voix.py`) |
+| `diffusion.py` | client du moteur de diffusion (Qwen3-VL, Stable Audio Open, SDXL, Hunyuan3D-2 ; lance `moteurs/diffusion.py`), jeton Hugging Face |
+| `bruitages.py` | bruitages : description ou image → prompt anglais → variantes |
 | `voix.py` | bibliothèque de voix (import, contrôle de qualité, renommage, suppression) |
 | `mixage.py` | mixage voix + instrumental |
 | `pipeline.py` | enchaînement complet des étapes |
@@ -54,11 +56,21 @@ C'est tout. Aucun droit administrateur n'est nécessaire, et ni Python ni Git n'
 - **Chatterbox Multilingual V3** et ses modèles (~3,2 Go, plus ~2,5 Go pour PyTorch) ;
 - le **nettoyage de voix** (MossFormer2 et VoiceFixer, ~0,8 Go de modèles ; il réutilise le PyTorch de Chatterbox) ;
 - **RVC** (Applio), pour entraîner un modèle de ta voix (~2,8 Go de PyTorch et ~1,8 Go de modèles de base) ;
+- le **moteur de diffusion** : Qwen3-VL (4 Go), Stable Diffusion XL (7 Go), Hunyuan3D-2 (forme 5 Go, texture 16 Go), Stable Audio Open (5 Go, **jeton Hugging Face requis**, voir ci-dessous) et ~3 Go de PyTorch ;
 - l'environnement de l'application.
 
-Compte 32 à 37 Go à télécharger, soit une bonne heure ou deux selon ta connexion, et au moins 50 Go libres. Si l'installation s'interrompt, relance INSTALLER.bat : les étapes terminées sont sautées.
+Compte 55 à 60 Go à télécharger, soit deux heures ou plus selon ta connexion, et au moins 80 Go libres. Si l'installation s'interrompt, relance INSTALLER.bat : les étapes terminées sont sautées.
 
-**Tu avais déjà installé Studio Voix avant l'arrivée de la synthèse vocale ou du nettoyage ?** Relance simplement INSTALLER.bat : seules les étapes manquantes s'exécutent (Chatterbox : environ 6 Go, 10 à 25 minutes ; nettoyage : environ 1 Go, 5 minutes ; RVC : environ 5 Go, 10 à 20 minutes). Sans cela, tout le reste fonctionne et l'application t'indique ce qui manque.
+**Tu avais déjà installé Studio Voix avant l'arrivée de la synthèse vocale ou du nettoyage ?** Relance simplement INSTALLER.bat : seules les étapes manquantes s'exécutent (Chatterbox : environ 6 Go, 10 à 25 minutes ; nettoyage : environ 1 Go, 5 minutes ; RVC : environ 5 Go, 10 à 20 minutes ; diffusion : environ 40 Go, une heure). Sans cela, tout le reste fonctionne et l'application t'indique ce qui manque.
+
+### Jeton Hugging Face (pour les bruitages seulement)
+
+Stable Audio Open est distribué sous la licence Stability AI Community (gratuite, usage commercial permis sous 1 M$ de revenus annuels) et Hugging Face demande de l'accepter avant le téléchargement :
+1. crée un compte sur https://huggingface.co et accepte la licence sur https://huggingface.co/stabilityai/stable-audio-open-1.0 ;
+2. crée un jeton de type « Read » sur https://huggingface.co/settings/tokens ;
+3. colle-le quand INSTALLER.bat te le demande (étape 16), ou plus tard dans l'onglet « Modèles » → « Jeton Hugging Face », puis « Télécharger Stable Audio Open ».
+
+Le jeton est enregistré dans `StudioVoix\hf-home\token` et n'est utilisé que pour ce téléchargement. Sans lui, tout le reste fonctionne.
 
 ### Où tout est installé
 
@@ -72,9 +84,10 @@ Les moteurs et les modèles vont dans **`<lecteur>:\StudioVoix`** (par exemple `
 | `StudioVoix\chatterbox` | Chatterbox (code, environnement, modèle de découpage `pkuseg`) |
 | `StudioVoix\hf-home` | modèles Chatterbox (cache Hugging Face) |
 | `StudioVoix\nettoyage` | nettoyage de voix (environnement, modèles dans `checkpoints\` et `voicefixer\`) |
+| `StudioVoix\diffusion` | moteur de diffusion (environnement, code de Hunyuan3D-2, modèle de détourage dans `u2net\`) ; ses modèles sont dans `StudioVoix\hf-home` |
 | `StudioVoix\rvc` | RVC (Applio) : modèles de base dans `rvc\models\`, **tes modèles entraînés dans `logs\<nom>\`**, tes enregistrements d'entraînement dans `datasets\` |
 | `StudioVoix\python`, `uv`, `uv-cache` | Python et outils d'installation |
-| `<dossier de l'application>\data` | tes voix, tes chansons, tes textes lus et tes voix nettoyées |
+| `<dossier de l'application>\data` | tes voix, tes chansons, tes textes lus, tes voix nettoyées, tes bruitages et tes modèles 3D |
 
 Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'application.
 
@@ -95,7 +108,8 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
 6. Onglet **Galerie** : toutes tes créations (chansons, pistes de jeu, lectures), la plus récente en premier, avec un filtre. Pour chacune : description, paroles, graine, écoute (et choix de la version s'il y en a deux), « 🔁 Recréer (même graine) » pour obtenir un résultat proche, « 📂 Ouvrir le dossier » et « 🗑️ Supprimer » (avec confirmation). Les créations faites avant cette version apparaissent aussi (écoute et suppression seulement).
    - **« ✏️ Refaire un passage »** : un refrain raté, une fin bizarre ? Indique le début et la fin en secondes : seul ce passage est réinventé, le reste est gardé, puis le reste du traitement est refait (ta voix, retrait d'instruments, boucle…). Tu peux changer la description ou les paroles du passage et choisir la force de la retouche (légère, équilibrée, complète). Le résultat est une nouvelle création ; l'originale est conservée.
 7. Onglet **Entraîner ma voix (RVC)** : pour une ressemblance nettement meilleure, surtout au chant. Ajoute 10 à 30 minutes d'enregistrements de toi seul (plusieurs fichiers wav/mp3/flac, et/ou des voix de ta bibliothèque) ; le tableau vérifie la durée totale et signale les fichiers trop faibles ou saturés. Donne un nom, choisis la durée (300 époques conseillées, 1 à 2 heures sur une RTX 4070) et lance. Ensuite, dans « Créer une chanson » → Réglages voix → **Conversion de ta voix**, choisis « RVC — ton modèle ». Dans « Synthèse vocale », tu peux aussi faire passer la lecture dans ton modèle RVC. **Ferme la fenêtre ACE-Step pendant l'entraînement** : il a besoin de toute la mémoire graphique.
-8. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
+8. Onglet **Bruitages** : décris l'effet en français (ou choisis un exemple, ou importe une image de la scène), clique sur « Préparer le prompt » : Qwen3-VL le traduit en un prompt anglais précis, que tu peux retoucher. Règle la durée (1 à 30 s), le nombre de variantes (1 à 3), la graine, puis « Générer ». Écoute les variantes et exporte celle que tu gardes (OGG, MP3, WAV, au volume harmonisé). Tout est rangé dans `data\bruitages\<date>\` et visible dans la Galerie. **Ferme la fenêtre ACE-Step avant** : ces modèles ont besoin de la carte graphique.
+9. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.
 
@@ -193,6 +207,7 @@ Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de
 - **Artefacts** : la séparation sur de la musique générée laisse parfois de légers résidus.
 - **Mémoire graphique et synthèse vocale** : Chatterbox a besoin de 3 à 4 Go de mémoire graphique. Si la fenêtre ACE-Step est ouverte et a déjà chargé ses modèles, la carte peut manquer de mémoire : l'application te demande alors de fermer cette fenêtre, puis de relancer la lecture.
 - **Nettoyage** : il ne fait pas de miracle sur une voix très saturée ou noyée dans la musique. Enregistre-toi au calme, à 15–30 cm du micro, c'est toujours le plus efficace.
+- **Mémoire graphique et diffusion** : Hunyuan3D, SDXL et Stable Audio se chargent tour à tour et occupent jusqu'à 10 Go. Ferme la fenêtre ACE-Step avant de les utiliser ; l'application te le rappelle si la mémoire manque.
 - **Filigrane** : chaque fichier produit par la synthèse vocale porte un filigrane inaudible ([Perth](https://github.com/resemble-ai/perth)) qui permet de reconnaître une voix de synthèse. Il est ajouté par Chatterbox lui-même.
 - **Référence de voix pour la synthèse** : Chatterbox n'utilise que les 10 premières secondes de l'échantillon.
 - **Consentement** : clone uniquement ta propre voix, ou celle de personnes d'accord.
@@ -207,4 +222,4 @@ uv run --python 3.12 --with-requirements requirements.txt --with pytest --with p
 
 ## Licences
 
-Ce dépôt ne contient que le code de l'application et de l'installation. Applio (RVC) est sous licence MIT ; ses conditions d'utilisation demandent de n'utiliser que des voix dont tu as le droit (la tienne, ou avec l'accord de la personne). Les poids de VoiceFixer sont sous licence CC-BY 4.0 (auteurs : Haohe Liu et al., « VoiceFixer: Toward General Speech Restoration with Neural Vocoder », 2021). Chaque moteur garde sa propre licence (voir leurs dépôts respectifs), à vérifier avant tout usage commercial des sons produits.
+Ce dépôt ne contient que le code de l'application et de l'installation. Hunyuan3D-2 (Tencent) est sous licence Tencent Hunyuan Community : **elle exclut l'Union européenne, le Royaume-Uni et la Corée du Sud** (lieu d'utilisation) ; vérifie qu'elle s'applique à toi. Stable Audio Open et ses sorties : licence Stability AI Community (usage commercial permis sous 1 M$ de revenus annuels). Applio (RVC) est sous licence MIT ; ses conditions d'utilisation demandent de n'utiliser que des voix dont tu as le droit (la tienne, ou avec l'accord de la personne). Les poids de VoiceFixer sont sous licence CC-BY 4.0 (auteurs : Haohe Liu et al., « VoiceFixer: Toward General Speech Restoration with Neural Vocoder », 2021). Chaque moteur garde sa propre licence (voir leurs dépôts respectifs), à vérifier avant tout usage commercial des sons produits.

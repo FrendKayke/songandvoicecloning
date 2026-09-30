@@ -1,7 +1,8 @@
 ﻿# Studio Voix — installation complète, sans droits administrateur.
 # Installe : uv (gestionnaire Python), Python 3.10 / 3.11 / 3.12, ACE-Step 1.5, Seed-VC, Demucs,
 # Chatterbox (synthèse vocale), le nettoyage de voix (MossFormer2, VoiceFixer), RVC (Applio : entraînement
-# d'un modèle de ta voix), tous leurs modèles, et l'environnement de l'application.
+# d'un modèle de ta voix), le moteur de diffusion (Qwen3-VL, Stable Audio Open, Hunyuan3D-2, SDXL : bruitages,
+# modèles 3D), tous leurs modèles, et l'environnement de l'application.
 # Relançable : chaque étape terminée est sautée.
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +28,14 @@ $Rvc = Join-Path $Eng 'rvc'
 $RvcPy = Join-Path $Rvc '.venv\Scripts\python.exe'
 # Version d'Applio (RVC) épinglée : moteurs\rvc_voix.py reprend les arguments de ses scripts à ce commit
 $RvcCommit = 'c7665ac9a305b3683570ed914f1577d53d4b75c4'
+$Dif = Join-Path $Eng 'diffusion'
+$DifPy = Join-Path $Dif '.venv\Scripts\python.exe'
+$HySrc = Join-Path $Dif 'hunyuan3d'
+# Hunyuan3D-2 épinglé, et binaires Windows précompilés de son rasteriseur de texture (dépôt de kijai,
+# ComfyUI-Hunyuan3DWrapper, commit épinglé) : sans eux il faudrait Visual Studio et le CUDA Toolkit.
+$HyCommit = 'f8db63096c8282cb27354314d896feba5ba6ff8a'
+$KijaiCommit = '2609efa38f6a98292476f714839b7c1e5f9b699a'
+$KijaiRaw = "https://raw.githubusercontent.com/kijai/ComfyUI-Hunyuan3DWrapper/$KijaiCommit"
 $AppPy = Join-Path $App '.venv\Scripts\python.exe'
 
 # Tout reste sur ce disque (caches compris), rien d'important sur C:
@@ -36,10 +45,11 @@ $env:UV_PYTHON_PREFERENCE = 'only-managed'   # ignore le Python 3.14 du système
 $env:TORCH_HOME = Join-Path $Eng 'torch-cache'
 $env:HF_HOME = Join-Path $Eng 'hf-home'
 $env:PKUSEG_HOME = Join-Path $Cb 'pkuseg'   # sinon spacy-pkuseg (Chatterbox) écrit dans ~\.pkuseg, sur C:
+$env:U2NET_HOME = Join-Path $Dif 'u2net'    # sinon rembg (détourage) écrit dans ~\.u2net, sur C:
 $env:PYTHONIOENCODING = 'utf-8'
 $env:PATH = "$UvDir;$env:PATH"
 
-function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/14] $txt ===" -ForegroundColor Cyan }
+function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/18] $txt ===" -ForegroundColor Cyan }
 function Done($marker) { New-Item -ItemType File -Force -Path $marker | Out-Null }
 
 function Run([string]$exe, [string[]]$argList, [string]$cwd = $null) {
@@ -104,7 +114,7 @@ try {
     Write-Host 'Studio Voix — installation complète' -ForegroundColor Green
     Write-Host "Moteurs et modèles  : $Eng"
     Write-Host "Application         : $App"
-    Write-Host 'Environ 32 à 37 Go à télécharger : compte une bonne heure selon ta connexion.'
+    Write-Host 'Environ 55 à 60 Go à télécharger : compte une bonne heure selon ta connexion.'
     Write-Host 'Tu peux fermer et relancer INSTALLER.bat : les étapes finies seront sautées.'
 
     New-Item -ItemType Directory -Force -Path $Eng | Out-Null
@@ -113,8 +123,8 @@ try {
     $drive = Get-PSDrive -Name $Eng.Substring(0, 1)
     $freeGo = [math]::Round($drive.Free / 1GB)
     Write-Host "Espace libre sur $($drive.Name): : $freeGo Go"
-    if ($freeGo -lt 50) {
-        Write-Host 'Attention : moins de 50 Go libres, l''installation complète risque de manquer de place.' -ForegroundColor Yellow
+    if ($freeGo -lt 80) {
+        Write-Host 'Attention : moins de 80 Go libres, l''installation complète risque de manquer de place.' -ForegroundColor Yellow
         if ((Read-Host 'Continuer quand même ? (o/n)') -ne 'o') { exit 1 }
     }
     $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
@@ -144,12 +154,14 @@ try {
     Run $Uv @('--version')
 
     # --- 2. Code des moteurs ---
-    Step 2 'Code d''ACE-Step, de Seed-VC, de Chatterbox et de RVC (Applio)'
+    Step 2 'Code d''ACE-Step, de Seed-VC, de Chatterbox, de RVC (Applio) et de Hunyuan3D-2'
     Get-Repo 'https://github.com/ace-step/ACE-Step-1.5/archive/refs/heads/main.zip' $Ace
     Get-Repo 'https://github.com/Plachtaa/seed-vc/archive/refs/heads/main.zip' $Sv
     New-Item -ItemType Directory -Force -Path $Cb | Out-Null
     Get-Repo "https://github.com/resemble-ai/chatterbox/archive/$CbCommit.zip" $CbSrc
     Get-Repo "https://github.com/IAHispano/Applio/archive/$RvcCommit.zip" $Rvc
+    New-Item -ItemType Directory -Force -Path $Dif | Out-Null
+    Get-Repo "https://github.com/Tencent-Hunyuan/Hunyuan3D-2/archive/$HyCommit.zip" $HySrc
 
     # --- 3. Environnement ACE-Step (Python 3.12 + PyTorch CUDA 12.8, via sa propre config) ---
     Step 3 'Environnement ACE-Step (le plus long : PyTorch ~3 Go)'
@@ -293,8 +305,67 @@ try {
         Done $m
     } else { Write-Host 'Déjà fait.' }
 
-    # --- 14. Environnement de l'application ---
-    Step 14 'Environnement de Studio Voix (Python 3.12)'
+    # --- 15. Environnement de diffusion (Python 3.12, PyTorch 2.6 CUDA 12.6 : version des binaires de kijai) ---
+    Step 15 'Environnement de diffusion : Qwen3-VL, Stable Audio, Hunyuan3D-2, SDXL (Python 3.12)'
+    $m = Join-Path $Dif '.env-ok'
+    if (-not (Test-Path $m)) {
+        $venv = Join-Path $Dif '.venv'
+        Remove-Venv $venv
+        Run $Uv @('venv', '--python', '3.12', $venv)
+        Run $Uv @('pip', 'install', '--python', $DifPy, 'torch==2.6.0', 'torchvision==0.21.0', 'torchaudio==2.6.0',
+            '--index-url', 'https://download.pytorch.org/whl/cu126')
+        # Pile commune (versions testées) ; transformers 4.57 : la 5 renomme les poids de l'encodeur d'image de
+        # Hunyuan3D-2 (échec de chargement) ; torchsde : ordonnanceur de Stable Audio ; rembg/onnxruntime : détourage
+        Run $Uv @('pip', 'install', '--python', $DifPy, 'torch==2.6.0', 'torchvision==0.21.0', 'torchaudio==2.6.0',
+            'diffusers==0.40.0', 'transformers==4.57.6', 'accelerate', 'torchsde', 'einops', 'omegaconf',
+            'opencv-python-headless', 'numpy', 'trimesh', 'pymeshlab', 'pygltflib', 'xatlas', 'rembg', 'onnxruntime',
+            'scikit-image', 'soundfile', 'pillow', 'huggingface-hub', 'sentencepiece', 'protobuf')
+        # Hunyuan3D-2 sans ses dépendances (déjà listées ci-dessus, sans gradio ni outils d'entraînement), en mode
+        # « editable » : le code reste dans $HySrc, où l'on dépose le module compilé mesh_processor
+        Run $Uv @('pip', 'install', '--python', $DifPy, '--no-deps', '-e', $HySrc)
+        # Rasteriseur de texture (CUDA) précompilé pour Python 3.12 + torch 2.6 + CUDA 12.6, et module d'inpainting
+        $roue = Join-Path $Dif 'custom_rasterizer-0.1.0+torch260.cuda126-cp312-cp312-win_amd64.whl'
+        Invoke-WebRequest -Uri "$KijaiRaw/wheels/custom_rasterizer-0.1.0+torch260.cuda126-cp312-cp312-win_amd64.whl" -OutFile $roue -UseBasicParsing
+        Run $Uv @('pip', 'install', '--python', $DifPy, $roue)
+        $pyd = Join-Path $HySrc 'hy3dgen\texgen\differentiable_renderer\mesh_processor.cp312-win_amd64.pyd'
+        New-Item -ItemType Directory -Force -Path (Split-Path $pyd) | Out-Null
+        Invoke-WebRequest -Uri "$KijaiRaw/hy3dgen/texgen/differentiable_renderer/mesh_processor.cp312-win_amd64.pyd" -OutFile $pyd -UseBasicParsing
+        Repair-TorchOmp $DifPy $venv
+        Run $DifPy @('-c', 'import torch, diffusers, transformers, custom_rasterizer; from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; from hy3dgen.texgen.differentiable_renderer.mesh_processor import meshVerticeInpaint; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''Diffusion prête, GPU :'', torch.cuda.get_device_name(0))')
+        Done $m
+    } else { Write-Host 'Déjà fait.' }
+
+    # --- 16. Jeton Hugging Face (facultatif : seulement pour Stable Audio Open, sous licence à accepter) ---
+    Step 16 'Jeton Hugging Face pour Stable Audio Open (bruitages) — facultatif'
+    $jeton = Join-Path $env:HF_HOME 'token'
+    if (Test-Path $jeton) {
+        Write-Host 'Déjà fait (jeton présent).'
+    } else {
+        Write-Host 'Stable Audio Open (bruitages) demande d''accepter sa licence sur Hugging Face :' -ForegroundColor Yellow
+        Write-Host '  1. connecte-toi sur https://huggingface.co/stabilityai/stable-audio-open-1.0 et accepte la licence ;'
+        Write-Host '  2. crée un jeton (type Read) sur https://huggingface.co/settings/tokens ;'
+        Write-Host '  3. colle-le ci-dessous. Laisse vide pour passer (tu pourras le faire plus tard dans l''onglet Modèles).'
+        $saisie = Read-Host 'Jeton Hugging Face (hf_...)'
+        if ($saisie -and $saisie.Trim().StartsWith('hf_')) {
+            New-Item -ItemType Directory -Force -Path $env:HF_HOME | Out-Null
+            [IO.File]::WriteAllText($jeton, $saisie.Trim())   # sans BOM ni retour à la ligne
+            Write-Host 'Jeton enregistré.'
+        } else { Write-Host 'Pas de jeton : les bruitages seront disponibles après l''avoir enregistré dans l''onglet Modèles.' -ForegroundColor Yellow }
+    }
+
+    # --- 17. Modèles de diffusion (~35 Go : Qwen3-VL 4 Go, SDXL 7 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
+    Step 17 'Modèles de diffusion (~35 Go)'
+    $m = Join-Path $Dif '.modeles-ok'
+    if (-not (Test-Path $m)) {
+        Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'qwen', 'forme3d', 'texture3d', 'image', 'detourage') $Dif
+        if (Test-Path $jeton) {
+            Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'bruitages') $Dif
+        } else { Write-Host 'Stable Audio Open non téléchargé (pas de jeton) : onglet Modèles → Télécharger, une fois le jeton enregistré.' -ForegroundColor Yellow }
+        Done $m
+    } else { Write-Host 'Déjà fait.' }
+
+    # --- 18. Environnement de l'application ---
+    Step 18 'Environnement de Studio Voix (Python 3.12)'
     $m = Join-Path $App '.venv\installe.ok'
     if (-not (Test-Path $m)) {
         $venv = Join-Path $App '.venv'

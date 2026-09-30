@@ -91,6 +91,14 @@ def ecrire(y, sr, base: Path, formats):
     return sortie
 
 
+def _note_volume(lufs, cible):
+    if not np.isfinite(lufs):
+        return "(signal silencieux : volume inchangé)"
+    if lufs >= cible - 0.2:
+        return f"à {lufs:.1f} LUFS"
+    return f"à {lufs:.1f} LUFS (limité par les crêtes pour ne pas saturer ; cible {cible:.0f})"
+
+
 def exporter_fichier(src, cible_label, formats=("mp3",)):
     """Exporte un fichier (par exemple une chanson) à côté de l'original, au volume cible. Renvoie (fichier, message)."""
     if not src or not Path(src).exists():
@@ -99,8 +107,24 @@ def exporter_fichier(src, cible_label, formats=("mp3",)):
     y, lufs = normaliser(load_stereo(src), cfg.SR, cible)
     fichiers = ecrire(y, cfg.SR, Path(src).with_name(Path(src).stem + "_export"), formats)
     premier = next(iter(fichiers.values()))
-    note = "" if lufs >= cible - 0.2 else f" (limité par les crêtes pour ne pas saturer ; cible {cible:.0f})"
-    return str(premier), f"✅ Exporté à {lufs:.1f} LUFS{note} : {', '.join(str(p) for p in fichiers.values())}"
+    return str(premier), f"✅ Exporté {_note_volume(lufs, cible)} : {', '.join(str(p) for p in fichiers.values())}"
+
+
+def exporter_fichier_formats(src, cible_label, formats):
+    """Export d'un fichier (bruitage…) dans plusieurs formats, à côté de l'original. Renvoie un message."""
+    formats = [f for f in (formats or []) if f in FORMATS or f == "wav"]
+    if not formats:
+        raise gr.Error("Choisis au moins un format.")
+    if not src or not Path(src).exists():
+        raise gr.Error("Rien à exporter : génère d'abord un fichier.")
+    cible = CIBLES.get(cible_label, -16.0)
+    y, lufs = normaliser(load_stereo(src), cfg.SR, cible)
+    base = Path(src).with_name(Path(src).stem + "_export")
+    fichiers = ecrire(y, cfg.SR, base, [f for f in formats if f != "wav"])
+    if "wav" in formats:
+        sf.write(str(base.with_suffix(".wav")), y.T, cfg.SR)
+        fichiers["wav"] = base.with_suffix(".wav")
+    return f"✅ Exporté {_note_volume(lufs, cible)} : {', '.join(str(p) for p in fichiers.values())}"
 
 
 def exporter_pack(projet, cible_label, formats, progress=gr.Progress()):

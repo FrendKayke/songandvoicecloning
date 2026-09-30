@@ -7,7 +7,7 @@ from studiovoix.modeles import models_status_md
 
 def test_etat_des_modeles(env):
     md = models_status_md()
-    assert md.count("❌ absent") == 6
+    assert md.count("❌ absent") == 7
     assert str(cfg.VOICES_DIR) in md
 
 

@@ -16,8 +16,9 @@ from . import config as cfg
 from .outils import ecrire_creation, nouveau_dossier
 from .pipeline import INSTRUMENTAL, finaliser_depuis_infos
 
-TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture"}
-FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts"}
+TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture", "bruitage": "🔊 Bruitage"}
+FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts",
+           "Bruitages": "bruitage"}
 # repaint_mode d'ACE-Step (release_task_models.py : conservative / balanced / aggressive)
 FORCES = {
     "Légère (garde au maximum l'original)": "conservative",
@@ -27,7 +28,7 @@ FORCES = {
 
 
 def _racines():
-    return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR}
+    return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR, "bruitage": cfg.SFX_DIR}
 
 
 def lire(dossier):
@@ -56,11 +57,14 @@ def _dossiers():
     yield from (d for d in r["chanson"].glob("*") if d.is_dir())
     yield from (d for d in r["jeu"].glob("*/*/*") if d.is_dir() and "export" not in d.parts[-3:])
     yield from (d for d in r["tts"].glob("*") if d.is_dir())
+    yield from (d for d in r["bruitage"].glob("*") if d.is_dir())
 
 
 def _resume(infos):
     if infos["type"] == "jeu":
         return f"{infos.get('projet')} — {infos.get('libelle')}"
+    if infos["type"] == "bruitage":
+        return f"{infos.get('nom')} — {infos.get('description_fr') or infos.get('description')}"
     txt = infos.get("texte") if infos["type"] == "tts" else infos.get("description")
     txt = (txt or "").replace("\n", " ")
     return txt[:60] + ("…" if len(txt) > 60 else "")
@@ -120,6 +124,8 @@ def details(chemin, version=1):
         lignes.append(f"Description : {infos['description']}")
     if infos["type"] == "tts":
         lignes.append(f"Texte : {infos.get('texte', '')[:500]}")
+    if infos["type"] == "bruitage" and infos.get("description_fr"):
+        lignes.append(f"Demande : {infos['description_fr']} ({infos.get('duree')} s)")
     elif infos.get("paroles") and infos["paroles"] != INSTRUMENTAL:
         lignes.append("Paroles :\n\n```\n" + infos["paroles"][:1500] + "\n```")
     graines = ", ".join(str(x.get("graine")) for x in infos.get("versions") or [] if x.get("graine") is not None)
@@ -194,6 +200,13 @@ def recreer(chemin, version=1, progress=gr.Progress()):
                                            "usage_reference", "fidelite")}
         piste, note = jeu.generer_piste(params, garde, progress, "Recréation", fichiers, graine)
         return f"✅ Recréée avec la graine {graine} : {note}.", _dossier_de(piste)
+    if infos["type"] == "bruitage":
+        from . import bruitages
+
+        msg, _, fichier, dossier = bruitages.generer(infos["description"], infos.get("nom"), infos.get("duree", 3),
+                                                     1, graine, infos.get("etapes", 100), None,
+                                                     infos.get("description_fr"), progress=progress)
+        return f"✅ Bruitage recréé avec la graine {graine}.", dossier
     reg = infos.get("reglages") or {}
     fichier, _ = chatterbox.synthese(infos.get("voix"), infos.get("texte"), infos.get("langue"),
                                      reg.get("exaggeration", 0.5), reg.get("cfg_weight", 0.5),
@@ -206,7 +219,7 @@ def refaire_passage(chemin, version, debut, fin, description, paroles, force_lab
     """Redessine seulement [debut, fin] (secondes) d'une chanson ou d'une piste de jeu, puis refait le reste du
     traitement (séparation, conversion, mixage, ou boucle / jingle). Nouvelle création, l'originale est gardée."""
     infos = _infos(chemin)
-    if infos["type"] == "tts" or infos.get("ancienne"):
+    if infos["type"] not in ("chanson", "jeu") or infos.get("ancienne"):
         raise gr.Error("« Refaire un passage » marche sur les chansons et les pistes de jeu créées avec cette version.")
     i, v = _version(infos, version)
     d_version = Path(chemin) / (v.get("dossier") or ".")
