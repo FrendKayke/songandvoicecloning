@@ -27,6 +27,7 @@ Modules de `studiovoix/` :
 | `styles.py` | listes déroulantes des styles (libellés français, termes anglais) |
 | `jeu.py` | bande-son de jeu : situations, génération en lot, jingles |
 | `boucle.py` | boucles parfaites pour les musiques de fond |
+| `export.py` | export OGG/MP3 au volume harmonisé (LUFS), pack de bande-son avec `manifest.json` |
 | `demucs.py` | séparation voix / instrumental |
 | `seedvc.py` | conversion de voix chantée |
 | `chatterbox.py` | synthèse vocale (lance `moteurs/chatterbox_tts.py`) |
@@ -84,6 +85,8 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
    - **Instrumental** : musique sans voix, les paroles sont ignorées.
 4. Onglet **Bande-son de jeu** : musiques sans voix pour un jeu. Donne un nom de projet, choisis l'époque (16-bit par défaut, 8-bit, orchestral…), l'univers et les situations (écran titre, menu, plateau, tension, combat, boss, boutique, et les jingles victoire, défaite, booster, carte rare). Tu peux taper ta propre situation en anglais (« fire faction theme, taiko drums »). Le tableau montre la description envoyée pour chaque piste. « Générer la bande-son » les crée une par une dans `data\jeux\<projet>\<situation>\<date>\` (`piste.wav`). Les jingles sont générés sur 10 s (le minimum d'ACE-Step) puis coupés proprement à leur durée. Les musiques de fond deviennent des **boucles parfaites** : le fichier `piste.wav` tourne en boucle sans coupure (`loop: true` dans Howler.js, `<audio loop>`…) ; l'aperçu « Jonction » te fait écouter le passage fin → début, et le message donne la qualité de la jonction.
    - **Une bande-son cohérente** (« 🎼 Cohérence ») : génère d'abord un thème principal (l'écran titre, par exemple), puis choisis-le comme *thème de référence*. « Même son » donne à toutes les pistes son timbre et son mixage ; « Variation du thème » réarrange sa mélodie selon chaque situation (version combat, version calme…), comme les leitmotivs des JRPG. Le curseur « Fidélité » règle la ressemblance. En variation, les musiques de fond prennent la durée du thème.
+   - **Export pour le jeu** (« 📦 ») : toutes les pistes du projet (la plus récente de chaque situation) au même volume (−16 LUFS conseillé), en OGG et MP3, avec un `manifest.json`, dans `data\jeux\<projet>\export\` et en archive zip à télécharger.
+   - Dans l'onglet « Créer une chanson », « 💾 Exporter la chanson en MP3 » fait de même pour une chanson (−14 LUFS par défaut).
 5. Onglet **Synthèse vocale** : choisis une voix de ta bibliothèque, la langue, écris le texte et clique sur « Lire le texte avec cette voix ». Les textes longs (jusqu'à 5 000 caractères) sont découpés en phrases. Chaque lecture est rangée dans `data\tts\<date>\` (texte et `parole.wav`).
 6. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
 
@@ -97,6 +100,26 @@ Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix conve
 4. L'application remixe voix et instrumental.
 
 En mode « voix d'ACE-Step » ou « Instrumental », seule l'étape 1 a lieu, sauf si tu retires un instrument : Demucs sépare alors la chanson en 4 pistes (voix, batterie, basse, autres) et l'instrumental est remixé sans l'instrument retiré.
+
+### Utiliser le pack dans ton jeu web
+
+Chaque piste en boucle tourne sans coupure sur le fichier entier : pas besoin de points de boucle. Exemple avec [Howler.js](https://howlerjs.com/) :
+
+```js
+const manifest = await (await fetch("audio/manifest.json")).json();
+const sons = {};
+for (const p of manifest.pistes) {
+  sons[p.id] = new Howl({
+    src: [`audio/${p.fichiers.ogg}`, `audio/${p.fichiers.mp3}`], // OGG d'abord, MP3 en secours
+    loop: p.boucle,
+    html5: p.boucle, // lecture en flux pour les longues musiques
+  });
+}
+sons.combat.play();          // musique de fond en boucle
+sons.victoire.play();        // jingle
+```
+
+Le volume est déjà harmonisé entre les pistes : règle seulement le volume général de la musique dans ton jeu.
 
 ### Nettoyage de voix
 
@@ -145,7 +168,7 @@ Chaque message explique quoi changer (se rapprocher du micro, baisser le niveau 
 Les tests n'ont pas besoin de carte graphique : ACE-Step est remplacé par un faux serveur HTTP, Demucs et Seed-VC par de faux scripts. Depuis le dossier de l'application :
 
 ```
-uv run --python 3.12 --with-requirements requirements.txt --with pytest pytest tests
+uv run --python 3.12 --with-requirements requirements.txt --with pytest --with pyloudnorm pytest tests
 ```
 
 ## Licences

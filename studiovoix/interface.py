@@ -1,7 +1,7 @@
 """Interface Gradio (onglets « Bibliothèque de voix », « Créer une chanson », « Synthèse vocale », « Modèles »)."""
 import gradio as gr
 
-from . import acestep, chatterbox, demucs, jeu, nettoyage, seedvc
+from . import acestep, chatterbox, demucs, export, jeu, nettoyage, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
@@ -156,6 +156,11 @@ def build_ui():
             statut = gr.Markdown()
             final = gr.Audio(label="Chanson finale (avec ta voix)", type="filepath")
             final_2 = gr.Audio(label="Version 2", type="filepath", visible=False)
+            with gr.Row():
+                chanson_cible = gr.Dropdown(list(export.CIBLES), value=list(export.CIBLES)[0], label="Volume de l'export")
+                btn_export_chanson = gr.Button("💾 Exporter la chanson en MP3")
+                chanson_mp3 = gr.File(label="MP3 à télécharger")
+            chanson_export_msg = gr.Markdown()
             with gr.Accordion("Étapes intermédiaires", open=False) as intermediaires:
                 brute = gr.Audio(label="Chanson brute ACE-Step", type="filepath")
                 voix_conv = gr.Audio(label="Voix convertie", type="filepath")
@@ -206,6 +211,20 @@ def build_ui():
                 jeu_liste = gr.Dropdown([], label="Écouter une piste générée")
                 jeu_audio = gr.Audio(label="Piste (en boucle dans le jeu)", type="filepath")
                 jeu_jonction = gr.Audio(label="Jonction : 5 s de fin puis 5 s de début", type="filepath")
+            with gr.Accordion("📦 Export pour le jeu (OGG / MP3, volume harmonisé, manifest.json)", open=False):
+                gr.Markdown(
+                    "Prend la piste la plus récente de chaque situation du projet, les met toutes au même volume "
+                    "et écrit `data/jeux/<projet>/export/` : un fichier par situation et un `manifest.json` "
+                    "(identifiant, fichiers, boucle, durée, BPM). OGG pour tous les navigateurs récents, MP3 en "
+                    "secours ; les boucles restent exactes dans les deux formats."
+                )
+                with gr.Row():
+                    jeu_cible = gr.Dropdown(list(export.CIBLES), value=list(export.CIBLES)[1], label="Volume cible")
+                    jeu_formats = gr.CheckboxGroup([("OGG", "ogg"), ("MP3", "mp3")], value=["ogg", "mp3"],
+                                                   label="Formats")
+                btn_export_jeu = gr.Button("📦 Exporter le pack")
+                jeu_export_msg = gr.Markdown()
+                jeu_zip = gr.File(label="Archive à télécharger")
 
         with gr.Tab("4. Synthèse vocale"):
             gr.Markdown(
@@ -291,6 +310,8 @@ def build_ui():
             [final, brute, voix_conv, instru_out, statut, final_2],
         )
         versions.change(lambda v: gr.update(visible=int(v) > 1), versions, final_2)
+        btn_export_chanson.click(export.exporter_fichier, [final, chanson_cible], [chanson_mp3, chanson_export_msg])
+        btn_export_jeu.click(export.exporter_pack, [jeu_projet, jeu_cible, jeu_formats], [jeu_zip, jeu_export_msg])
         champs_jeu = [jeu_epoque, jeu_univers, jeu_situations, jeu_extra, jeu_duree]
         for champ in champs_jeu:
             champ.change(jeu.apercu, champs_jeu, jeu_apercu)
