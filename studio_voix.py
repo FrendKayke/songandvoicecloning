@@ -6,6 +6,8 @@ Studio Voix — mini logiciel local :
   3. sépare la voix de l'instrumental (Demucs)
   4. remplace la voix chantée par la tienne (Seed-VC, conversion de voix chantée)
   5. remixe le tout
+Il sait aussi générer de la musique seule (voix d'ACE-Step ou instrumental) et lire un texte
+avec une voix de la bibliothèque (synthèse vocale Chatterbox).
 Un onglet « Modèles » indique où sont stockés les modèles et permet de les télécharger.
 
 Point d'entrée lancé par lancer.bat ; le code est dans le paquet studiovoix/.

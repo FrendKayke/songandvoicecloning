@@ -1,7 +1,7 @@
-"""Interface Gradio (onglets « Ma voix », « Créer une chanson », « Modèles »)."""
+"""Interface Gradio (onglets « Bibliothèque de voix », « Créer une chanson », « Synthèse vocale », « Modèles »)."""
 import gradio as gr
 
-from . import acestep, demucs, seedvc
+from . import acestep, chatterbox, demucs, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
@@ -107,7 +107,32 @@ def build_ui():
                 voix_conv = gr.Audio(label="Voix convertie", type="filepath")
                 instru_out = gr.Audio(label="Instrumental", type="filepath")
 
-        with gr.Tab("3. Modèles"):
+        with gr.Tab("3. Synthèse vocale"):
+            gr.Markdown(
+                "Fais lire un texte par une voix de ta bibliothèque (Chatterbox Multilingual, en local). "
+                "Les textes longs sont découpés en phrases. Le premier lancement charge le modèle (environ 30 s). "
+                "Chaque fichier produit porte un filigrane inaudible (Perth) qui le signale comme voix de synthèse."
+            )
+            with gr.Row():
+                with gr.Column(scale=1):
+                    tts_voix = gr.Dropdown(choices=list_voices(), value=(list_voices() or [None])[0],
+                                           label="Voix")
+                    tts_langue = gr.Dropdown(list(cfg.LANGUES), value="Français", label="Langue du texte")
+                tts_texte = gr.Textbox(label="Texte à lire", lines=10, scale=2,
+                                       placeholder="Bonjour ! Ceci est un essai de ma voix de synthèse.")
+            with gr.Accordion("Réglages (avancé)", open=False):
+                tts_exag = gr.Slider(0.25, 2, value=0.5, step=0.05, label="Expressivité",
+                                     info="0,5 = neutre. Plus haut : plus expressif (et plus rapide) ; les extrêmes sont instables.")
+                tts_cfg = gr.Slider(0, 1, value=0.5, step=0.05, label="Guidage / rythme",
+                                    info="Vers 0,3 si ta voix de référence parle vite. 0 si l'échantillon n'est pas "
+                                         "dans la langue du texte (évite de garder l'accent).")
+                tts_temp = gr.Slider(0.05, 5, value=0.8, step=0.05, label="Température (variété)")
+                tts_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire, sinon résultat reproductible)")
+            tts_btn = gr.Button("🗣️ Lire le texte avec cette voix", variant="primary")
+            tts_statut = gr.Markdown()
+            tts_sortie = gr.Audio(label="Parole générée", type="filepath")
+
+        with gr.Tab("4. Modèles"):
             gr.Markdown(
                 "Les modèles sont volumineux (plusieurs Go au total) et ne sont téléchargés qu'une seule fois. "
                 "Vérifie ici leur présence et leur emplacement, ou lance le téléchargement."
@@ -119,26 +144,37 @@ def build_ui():
                 b_ace = gr.Button("⬇️ Télécharger ACE-Step", variant="primary")
                 b_sv = gr.Button("⬇️ Télécharger Seed-VC", variant="primary")
                 b_dm = gr.Button("⬇️ Télécharger Demucs", variant="primary")
+                b_cb = gr.Button("⬇️ Télécharger Chatterbox", variant="primary")
             with gr.Row():
                 o_ace = gr.Button("📂 Ouvrir dossier ACE-Step")
                 o_sv = gr.Button("📂 Ouvrir dossier Seed-VC")
                 o_dm = gr.Button("📂 Ouvrir dossier Demucs")
+                o_cb = gr.Button("📂 Ouvrir dossier Chatterbox")
                 o_data = gr.Button("📂 Ouvrir mes chansons")
 
-        btn_save.click(save_voice, [audio_in, nom], [msg_voice, biblio]).then(synchro_voix, voix, voix)
-        btn_ren.click(rename_voice, [biblio, nouveau_nom], [msg_biblio, biblio]).then(synchro_voix, voix, voix)
-        btn_del.click(delete_voice, biblio, [msg_biblio, biblio], js=CONFIRMER_SUPPRESSION).then(
-            synchro_voix, voix, voix)
+        def synchro_autres(evt):
+            """Après une opération sur la bibliothèque : listes de voix des autres onglets à jour."""
+            return evt.then(synchro_voix, voix, voix).then(synchro_voix, tts_voix, tts_voix)
+
+        synchro_autres(btn_save.click(save_voice, [audio_in, nom], [msg_voice, biblio]))
+        synchro_autres(btn_ren.click(rename_voice, [biblio, nouveau_nom], [msg_biblio, biblio]))
+        synchro_autres(btn_del.click(delete_voice, biblio, [msg_biblio, biblio], js=CONFIRMER_SUPPRESSION))
         biblio.change(infos_voix, biblio, [ecoute, desc_voix])
         # Voix ajoutées hors de l'application : listes à jour à chaque ouverture de la page
-        demo.load(synchro_voix, biblio, biblio).then(synchro_voix, voix, voix).then(
-            infos_voix, biblio, [ecoute, desc_voix])
+        synchro_autres(demo.load(synchro_voix, biblio, biblio)).then(infos_voix, biblio, [ecoute, desc_voix])
+        tts_btn.click(
+            chatterbox.synthese,
+            [tts_voix, tts_texte, tts_langue, tts_exag, tts_cfg, tts_temp, tts_graine],
+            [tts_sortie, tts_statut],
+        )
         btn_refresh.click(models_status_md, None, status)
-        for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download)):
+        for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download),
+                      (b_cb, chatterbox.download)):
             b.click(fn, None, log).then(models_status_md, None, status)
         o_ace.click(lambda: open_folder(acestep.ckpt_dir()))
         o_sv.click(lambda: open_folder(seedvc.ckpt_dir()))
         o_dm.click(lambda: open_folder(demucs.ckpt_dir()))
+        o_cb.click(lambda: open_folder(chatterbox.ckpt_dir()))
         o_data.click(lambda: open_folder(cfg.SONGS_DIR, create=True))
         demo.load(models_status_md, None, status)
         btn.click(

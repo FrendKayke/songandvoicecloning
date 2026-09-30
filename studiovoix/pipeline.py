@@ -1,12 +1,12 @@
 """Pipeline complet : ACE-Step → Demucs → Seed-VC → mixage, ou ACE-Step seul (musique seule)."""
 import shutil
-from datetime import datetime
 
 import gradio as gr
 
 from . import acestep, demucs, seedvc
 from . import config as cfg
 from .mixage import mix
+from .outils import nouveau_dossier
 
 MODE_MA_VOIX = "Chanson avec ma voix"
 MODE_VOIX_ACE = "Chanson avec la voix d'ACE-Step"
@@ -45,8 +45,7 @@ def creer_chanson(
                 raise gr.Error("Écris des paroles, ou choisis le mode « Instrumental ».")
             lyrics = INSTRUMENTAL
 
-    workdir = cfg.SONGS_DIR / datetime.now().strftime("%Y%m%d_%H%M%S")
-    workdir.mkdir(parents=True)
+    workdir = nouveau_dossier(cfg.SONGS_DIR)
 
     prompt = acestep.build_prompt(genre, style, instruments, ambiance, voix_base, extra)
     (workdir / "prompt.txt").write_text(f"{prompt}\n\n{lyrics}\n", encoding="utf-8")

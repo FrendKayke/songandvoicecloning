@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
@@ -13,11 +14,25 @@ def has_weights(folder: Path) -> bool:
     return folder.is_dir() and any(f.suffix in WEIGHT_SUFFIXES for f in folder.rglob("*") if f.is_file())
 
 
-def stream_command(cmd, cwd, header):
+def nouveau_dossier(parent: Path) -> Path:
+    """Crée parent/<horodatage> (suffixé _2, _3… si deux travaux démarrent dans la même seconde)."""
+    base = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for i in range(1, 1000):
+        d = parent / (base if i == 1 else f"{base}_{i}")
+        try:
+            d.mkdir(parents=True)
+            return d
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"Impossible de créer un dossier dans {parent}")
+
+
+def stream_command(cmd, cwd, header, extra_env=None):
     """Lance une commande et renvoie sa sortie au fur et à mesure (pour l'affichage)."""
     log = header + "\n"
     yield log
     env = os.environ.copy()
+    env.update(extra_env or {})
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     try:

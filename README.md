@@ -1,8 +1,8 @@
 # Studio Voix
 
-Logiciel local pour Windows : tu enregistres ta voix, tu écris un prompt (genre, style, instruments, ambiance) et tes paroles, et il te rend une chanson chantée avec **ta** voix. Tout tourne sur ta machine, sans service en ligne.
+Logiciel local pour Windows : tu enregistres ta voix, tu écris un prompt (genre, style, instruments, ambiance) et tes paroles, et il te rend une chanson chantée avec **ta** voix. Il sait aussi composer de la musique seule, et lire un texte avec ta voix (synthèse vocale). Tout tourne sur ta machine, sans service en ligne.
 
-Moteurs utilisés : [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) (génération musicale), [Demucs](https://github.com/facebookresearch/demucs) (séparation voix / musique) et [Seed-VC](https://github.com/Plachtaa/seed-vc) (conversion de voix chantée). Ils sont téléchargés par l'installateur, ils ne sont pas inclus dans ce dépôt.
+Moteurs utilisés : [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) (génération musicale), [Demucs](https://github.com/facebookresearch/demucs) (séparation voix / musique), [Seed-VC](https://github.com/Plachtaa/seed-vc) (conversion de voix chantée) et [Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox) (synthèse vocale, licence MIT). Ils sont téléchargés par l'installateur, ils ne sont pas inclus dans ce dépôt.
 
 Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 
@@ -12,6 +12,7 @@ Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 |---|---|
 | `studio_voix.py` | point d'entrée de l'application (lancé par `lancer.bat`) |
 | `studiovoix/` | le code de l'application, un module par rôle (voir ci-dessous) |
+| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`) |
 | `tests/` | tests automatiques sans carte graphique (moteurs simulés) |
 | `installer.ps1` / `INSTALLER.bat` | installation complète en un clic |
 | `lancer.bat` | démarrage (serveur ACE-Step + application) |
@@ -25,6 +26,7 @@ Modules de `studiovoix/` :
 | `acestep.py` | génération de la chanson (API REST d'ACE-Step) |
 | `demucs.py` | séparation voix / instrumental |
 | `seedvc.py` | conversion de voix chantée |
+| `chatterbox.py` | synthèse vocale (lance `moteurs/chatterbox_tts.py`) |
 | `voix.py` | bibliothèque de voix (import, contrôle de qualité, renommage, suppression) |
 | `mixage.py` | mixage voix + instrumental |
 | `pipeline.py` | enchaînement complet des étapes |
@@ -38,13 +40,16 @@ Modules de `studiovoix/` :
 2. Double-clique sur **INSTALLER.bat**.
 
 C'est tout. Aucun droit administrateur n'est nécessaire, et ni Python ni Git n'ont besoin d'être installés au préalable. L'installateur récupère et installe :
-- **uv**, qui télécharge lui-même les bonnes versions de Python (3.12 pour ACE-Step et pour l'application, 3.10 pour Seed-VC), sans toucher au Python 3.14 de ton système ;
+- **uv**, qui télécharge lui-même les bonnes versions de Python (3.12 pour ACE-Step et pour l'application, 3.10 pour Seed-VC, 3.11 pour Chatterbox), sans toucher au Python 3.14 de ton système ;
 - **ACE-Step 1.5** et ses modèles (~10 Go) ;
 - **Seed-VC** et ses modèles ;
 - **Demucs** et son modèle ;
+- **Chatterbox Multilingual V3** et ses modèles (~3,2 Go, plus ~2,5 Go pour PyTorch) ;
 - l'environnement de l'application.
 
-Compte 20 à 25 Go à télécharger, soit une bonne heure selon ta connexion, et au moins 30 Go libres. Si l'installation s'interrompt, relance INSTALLER.bat : les étapes terminées sont sautées.
+Compte 26 à 31 Go à télécharger, soit une bonne heure selon ta connexion, et au moins 40 Go libres. Si l'installation s'interrompt, relance INSTALLER.bat : les étapes terminées sont sautées.
+
+**Tu avais déjà installé Studio Voix avant l'arrivée de la synthèse vocale ?** Relance simplement INSTALLER.bat : seules les deux étapes de Chatterbox s'exécutent (environ 6 Go à télécharger, 10 à 25 minutes). Sans cela, tout le reste fonctionne et l'onglet « Synthèse vocale » t'indique qu'il manque Chatterbox.
 
 ### Où tout est installé
 
@@ -55,8 +60,10 @@ Les moteurs et les modèles vont dans **`<lecteur>:\StudioVoix`** (par exemple `
 | `StudioVoix\ace-step\checkpoints` | modèles ACE-Step |
 | `StudioVoix\seed-vc\checkpoints` | modèles Seed-VC |
 | `StudioVoix\torch-cache` | modèle Demucs |
+| `StudioVoix\chatterbox` | Chatterbox (code, environnement, modèle de découpage `pkuseg`) |
+| `StudioVoix\hf-home` | modèles Chatterbox (cache Hugging Face) |
 | `StudioVoix\python`, `uv`, `uv-cache` | Python et outils d'installation |
-| `<dossier de l'application>\data` | tes voix et tes chansons |
+| `<dossier de l'application>\data` | tes voix, tes chansons et tes textes lus |
 
 Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'application.
 
@@ -68,7 +75,8 @@ Pour tout désinstaller : supprime `StudioVoix` et le dossier `.venv` de l'appli
    - **Chanson avec ma voix** (par défaut) : la chanson est chantée avec ta voix ;
    - **Chanson avec la voix d'ACE-Step** : musique seule, la voix générée par ACE-Step est gardée telle quelle (plus rapide : ni séparation ni conversion, pas besoin de voix enregistrée) ;
    - **Instrumental** : musique sans voix, les paroles sont ignorées.
-4. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
+4. Onglet **Synthèse vocale** : choisis une voix de ta bibliothèque, la langue, écris le texte et clique sur « Lire le texte avec cette voix ». Les textes longs (jusqu'à 5 000 caractères) sont découpés en phrases. Chaque lecture est rangée dans `data\tts\<date>\` (texte et `parole.wav`).
+5. Quand tu as fini, ferme aussi la fenêtre ACE-Step pour libérer la carte graphique.
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.
 
@@ -95,6 +103,7 @@ Chaque message explique quoi changer (se rapprocher du micro, baisser le niveau 
 
 - **Voix chantée de base** : choisis masculine ou féminine selon ta voix. Sinon, joue sur le décalage de hauteur (−12 / +12 demi-tons).
 - **Étapes Seed-VC** : 40 par défaut. Monte à 50 pour plus de qualité, au prix du temps.
+- **Synthèse vocale** : « Expressivité » à 0,5 = neutre ; pour un ton plus dramatique, monte vers 0,7 et baisse « Guidage / rythme » vers 0,3. Si ton échantillon n'est pas dans la langue du texte, mets « Guidage / rythme » à 0 pour ne pas garder l'accent. La graine (≠ 0) rend un résultat reproductible.
 
 ## Limites à connaître
 
@@ -102,6 +111,9 @@ Chaque message explique quoi changer (se rapprocher du micro, baisser le niveau 
 - **Pilote NVIDIA** : ACE-Step utilise CUDA 12.8, qui demande un pilote récent (570.65 ou plus). L'installateur le vérifie.
 - **Fidélité de la voix** : la conversion sans entraînement donne une ressemblance correcte mais pas parfaite, surtout sur les notes aiguës. Pour mieux faire, il faudrait entraîner un modèle sur 10 à 30 minutes de tes enregistrements (par exemple RVC).
 - **Artefacts** : la séparation sur de la musique générée laisse parfois de légers résidus.
+- **Mémoire graphique et synthèse vocale** : Chatterbox a besoin de 3 à 4 Go de mémoire graphique. Si la fenêtre ACE-Step est ouverte et a déjà chargé ses modèles, la carte peut manquer de mémoire : l'application te demande alors de fermer cette fenêtre, puis de relancer la lecture.
+- **Filigrane** : chaque fichier produit par la synthèse vocale porte un filigrane inaudible ([Perth](https://github.com/resemble-ai/perth)) qui permet de reconnaître une voix de synthèse. Il est ajouté par Chatterbox lui-même.
+- **Référence de voix pour la synthèse** : Chatterbox n'utilise que les 10 premières secondes de l'échantillon.
 - **Consentement** : clone uniquement ta propre voix, ou celle de personnes d'accord.
 
 ## Tests (pour le développement)

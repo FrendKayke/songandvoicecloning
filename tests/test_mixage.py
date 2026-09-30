@@ -28,3 +28,10 @@ def test_mix_gains(tmp_path):
     y0, _ = sf.read(str(mix(v, i, tmp_path / "a.wav", 1.0, 1.0)))
     y1, _ = sf.read(str(mix(v, i, tmp_path / "b.wav", 0.5, 0.5)))
     assert np.allclose(y1, y0 * 0.5, atol=1e-3)
+
+
+def test_nouveau_dossier_sans_collision(tmp_path):
+    from studiovoix.outils import nouveau_dossier
+
+    dossiers = [nouveau_dossier(tmp_path) for _ in range(3)]
+    assert len(set(dossiers)) == 3 and all(d.is_dir() for d in dossiers)

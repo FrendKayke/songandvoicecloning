@@ -9,6 +9,7 @@ set "UV_CACHE_DIR=%ENG%\uv-cache"
 set "UV_PYTHON_INSTALL_DIR=%ENG%\python"
 set "TORCH_HOME=%ENG%\torch-cache"
 set "HF_HOME=%ENG%\hf-home"
+set "PKUSEG_HOME=%ENG%\chatterbox\pkuseg"
 set "PYTHONIOENCODING=utf-8"
 set "STUDIOVOIX_MOTEURS=%ENG%"
 set "ACESTEP_URL=http://127.0.0.1:8001"
@@ -16,6 +17,8 @@ set "SEEDVC_DIR="
 set "SEEDVC_PYTHON="
 set "ACESTEP_DIR="
 set "ACESTEP_PYTHON="
+set "CHATTERBOX_DIR="
+set "CHATTERBOX_PYTHON="
 
 curl -s -f -o nul -m 2 %ACESTEP_URL%/health
 if not errorlevel 1 goto serveur_ok
