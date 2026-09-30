@@ -14,11 +14,12 @@ ARGS = dict(genre="pop", style="", instruments="piano", ambiance="", extra="", v
             gain_voix=1.0, gain_instru=1.0)
 
 
-def _call(voix, paroles, mode=None, description=None, **kw):
+def _call(voix, paroles, mode=None, **kw):
+    # Paramètres nommés ajoutés après « mode » : transmis seulement s'ils sont donnés (sinon valeur par défaut)
+    extra = {k: kw.pop(k) for k in ("description", "retirer") if k in kw}
+    if mode is not None:
+        extra["mode"] = mode
     a = dict(ARGS, **kw)
-    extra = {} if mode is None else {"mode": mode}  # sans mode : comportement par défaut (ma voix)
-    if description is not None:
-        extra["description"] = description
     return creer_chanson(voix, a["genre"], a["style"], a["instruments"], a["ambiance"], a["extra"],
                          a["voix_base"], paroles, a["langue_label"], a["duree"], a["bpm"], a["thinking"],
                          a["semitones"], a["steps"], a["gain_voix"], a["gain_instru"], **extra,
@@ -116,3 +117,46 @@ def test_listes_de_styles(fake_acestep, fake_engines):
     _call(None, "", mode=MODE_INSTRU, genre=["synthwave, retrowave"], instruments=["synth pads", "drum machine"],
           description="")
     assert srv.payloads[0]["prompt"] == "synthwave, retrowave, synth pads, drum machine"
+
+
+# --- Retrait d'instruments (Demucs 4 pistes) -------------------------------------------
+from conftest import FREQ_PISTES, energie  # noqa: E402
+
+
+def _presentes(path):
+    return {p for p, f in FREQ_PISTES.items() if energie(path, f) > 0.01}
+
+
+def test_instrumental_sans_basse(fake_acestep, fake_engines):
+    srv = fake_acestep()
+    final, brute, conv, instru, msg = _call(None, "", mode=MODE_INSTRU, retirer=["bass"])
+    assert final.endswith("instrumental.wav") and brute.endswith("chanson_brute.wav")
+    assert _presentes(final) == {"drums", "other"}  # ni basse, ni résidus de voix
+    assert "sans basse" in msg
+    assert srv.payloads[0]["lm_negative_prompt"] == "bass, bass guitar, sub-bass"
+
+
+def test_voix_ace_step_sans_batterie_ni_basse(fake_acestep, fake_engines):
+    srv = fake_acestep()
+    final, brute, conv, instru, msg = _call(None, "[Verse]\nla", mode=MODE_VOIX_ACE, retirer=["drums", "bass"])
+    assert final.endswith("chanson_finale.wav") and conv is None
+    assert _presentes(final) == {"other", "vocals"} and _presentes(instru) == {"other"}
+    assert "sans batterie et basse" in msg
+    assert srv.payloads[0]["lm_negative_prompt"] == "drums, drum kit, percussion, bass, bass guitar, sub-bass"
+
+
+def test_ma_voix_sans_basse(fake_acestep, fake_engines):
+    fake_acestep()
+    write_tone(cfg.VOICES_DIR / "moi.wav", seconds=10)
+    final, brute, conv, instru, msg = _call("moi", "[Verse]\nla", retirer=["bass"])
+    appel = json.loads((cfg.SEEDVC_DIR / "appel.json").read_text())
+    assert appel[appel.index("--source") + 1].endswith("vocals.wav") and "demucs4" in appel[appel.index("--source") + 1]
+    assert _presentes(final) == {"drums", "other", "vocals"}  # la « voix convertie » du faux Seed-VC = piste voix
+    assert _presentes(instru) == {"drums", "other"} and msg.startswith("Terminé (sans basse)")
+
+
+def test_sans_retrait_pas_de_prompt_negatif(fake_acestep, fake_engines):
+    srv = fake_acestep()
+    _call(None, "", mode=MODE_INSTRU, retirer=["piano"])  # valeur inconnue ignorée
+    assert "lm_negative_prompt" not in srv.payloads[0]
+    assert not any(cfg.SONGS_DIR.rglob("demucs4"))

@@ -50,8 +50,13 @@ def wait_acestep(progress, timeout=15 * 60):
     )
 
 
-def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, progress, etape="1/4"):
-    """Génère la chanson et l'écrit dans dest. « etape » sert seulement à l'affichage (« 1/4 »…)."""
+def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, progress, etape="1/4",
+                     negatif=None):
+    """Génère la chanson et l'écrit dans dest. « etape » sert seulement à l'affichage (« 1/4 »…).
+
+    « negatif » : ce qu'il faut éviter (lm_negative_prompt) ; seul le modèle de langage en tient compte,
+    donc seulement en mode réflexion (le générateur n'a pas de prompt négatif).
+    """
     wait_acestep(progress)
     payload = {
         "prompt": prompt,
@@ -70,6 +75,8 @@ def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, p
     }
     if bpm and int(bpm) > 0:
         payload["bpm"] = int(bpm)
+    if negatif:
+        payload["lm_negative_prompt"] = negatif
 
     try:
         r = requests.post(f"{cfg.ACESTEP_URL}/release_task", json=payload, timeout=30)
@@ -115,7 +122,7 @@ def acestep_generate(prompt, lyrics, langue, duree, bpm, thinking, dest: Path, p
         if status == 2:
             if thinking:  # nouvel essai sans le LM
                 progress(0.15, desc="Échec avec le mode réflexion, nouvel essai sans…")
-                return acestep_generate(prompt, lyrics, langue, duree, bpm, False, dest, progress, etape)
+                return acestep_generate(prompt, lyrics, langue, duree, bpm, False, dest, progress, etape, negatif)
             raise gr.Error(f"ACE-Step a échoué : {item.get('result')}")
     raise gr.Error("Délai dépassé (30 min) pour la génération de la chanson. Regarde la fenêtre ACE-Step.")
 

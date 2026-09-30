@@ -26,6 +26,14 @@ def write_tone(path, seconds=3.0, freq=220.0, amp=0.3, sr=SR, channels=1):
     return Path(path)
 
 
+def energie(path, freq):
+    """Amplitude relative de la fréquence freq dans un fichier (pour savoir si une piste y est présente)."""
+    y, sr = sf.read(str(path), always_2d=True)
+    y = y.mean(axis=1)
+    spectre = np.abs(np.fft.rfft(y)) / len(y)
+    return float(spectre[int(round(freq * len(y) / sr))])
+
+
 def no_progress(*args, **kwargs):
     pass
 
@@ -128,16 +136,26 @@ def fake_acestep(env, monkeypatch):
 
 
 # --- Faux moteurs en sous-processus -------------------------------------------
+# Fréquence de la tonalité écrite dans chaque piste par le faux Demucs en mode 4 pistes
+FREQ_PISTES = {"drums": 100.0, "bass": 200.0, "other": 300.0, "vocals": 400.0}
+
 FAKE_DEMUCS = textwrap.dedent('''
     import sys, shutil
     from pathlib import Path
+    import numpy as np, soundfile as sf
     args = sys.argv[1:]
-    assert "--two-stems=vocals" in args and args[args.index("-n") + 1] == "htdemucs", args
+    assert args[args.index("-n") + 1] == "htdemucs", args
     out = Path(args[args.index("-o") + 1]); song = Path(args[-1])
     d = out / "htdemucs" / song.stem
     d.mkdir(parents=True)
-    shutil.copy(song, d / "vocals.wav"); shutil.copy(song, d / "no_vocals.wav")
-''')
+    if "--two-stems=vocals" in args:
+        shutil.copy(song, d / "vocals.wav"); shutil.copy(song, d / "no_vocals.wav")
+    else:  # 4 pistes, chacune une tonalité reconnaissable
+        info = sf.info(str(song)); t = np.arange(info.frames) / info.samplerate
+        for piste, f in %r.items():
+            y = (0.2 * np.sin(2 * np.pi * f * t)).astype("float32")
+            sf.write(str(d / f"{piste}.wav"), np.stack([y, y], 1), info.samplerate)
+''' % FREQ_PISTES)
 
 FAKE_SEEDVC = textwrap.dedent('''
     import sys, json, shutil, argparse

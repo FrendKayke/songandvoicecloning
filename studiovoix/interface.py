@@ -5,7 +5,7 @@ from . import acestep, chatterbox, demucs, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
-from .pipeline import MODE_INSTRU, MODE_MA_VOIX, MODES, creer_chanson
+from .pipeline import MODE_INSTRU, MODE_MA_VOIX, MODES, RETRAITS, creer_chanson
 from .styles import LISTES
 from .voix import delete_voice, infos_voix, list_voices, rename_voice, save_voice
 
@@ -103,6 +103,12 @@ def build_ui():
                 info="Construite à partir des listes ci-dessus, en anglais : c'est la langue que le modèle comprend le "
                      "mieux. Tu peux la retoucher ; elle est recalculée si tu changes une liste. Pour exclure un "
                      "instrument, ne l'écris pas ici (« sans basse » ajouterait de la basse).",
+            )
+            retirer = gr.Dropdown(
+                [(v.capitalize(), k) for k, v in RETRAITS.items()], value=[], multiselect=True,
+                label="Retirer de la musique",
+                info="Garanti : la chanson est séparée en pistes (Demucs) et l'instrument choisi est supprimé du "
+                     "mix (environ 1 min de plus). En mode réflexion, ACE-Step est aussi prié de l'éviter.",
             )
             with gr.Row():
                 langue = gr.Dropdown(list(cfg.LANGUES), value="Français", label="Langue des paroles")
@@ -204,7 +210,7 @@ def build_ui():
         btn.click(
             creer_chanson,
             [voix, genre, style, instruments, ambiance, extra, voix_base, paroles, langue, duree, bpm,
-             thinking, semitones, steps, gain_voix, gain_instru, mode, description],
+             thinking, semitones, steps, gain_voix, gain_instru, mode, description, retirer],
             [final, brute, voix_conv, instru_out, statut],
         )
         champs_style = [genre, style, instruments, ambiance, extra, voix_base, mode]

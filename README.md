@@ -88,7 +88,7 @@ Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix conve
 3. **Seed-VC** (conversion de voix chantée, sans entraînement) remplace cette voix par la tienne.
 4. L'application remixe voix et instrumental.
 
-En mode « voix d'ACE-Step » ou « Instrumental », seule l'étape 1 a lieu.
+En mode « voix d'ACE-Step » ou « Instrumental », seule l'étape 1 a lieu, sauf si tu retires un instrument : Demucs sépare alors la chanson en 4 pistes (voix, batterie, basse, autres) et l'instrumental est remixé sans l'instrument retiré.
 
 ### Contrôle de qualité à l'import
 
@@ -103,7 +103,7 @@ Chaque message explique quoi changer (se rapprocher du micro, baisser le niveau 
 ## Réglages utiles
 
 - **Style pas respecté ?** La description est transmise telle quelle à ACE-Step. Si le résultat reste trop « pop », décoche le **mode réflexion** : le générateur suit alors la description seule. Pour un style peu courant, répète les mots importants (« 8-bit chiptune, chiptune, retro video game music »).
-- **Exclure un instrument** : ne l'écris pas dans la description, même précédé de « sans » ou « no » : le mot suffit à l'ajouter.
+- **Exclure un instrument** : ne l'écris pas dans la description, même précédé de « sans » ou « no » : le mot suffit à l'ajouter. Utilise plutôt **« Retirer de la musique »** (basse, batterie) : la chanson est séparée en pistes par Demucs et l'instrument est supprimé du mix, c'est garanti (environ 1 minute de plus). Les pistes séparées restent dans le dossier de la chanson (`demucs4\`).
 
 - **Voix chantée de base** : choisis masculine ou féminine selon ta voix. Sinon, joue sur le décalage de hauteur (−12 / +12 demi-tons).
 - **Étapes Seed-VC** : 40 par défaut. Monte à 50 pour plus de qualité, au prix du temps.

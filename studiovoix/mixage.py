@@ -17,12 +17,14 @@ def load_stereo(path, sr=SR):
 
 
 def mix(vocals_path, instru_path, out_path, gain_voix=1.0, gain_instru=1.0):
-    v = load_stereo(vocals_path) * gain_voix
-    i = load_stereo(instru_path) * gain_instru
-    n = max(v.shape[1], i.shape[1])
-    v = np.pad(v, ((0, 0), (0, n - v.shape[1])))
-    i = np.pad(i, ((0, 0), (0, n - i.shape[1])))
-    m = v + i
+    return mixer([(vocals_path, gain_voix), (instru_path, gain_instru)], out_path)
+
+
+def mixer(pistes, out_path):
+    """Additionne des pistes [(fichier, gain), …] en 44,1 kHz stéréo, avec limitation du pic à 0,95."""
+    ys = [load_stereo(p) * g for p, g in pistes]
+    n = max(y.shape[1] for y in ys)
+    m = sum(np.pad(y, ((0, 0), (0, n - y.shape[1]))) for y in ys)
     peak = float(np.max(np.abs(m))) or 1.0
     if peak > 0.95:
         m = m / peak * 0.95
