@@ -11,7 +11,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
-from .outils import lancer_moteur, nouveau_dossier, stream_command
+from .outils import ecrire_creation, lancer_moteur, nouveau_dossier, stream_command
 from .voix import chemin_voix
 
 HF_REPO = "models--ResembleAI--chatterbox"
@@ -91,6 +91,12 @@ def synthese(voix, texte, langue_label, exaggeration, cfg_weight, temperature, g
         env["HF_HUB_OFFLINE"] = "1"  # modèles présents : pas de vérification en ligne à chaque lecture
 
     progress(0.02, desc="Chargement de Chatterbox…")
+    ecrire_creation(workdir, {
+        "type": "tts", "voix": voix, "texte": texte, "langue": langue_label,
+        "reglages": {"exaggeration": float(exaggeration), "cfg_weight": float(cfg_weight),
+                     "temperature": float(temperature)},
+        "versions": [{"graine": int(graine or 0), "dossier": ".", "fichier": str(sortie)}],
+    })
     lancer_moteur(
         [cfg.CHATTERBOX_PYTHON, str(script()), str(tache)], workdir, env, "Chatterbox",
         lambda i, n: progress(0.1 + 0.85 * (i - 1) / n, desc=f"Synthèse vocale : morceau {i}/{n}…"),

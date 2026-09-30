@@ -15,8 +15,8 @@ import gradio as gr
 from . import acestep, boucle as boucles
 from . import config as cfg
 from .mixage import couper_jingle
-from .outils import nouveau_dossier
-from .pipeline import INSTRUMENTAL, ecrire_creation
+from .outils import ecrire_creation, nouveau_dossier
+from .pipeline import INSTRUMENTAL
 from .styles import texte
 
 EPOQUES = [
@@ -144,46 +144,55 @@ def generer_bande_son(projet, epoque, univers, situations, extra, duree_boucles,
     pistes = []
     for n, cle in enumerate(situations, 1):
         ident, libelle, txt, duree, boucle = situation(cle)
-        etape = f"{n}/{len(situations)} {libelle}"
         duree_gen = int(duree_boucles) if boucle else max(DUREE_MIN_ACESTEP, duree)
-        prompt = description(epoque, univers, txt, extra)
-        dossier = nouveau_dossier(cfg.GAMES_DIR / projet / ident)
-        params = acestep.text2music_params(prompt, INSTRUMENTAL, "en", duree_gen, 0, thinking)
+        params = acestep.text2music_params(description(epoque, univers, txt, extra), INSTRUMENTAL, "en",
+                                           duree_gen, 0, thinking)
         fichiers = None
         if usage == REF_VARIATION and boucle:
             params.update(task_type="cover", audio_cover_strength=float(fidelite), thinking=False)
             fichiers = {"src_audio": reference}
         elif usage != REF_AUCUNE:
             fichiers = {"reference_audio": reference}
-        ((brute, seed),) = acestep.generer(params, [dossier / "brute.wav"], progress, etape, fichiers=fichiers,
-                                           graine=graine)
-        piste = dossier / "piste.wav"
-        infos_boucle, note = None, ""
-        if boucle:
-            try:
-                b = boucles.creer_boucle(brute, piste, dossier / "apercu_jonction.wav")
-                infos_boucle = boucles.en_dict(b)
-                note = f"boucle de {b.duree:.0f} s ({b.mesures} mesures), jonction {b.qualite()}"
-            except ValueError:
-                shutil.copy(brute, piste)
-                note = "pas de boucle trouvée (morceau trop peu rythmé) : piste gardée telle quelle"
-        else:
-            duree = couper_jingle(brute, piste, duree)
-            note = f"jingle de {duree:.1f} s"
-        ecrire_creation(dossier, {
-            "type": "jeu", "projet": projet, "situation": ident, "libelle": libelle, "boucle": boucle,
-            "description": prompt, "duree": round(float(duree_gen if boucle else duree), 2),
-            "reflexion": bool(thinking), "boucle_points": infos_boucle,
-            "reference": str(reference) if fichiers else None,
-            "usage_reference": ("variation" if "src_audio" in (fichiers or {}) else "timbre") if fichiers else None,
-            "fidelite": float(fidelite) if fichiers and "src_audio" in fichiers else None,
-            "versions": [{"graine": seed, "dossier": ".", "fichier": str(piste)}],
-        })
+        infos = {"projet": projet, "situation": ident, "libelle": libelle, "boucle": boucle,
+                 "duree_cible": None if boucle else duree,
+                 "reference": str(reference) if fichiers else None,
+                 "usage_reference": ("variation" if "src_audio" in fichiers else "timbre") if fichiers else None,
+                 "fidelite": float(fidelite) if fichiers and "src_audio" in fichiers else None}
+        piste, note = generer_piste(params, infos, progress, f"{n}/{len(situations)} {libelle}", fichiers, graine)
         pistes.append((libelle, str(piste), note))
     choix = [(lib, p) for lib, p, _ in pistes]
     msg = (f"✅ {len(pistes)} piste(s) générée(s) dans {cfg.GAMES_DIR / projet} :\n\n"
            + "\n".join(f"- **{lib}** : {note}" for lib, _, note in pistes))
     return msg, gr.update(choices=choix, value=choix[0][1]), choix[0][1], jonction(choix[0][1])
+
+
+def generer_piste(params, infos, progress, etape, fichiers=None, graine=0, dossier=None):
+    """Une piste de jeu : génération ACE-Step (params prêts : text2music, cover ou repaint), puis boucle
+    parfaite ou jingle selon infos["boucle"], et creation.json. Sert à la bande-son, à « Recréer » et à
+    « Refaire un passage » (galerie). Renvoie (piste, note lisible)."""
+    dossier = dossier or nouveau_dossier(cfg.GAMES_DIR / infos["projet"] / infos["situation"])
+    ((brute, seed),) = acestep.generer(params, [dossier / "brute.wav"], progress, etape, fichiers=fichiers,
+                                       graine=graine)
+    piste = dossier / "piste.wav"
+    infos_boucle = None
+    if infos["boucle"]:
+        try:
+            b = boucles.creer_boucle(brute, piste, dossier / "apercu_jonction.wav")
+            infos_boucle = boucles.en_dict(b)
+            note = f"boucle de {b.duree:.0f} s ({b.mesures} mesures), jonction {b.qualite()}"
+        except ValueError:
+            shutil.copy(brute, piste)
+            note = "pas de boucle trouvée (morceau trop peu rythmé) : piste gardée telle quelle"
+        duree = params.get("audio_duration")
+    else:
+        duree = couper_jingle(brute, piste, infos["duree_cible"])
+        note = f"jingle de {duree:.1f} s"
+    ecrire_creation(dossier, {
+        "type": "jeu", **infos, "description": params["prompt"],
+        "duree": round(float(duree), 2) if duree else None, "reflexion": bool(params.get("thinking")),
+        "boucle_points": infos_boucle, "versions": [{"graine": seed, "dossier": ".", "fichier": str(piste)}],
+    })
+    return piste, note
 
 
 def jonction(piste):

@@ -1,0 +1,189 @@
+"""Galerie : toutes les créations (chansons, pistes de jeu, lectures) à réécouter, recréer avec la même
+graine ou supprimer.
+
+Chaque création est un dossier décrit par creation.json (outils.ecrire_creation). Les chansons et lectures
+plus anciennes, sans creation.json, sont listées d'après prompt.txt / tache.json (écoute et suppression seulement).
+"""
+import json
+import shutil
+from pathlib import Path
+
+import gradio as gr
+
+from . import acestep, chatterbox, jeu
+from . import config as cfg
+from .pipeline import INSTRUMENTAL
+
+TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture"}
+FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts"}
+def _racines():
+    return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR}
+
+
+def lire(dossier):
+    """Description d'une création (creation.json, ou reconstruite pour une création ancienne), sinon None."""
+    d = Path(dossier)
+    f = d / "creation.json"
+    if f.exists():
+        try:
+            return json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:
+            return None
+    if (d / "prompt.txt").exists():  # chanson d'avant creation.json
+        prompt, _, paroles = (d / "prompt.txt").read_text(encoding="utf-8").partition("\n\n")
+        fichier = next((d / n for n in ("chanson_finale.wav", "chanson_brute.wav") if (d / n).exists()), None)
+        return {"type": "chanson", "ancienne": True, "description": prompt.strip(), "paroles": paroles.strip(),
+                "versions": [{"graine": None, "dossier": ".", "fichier": str(fichier) if fichier else None}]}
+    if (d / "tache.json").exists() and (d / "parole.wav").exists():  # lecture d'avant creation.json
+        t = json.loads((d / "tache.json").read_text(encoding="utf-8"))
+        return {"type": "tts", "ancienne": True, "texte": t.get("texte", ""),
+                "versions": [{"graine": t.get("graine"), "dossier": ".", "fichier": str(d / "parole.wav")}]}
+    return None
+
+
+def _dossiers():
+    r = _racines()
+    yield from (d for d in r["chanson"].glob("*") if d.is_dir())
+    yield from (d for d in r["jeu"].glob("*/*/*") if d.is_dir() and "export" not in d.parts[-3:])
+    yield from (d for d in r["tts"].glob("*") if d.is_dir())
+
+
+def _resume(infos):
+    if infos["type"] == "jeu":
+        return f"{infos.get('projet')} — {infos.get('libelle')}"
+    txt = infos.get("texte") if infos["type"] == "tts" else infos.get("description")
+    txt = (txt or "").replace("\n", " ")
+    return txt[:60] + ("…" if len(txt) > 60 else "")
+
+
+def _date(dossier):
+    n = Path(dossier).name
+    return f"{n[6:8]}/{n[4:6]}/{n[:4]} {n[9:11]}h{n[11:13]}" if len(n) >= 15 and n[:8].isdigit() else n
+
+
+def lister(filtre="Tout"):
+    """Créations les plus récentes d'abord : [(libellé, dossier)]."""
+    type_voulu = FILTRES.get(filtre)
+    elements = []
+    for d in _dossiers():
+        infos = lire(d)
+        if not infos or (type_voulu and infos.get("type") != type_voulu):
+            continue
+        elements.append((d.name, f"{_date(d)} · {TYPES.get(infos['type'], '?')} · {_resume(infos)}", str(d)))
+    return [(lib, chemin) for _, lib, chemin in sorted(elements, reverse=True)]
+
+
+def maj_liste(filtre, choisie=None):
+    choix = lister(filtre)
+    valeurs = [v for _, v in choix]
+    return gr.update(choices=choix, value=choisie if choisie in valeurs else (valeurs[0] if valeurs else None))
+
+
+def _infos(chemin):
+    if not chemin or not Path(chemin).is_dir():
+        raise gr.Error("Choisis une création dans la liste.")
+    infos = lire(chemin)
+    if not infos:
+        raise gr.Error("Cette création n'a plus de description (creation.json).")
+    return infos
+
+
+def _version(infos, version):
+    versions = infos.get("versions") or [{}]
+    i = max(1, min(len(versions), int(version or 1))) - 1
+    return i, versions[i]
+
+
+def details(chemin, version=1):
+    """(description en Markdown, fichier de la version, choix des versions)."""
+    if not chemin:
+        return "*Aucune création pour l'instant.*", None, gr.update(choices=[1], value=1, visible=False)
+    infos = _infos(chemin)
+    i, v = _version(infos, version)
+    fichier = v.get("fichier")
+    fichier = fichier if fichier and Path(fichier).exists() else None
+    lignes = [f"**{TYPES.get(infos['type'], '?')}** — {_date(chemin)}", f"Dossier : `{chemin}`"]
+    if infos["type"] == "jeu":
+        lignes.append(f"Projet **{infos.get('projet')}**, situation **{infos.get('libelle')}** "
+                      f"({'boucle' if infos.get('boucle') else 'jingle'})")
+    if infos.get("description"):
+        lignes.append(f"Description : {infos['description']}")
+    if infos["type"] == "tts":
+        lignes.append(f"Texte : {infos.get('texte', '')[:500]}")
+    elif infos.get("paroles") and infos["paroles"] != INSTRUMENTAL:
+        lignes.append("Paroles :\n\n```\n" + infos["paroles"][:1500] + "\n```")
+    graines = ", ".join(str(x.get("graine")) for x in infos.get("versions") or [] if x.get("graine") is not None)
+    if graines:
+        lignes.append(f"Graine(s) : {graines}")
+    if infos.get("ancienne"):
+        lignes.append("*Création d'une ancienne version de Studio Voix : écoute et suppression seulement.*")
+    n = len(infos.get("versions") or [])
+    return "\n\n".join(lignes), fichier, gr.update(choices=list(range(1, n + 1)), value=i + 1, visible=n > 1)
+
+
+def supprimer(chemin):
+    """Supprime une création (après confirmation dans le navigateur ; None = annulé)."""
+    if chemin is None:
+        return "Suppression annulée."
+    d = Path(chemin).resolve()
+    if not any(r.resolve() in d.parents for r in _racines().values()) or not lire(d):
+        raise gr.Error("Ce dossier n'est pas une création de Studio Voix.")
+    try:
+        shutil.rmtree(d)
+    except OSError as e:
+        raise gr.Error(f"Impossible de supprimer : un fichier est peut-être en cours de lecture. ({e})")
+    return f"🗑️ Création supprimée : {d.name}"
+
+
+def _dossier_de(fichier):
+    """Dossier de création contenant un fichier produit (remonte jusqu'au creation.json)."""
+    for p in Path(fichier).parents:
+        if (p / "creation.json").exists():
+            return str(p)
+    return str(Path(fichier).parent)
+
+
+def _fichiers_jeu(infos):
+    ref = infos.get("reference")
+    if not ref or not Path(ref).exists():
+        return None, {}
+    if infos.get("usage_reference") == "variation":
+        return {"src_audio": ref}, {"task_type": "cover", "audio_cover_strength": infos.get("fidelite") or 0.5,
+                                    "thinking": False}
+    return {"reference_audio": ref}, {}
+
+
+def recreer(chemin, version=1, progress=gr.Progress()):
+    """Même création, même graine (résultat proche). Renvoie (message, dossier de la nouvelle création)."""
+    infos = _infos(chemin)
+    if infos.get("ancienne"):
+        raise gr.Error("Création d'une ancienne version : pas assez d'informations pour la recréer.")
+    _, v = _version(infos, version)
+    graine = v.get("graine") or 0
+    if infos["type"] == "chanson":
+        from .pipeline import creer_chanson
+
+        seedvc_infos, gains = infos.get("seedvc") or {}, infos.get("gains") or {}
+        res = creer_chanson(
+            infos.get("voix"), "", "", "", "", "", "Automatique", infos.get("paroles"), infos.get("langue"),
+            infos.get("duree"), infos.get("bpm"), infos.get("reflexion"), seedvc_infos.get("demi_tons", 0),
+            seedvc_infos.get("etapes", 40), gains.get("voix", 1.0), gains.get("instrumental", 1.0),
+            infos.get("mode"), infos.get("description"), infos.get("retirer"), 1, graine, progress=progress)
+        return f"✅ Recréée avec la graine {graine}.", _dossier_de(res[0])
+    if infos["type"] == "jeu":
+        duree = infos.get("duree") if infos.get("boucle") else max(jeu.DUREE_MIN_ACESTEP, infos.get("duree_cible") or 0)
+        params = acestep.text2music_params(infos["description"], INSTRUMENTAL, "en", duree, 0, infos.get("reflexion"))
+        fichiers, extra = _fichiers_jeu(infos)
+        params.update(extra)
+        garde = {k: infos.get(k) for k in ("projet", "situation", "libelle", "boucle", "duree_cible", "reference",
+                                           "usage_reference", "fidelite")}
+        piste, note = jeu.generer_piste(params, garde, progress, "Recréation", fichiers, graine)
+        return f"✅ Recréée avec la graine {graine} : {note}.", _dossier_de(piste)
+    reg = infos.get("reglages") or {}
+    fichier, _ = chatterbox.synthese(infos.get("voix"), infos.get("texte"), infos.get("langue"),
+                                     reg.get("exaggeration", 0.5), reg.get("cfg_weight", 0.5),
+                                     reg.get("temperature", 0.8), graine, progress=progress)
+    note = "" if graine else " (graine aléatoire à l'origine : le résultat sera différent)"
+    return f"✅ Lecture recréée{note}.", _dossier_de(fichier)
+
+

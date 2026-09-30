@@ -4,16 +4,14 @@ Si des instruments sont à retirer, Demucs sépare en 4 pistes et l'instrumental
 Chaque création est décrite dans creation.json (réglages, graine de chaque version) : la galerie et
 « Refaire ce passage » s'en servent.
 """
-import json
 import shutil
-from datetime import datetime
 
 import gradio as gr
 
 from . import acestep, demucs, seedvc
 from . import config as cfg
 from .mixage import mix, mixer
-from .outils import nouveau_dossier
+from .outils import ecrire_creation, nouveau_dossier
 
 MODE_MA_VOIX = "Chanson avec ma voix"
 MODE_VOIX_ACE = "Chanson avec la voix d'ACE-Step"
@@ -25,12 +23,6 @@ NEGATIFS = {"bass": "bass, bass guitar, sub-bass", "drums": "drums, drum kit, pe
 PISTES_INSTRU = ("drums", "bass", "other")
 INSTRUMENTAL = "[Instrumental]"  # paroles reconnues par ACE-Step comme « sans voix » (server_utils.is_instrumental)
 MAX_VERSIONS = 2  # au-delà, la mémoire graphique (12 Go) risque de manquer
-
-
-def ecrire_creation(dossier, infos):
-    """Décrit une création (réglages, versions) dans creation.json, en UTF-8 lisible."""
-    infos = {"date": datetime.now().isoformat(timespec="seconds"), **infos}
-    (dossier / "creation.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 def creer_chanson(
@@ -105,6 +97,8 @@ def creer_chanson(
         "type": "chanson", "mode": mode, "description": prompt, "paroles": lyrics, "langue": langue_label,
         "duree": float(duree), "bpm": int(bpm or 0), "reflexion": bool(thinking), "retirer": retirer,
         "voix": voix if mode == MODE_MA_VOIX else None,
+        "seedvc": {"demi_tons": int(semitones), "etapes": int(steps)},
+        "gains": {"voix": float(gain_voix), "instrumental": float(gain_instru)},
         "versions": [{"graine": seed, "dossier": d.name if d != workdir else ".", "fichier": str(r[0])}
                      for (_, seed), d, r in zip(generes, dossiers, resultats)],
     })

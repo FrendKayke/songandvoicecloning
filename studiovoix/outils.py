@@ -1,4 +1,5 @@
 """Outils communs : journal de commande en direct, détection de poids, ouverture de dossier."""
+import json
 import os
 import subprocess
 import sys
@@ -25,6 +26,13 @@ def nouveau_dossier(parent: Path) -> Path:
         except FileExistsError:
             continue
     raise RuntimeError(f"Impossible de créer un dossier dans {parent}")
+
+
+def ecrire_creation(dossier, infos):
+    """Décrit une création (réglages, versions) dans creation.json, en UTF-8 lisible : la galerie s'en sert
+    pour réécouter, recréer avec la même graine ou refaire un passage."""
+    infos = {"date": datetime.now().isoformat(timespec="seconds"), **infos}
+    (Path(dossier) / "creation.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None):

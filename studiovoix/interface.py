@@ -1,7 +1,7 @@
 """Interface Gradio (onglets « Bibliothèque de voix », « Créer une chanson », « Synthèse vocale », « Modèles »)."""
 import gradio as gr
 
-from . import acestep, chatterbox, demucs, export, jeu, nettoyage, seedvc
+from . import acestep, chatterbox, demucs, export, galerie, jeu, nettoyage, seedvc
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
@@ -11,6 +11,7 @@ from .voix import (GARDER_NETTOYEE, GARDER_ORIGINAL, chemin_voix, delete_voice, 
                    rename_voice, save_voice_choix)
 
 # Fenêtre de confirmation du navigateur avant suppression (annuler → None → rien n'est supprimé)
+CONFIRMER_SUPPRESSION_CREATION = "(c) => (c && confirm('Supprimer définitivement cette création et tous ses fichiers ?')) ? c : null"
 CONFIRMER_SUPPRESSION = "(v) => (v && confirm('Supprimer définitivement la voix « ' + v + ' » ?')) ? v : null"
 
 
@@ -251,7 +252,25 @@ def build_ui():
             tts_statut = gr.Markdown()
             tts_sortie = gr.Audio(label="Parole générée", type="filepath")
 
-        with gr.Tab("5. Modèles"):
+        with gr.Tab("5. Galerie"):
+            with gr.Row():
+                gal_filtre = gr.Radio(list(galerie.FILTRES), value="Tout", label="Afficher")
+                gal_maj = gr.Button("🔄 Actualiser", scale=0)
+            gal_liste = gr.Dropdown([], label="Création (la plus récente en premier)")
+            gal_etat = gr.State()
+            with gr.Row():
+                with gr.Column(scale=3):
+                    gal_details = gr.Markdown()
+                with gr.Column(scale=2):
+                    gal_version = gr.Radio([1], value=1, label="Version", visible=False)
+                    gal_audio = gr.Audio(type="filepath", label="Écouter")
+                    with gr.Row():
+                        gal_recreer = gr.Button("🔁 Recréer (même graine)")
+                        gal_dossier = gr.Button("📂 Ouvrir le dossier")
+                        gal_suppr = gr.Button("🗑️ Supprimer", variant="stop")
+            gal_msg = gr.Markdown()
+
+        with gr.Tab("6. Modèles"):
             gr.Markdown(
                 "Les modèles sont volumineux (plusieurs Go au total) et ne sont téléchargés qu'une seule fois. "
                 "Vérifie ici leur présence et leur emplacement, ou lance le téléchargement."
@@ -311,6 +330,16 @@ def build_ui():
         )
         versions.change(lambda v: gr.update(visible=int(v) > 1), versions, final_2)
         btn_export_chanson.click(export.exporter_fichier, [final, chanson_cible], [chanson_mp3, chanson_export_msg])
+        sorties_details = [gal_details, gal_audio, gal_version]
+        for evt in (gal_filtre.change, gal_maj.click, demo.load):
+            evt(galerie.maj_liste, [gal_filtre, gal_liste], gal_liste)
+        gal_liste.change(galerie.details, [gal_liste], sorties_details)
+        gal_version.input(galerie.details, [gal_liste, gal_version], sorties_details)
+        gal_recreer.click(galerie.recreer, [gal_liste, gal_version], [gal_msg, gal_etat]).then(
+            galerie.maj_liste, [gal_filtre, gal_etat], gal_liste)
+        gal_suppr.click(galerie.supprimer, gal_liste, gal_msg, js=CONFIRMER_SUPPRESSION_CREATION).then(
+            galerie.maj_liste, [gal_filtre], gal_liste)
+        gal_dossier.click(lambda c: open_folder(c) if c else None, gal_liste)
         btn_export_jeu.click(export.exporter_pack, [jeu_projet, jeu_cible, jeu_formats], [jeu_zip, jeu_export_msg])
         champs_jeu = [jeu_epoque, jeu_univers, jeu_situations, jeu_extra, jeu_duree]
         for champ in champs_jeu:
