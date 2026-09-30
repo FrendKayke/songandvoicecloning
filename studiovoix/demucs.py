@@ -10,6 +10,11 @@ from .outils import stream_command
 
 
 def separate_vocals(song: Path, workdir: Path):
+    if not Path(cfg.SEEDVC_PYTHON).exists():
+        raise gr.Error(
+            f"Python de Seed-VC introuvable : {cfg.SEEDVC_PYTHON} (il sert aussi à Demucs). "
+            "Lance INSTALLER.bat."
+        )
     out = workdir / "demucs"
     cmd = [cfg.SEEDVC_PYTHON, "-m", "demucs", "--two-stems=vocals", "-n", "htdemucs",
            "-o", str(out), str(song)]

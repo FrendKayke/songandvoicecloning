@@ -61,6 +61,5 @@ def test_erreurs_de_saisie(env):
 def test_seedvc_absent(fake_acestep, env):
     fake_acestep()
     write_tone(cfg.VOICES_DIR / "moi.wav", seconds=10)
-    # Comportement d'origine conservé par la restructuration : erreur brute si le Python est absent
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(gr.Error, match="INSTALLER.bat"):
         _call("moi", "[Verse]\nx")
