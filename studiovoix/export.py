@@ -80,13 +80,23 @@ def normaliser(y, sr, cible):
     return y, loudness(y, sr)
 
 
+BLOC = 16384  # trames écrites à la fois
+
+
 def ecrire(y, sr, base: Path, formats):
-    """Écrit base.ogg / base.mp3… ; renvoie {format: chemin}."""
+    """Écrit base.ogg / base.mp3… ; renvoie {format: chemin}.
+
+    Écriture par blocs : en un seul appel, l'encodeur Vorbis de libsndfile dépasse la pile de 1 Mo du fil principal
+    sous Windows sur un morceau de quelques dizaines de secondes (« Windows fatal exception: stack overflow »,
+    constaté par la vérification automatique). La longueur reste exacte à l'échantillon près."""
+    donnees = np.ascontiguousarray(np.atleast_2d(y).T, dtype=np.float32)
     sortie = {}
     for f in formats:
         fmt, sub = FORMATS[f]
         chemin = base.with_suffix(f".{f}")
-        sf.write(str(chemin), y.T, sr, format=fmt, subtype=sub)
+        with sf.SoundFile(str(chemin), "w", sr, donnees.shape[1], format=fmt, subtype=sub) as fichier:
+            for i in range(0, len(donnees), BLOC):
+                fichier.write(donnees[i:i + BLOC])
         sortie[f] = chemin
     return sortie
 
