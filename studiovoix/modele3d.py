@@ -1,7 +1,7 @@
 """Onglet « Modèles 3D » : image d'un objet → modèle 3D (Hunyuan3D-2 : forme « turbo », puis texture peinte).
 
 Texte → 3D : la description française passe par Qwen3-VL (mode « objet » : prompt anglais d'un objet seul, vue de
-trois quarts, fond blanc), Stable Diffusion XL en fait une image (data/3d/images/), que l'utilisateur vérifie
+trois quarts, fond blanc), Z-Image-Turbo en fait une image (data/3d/images/), que l'utilisateur vérifie
 avant de lancer la 3D comme pour une image importée.
 
 Rangement : data/3d/<horodatage>/ : image.<ext> (image de départ), image_detouree.png (fond retiré par rembg),
@@ -41,7 +41,9 @@ def fichiers_produits(dossier, image=None):
                   if p.suffix.lower() in (".glb", ".obj", ".mtl", ".png", ".jpg") and p.name not in exclus)
 
 
-ETAPES_IMAGE = 30  # SDXL base : 30 pas, guidage 7 (valeurs usuelles de la carte du modèle)
+# Ajouté au prompt de l'objet : Z-Image-Turbo n'a pas de prompt négatif (guidage nul), on décrit donc ce qu'on veut
+OBJET_SEUL = ("single object, centered, full object visible, three-quarter view, plain pure white background, "
+              "soft studio lighting, no shadow on the ground, high detail")
 
 
 def preparer_prompt(texte, progress=gr.Progress()):
@@ -53,7 +55,7 @@ def preparer_prompt(texte, progress=gr.Progress()):
 
 
 def generer_image(prompt, graine, progress=gr.Progress()):
-    """Prompt anglais → image de l'objet (SDXL, 1024×1024, fond blanc) dans data/3d/images/.
+    """Prompt anglais → image de l'objet (Z-Image-Turbo, 1024×1024, fond blanc) dans data/3d/images/.
     Renvoie (image, graine de l'image, message)."""
     prompt = (prompt or "").strip()
     if not prompt:
@@ -61,10 +63,11 @@ def generer_image(prompt, graine, progress=gr.Progress()):
     dossier = cfg.MODELS3D_DIR / "images"
     dossier.mkdir(parents=True, exist_ok=True)
     sortie = nouveau_dossier(dossier)  # un dossier par image : pas de collision de nom
-    res = diffusion.image(prompt, sortie / "objet.png", graine, ETAPES_IMAGE, progress)
+    res = diffusion.image(f"{prompt}, {OBJET_SEUL}", [sortie / "objet.png"], diffusion.graines(1, graine),
+                          progress=progress)
     (sortie / "prompt.txt").write_text(prompt, encoding="utf-8")
-    return (res["fichier"], res["graine"],
-            f"✅ Image générée (graine {res['graine']}). Si elle te convient, lance « Créer le modèle 3D » ; "
+    return (res["fichiers"][0], res["graines"][0],
+            f"✅ Image générée (graine {res['graines'][0]}). Si elle te convient, lance « Créer le modèle 3D » ; "
             "sinon change la graine ou le prompt et regénère.")
 
 

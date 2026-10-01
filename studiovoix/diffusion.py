@@ -1,4 +1,4 @@
-"""Client du moteur « diffusion » (moteurs/diffusion.py) : Qwen3-VL, Stable Audio Open, SDXL, Hunyuan3D-2.
+"""Client du moteur « diffusion » (moteurs/diffusion.py) : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, Hunyuan3D-2.
 
 Environnement dédié (<lecteur>:\\StudioVoix\\diffusion\\.venv), appelé en sous-processus. Les modèles vont dans
 le cache Hugging Face (HF_HOME, dans StudioVoix). Stable Audio Open exige l'acceptation de sa licence sur
@@ -6,6 +6,7 @@ Hugging Face : le jeton est enregistré dans <HF_HOME>\\token, là où huggingfa
 """
 import json
 import os
+import random
 from pathlib import Path
 
 import gradio as gr
@@ -14,15 +15,17 @@ from . import config as cfg
 from . import serveur_acestep
 from .outils import lancer_moteur, stream_command
 
-# nom → (dépôt Hugging Face, libellé, fichiers attendus dans le cache — un par composant essentiel)
+# nom → (dépôt Hugging Face, libellé, fichiers attendus dans le cache — un par composant essentiel ; un couple
+# (autre dépôt, fichier) désigne un fichier d'un autre dépôt)
 MODELES = {
     "qwen": ("Qwen/Qwen3-VL-2B-Instruct", "Qwen3-VL-2B (descriptions, traduction)",
              ["model.safetensors"]),
     "bruitages": ("stabilityai/stable-audio-open-1.0", "Stable Audio Open 1.0 (bruitages)",
                   ["transformer/diffusion_pytorch_model.safetensors", "vae/diffusion_pytorch_model.safetensors",
                    "text_encoder/model.safetensors"]),
-    "image": ("stabilityai/stable-diffusion-xl-base-1.0", "Stable Diffusion XL (texte → image)",
-              ["unet/diffusion_pytorch_model.fp16.safetensors", "text_encoder_2/model.fp16.safetensors"]),
+    "zimage": ("Tongyi-MAI/Z-Image-Turbo", "Z-Image-Turbo (images : illustrations, texte → 3D)",
+               ["text_encoder/model-00001-of-00003.safetensors", "vae/diffusion_pytorch_model.safetensors",
+                ("unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q8_0.gguf")]),
     "forme3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 forme (image → 3D)",
                 ["hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors"]),
     "texture3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 texture (peinture)",
@@ -41,13 +44,20 @@ def hf_home() -> Path:
     return Path(os.environ.get("HF_HOME") or (Path.home() / ".cache" / "huggingface"))
 
 
+def _dossier_depot(depot) -> Path:
+    return hf_home() / "hub" / ("models--" + depot.replace("/", "--"))
+
+
 def ckpt_dir(nom) -> Path:
-    return hf_home() / "hub" / ("models--" + MODELES[nom][0].replace("/", "--"))
+    return _dossier_depot(MODELES[nom][0])
 
 
 def _present(nom) -> bool:
-    snaps = ckpt_dir(nom) / "snapshots"
-    return all(any(snaps.glob(f"*/{f}")) for f in MODELES[nom][2])
+    for f in MODELES[nom][2]:
+        depot, chemin = f if isinstance(f, tuple) else (MODELES[nom][0], f)
+        if not any((_dossier_depot(depot) / "snapshots").glob(f"*/{chemin}")):
+            return False
+    return True
 
 
 def missing_components():
@@ -122,11 +132,22 @@ def bruitage(prompt, dossier, duree, variantes, graine, etapes=100, negatif=None
                   {1: "chargement de Stable Audio Open", 2: "génération du bruitage"})
 
 
-def image(prompt, sortie, graine, etapes=30, progress=None):
-    _verifier("image")
-    return lancer("image", {"prompt": prompt, "graine": int(graine or 0), "etapes": int(etapes),
-                            "sortie": str(sortie)}, Path(sortie).parent, "Stable Diffusion XL", progress,
-                  {1: "chargement de Stable Diffusion XL", 2: "génération de l'image"})
+def graines(n, graine=None):
+    """Graine de chaque image : celle demandée pour la première (si > 0), puis des graines aléatoires."""
+    tirage = [random.randint(1, 2**31 - 1) for _ in range(n)]
+    if graine and int(graine) > 0:
+        tirage[0] = int(graine)
+    return tirage
+
+
+def image(prompt, sorties, graines_, largeur=1024, hauteur=1024, etapes=9, progress=None):
+    """Z-Image-Turbo : une image par chemin de `sorties`, avec la graine correspondante. RESULTAT {fichiers, graines}."""
+    _verifier("zimage")
+    sorties = [str(s) for s in sorties]
+    return lancer("image", {"prompt": prompt, "sorties": sorties, "graines": [int(g) for g in graines_],
+                            "largeur": int(largeur), "hauteur": int(hauteur), "etapes": int(etapes)},
+                  Path(sorties[0]).parent, "Z-Image", progress,
+                  {1: "chargement de Z-Image-Turbo", 2: f"génération de {len(sorties)} image(s)"})
 
 
 def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None):

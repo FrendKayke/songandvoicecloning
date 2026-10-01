@@ -47,8 +47,10 @@ FAUX_MOTEUR = textwrap.dedent("""
     elif action == "image":
         print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
         from PIL import Image
-        Image.new("RGB", (64, 64), (200, 30, 30)).save(t["sortie"])  # vrai PNG : gr.Image relit le fichier
-        print("RESULTAT " + json.dumps({"fichier": t["sortie"], "graine": t["graine"] or 999}), flush=True)
+        for s, g in zip(t["sorties"], t["graines"]):  # vrais PNG (gr.Image relit les fichiers), taille demandée / 16
+            Path(s).parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (t["largeur"] // 16, t["hauteur"] // 16), (g % 256, 30, 30)).save(s)
+        print("RESULTAT " + json.dumps({"fichiers": t["sorties"], "graines": t["graines"]}), flush=True)
     elif action == "forme3d":
         if not Path(t["image"]).exists(): print("ERREUR : image introuvable", flush=True); sys.exit(2)
         n = 6 if t["texture"] else 4
@@ -82,7 +84,8 @@ def faux_diffusion(env, monkeypatch):
     monkeypatch.setenv("FAUX_JOURNAL", str(env / "journal.jsonl"))
     for nom in diffusion.MODELES:  # modèles « présents » dans le cache
         for f in diffusion.MODELES[nom][2]:
-            p = diffusion.ckpt_dir(nom) / "snapshots" / "abc" / f
+            depot, f = f if isinstance(f, tuple) else (diffusion.MODELES[nom][0], f)
+            p = diffusion._dossier_depot(depot) / "snapshots" / "abc" / f
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(b"0")
     return env
@@ -93,7 +96,7 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 
@@ -147,12 +150,12 @@ def test_jeton_et_telechargement(faux_diffusion):
     assert (diffusion.hf_home() / "token").read_text() == "hf_abcdefghijklmnopqrstuvwxyz" and diffusion.jeton_present()
     (diffusion.hf_home() / "token").unlink()
     assert "❌" in list(diffusion.download(["bruitages"]))[0]  # sans jeton, pas de téléchargement lancé
-    dernier = list(diffusion.download(["qwen", "image"]))[-1]
-    assert "Terminé" in dernier and _journal()[-1]["args"] == ["qwen", "image", "detourage"]
+    dernier = list(diffusion.download(["qwen", "zimage"]))[-1]
+    assert "Terminé" in dernier and _journal()[-1]["args"] == ["qwen", "zimage", "detourage"]
 
 
 def test_etat_des_modeles(faux_diffusion):
-    assert "| Diffusion : Qwen3-VL, Stable Audio Open, SDXL, Hunyuan3D-2 | ✅ présent |" in models_status_md()
+    assert "| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, Hunyuan3D-2 | ✅ présent |" in models_status_md()
 
 
 def test_galerie_bruitage(faux_diffusion):
@@ -218,7 +221,7 @@ def test_galerie_modele_3d(faux_diffusion):
     modele3d.generer(str(im), "Tasse", "Normale", True, 7, ["glb"], progress=no_progress)
     (lib, dossier), = galerie.lister("Modèles 3D")
     assert "🧊 Modèle 3D · Tasse — depuis une image" in lib
-    md, audio, versions, desc, paroles, fin, modele = galerie.details(dossier)
+    md, audio, versions, desc, paroles, fin, modele, _ = galerie.details(dossier)
     assert "qualité Normale, 1234 faces, texturé" in md and audio is None and not versions["visible"]
     assert modele["value"] == str(Path(dossier) / "modele.glb") and modele["visible"]
     msg, nouveau = galerie.recreer(dossier, 1, progress=no_progress)
@@ -242,7 +245,8 @@ def test_texte_vers_3d(faux_diffusion):
     assert Path(image).parent.parent == cfg.MODELS3D_DIR / "images" and Path(image).name == "objet.png"
     assert (Path(image).parent / "prompt.txt").read_text(encoding="utf-8") == "a red potion bottle"
     t = _journal()[-1]
-    assert t["action"] == "image" and t["tache"]["etapes"] == 30 and t["tache"]["graine"] == 12
+    assert t["action"] == "image" and t["tache"]["etapes"] == 9 and t["tache"]["graines"] == [12]
+    assert t["tache"]["prompt"].startswith("a red potion bottle, single object") and t["tache"]["largeur"] == 1024
     # le dossier des images n'est pas une création : la galerie l'ignore
     assert galerie.lister("Modèles 3D") == []
     *_, dossier = modele3d.generer(image, "Potion", "Normale", True, 0, ["glb"], "a red potion bottle",
@@ -254,3 +258,43 @@ def test_texte_vers_3d(faux_diffusion):
     assert chemin == dossier and "Potion — une potion rouge" in lib
     md, *_ = galerie.details(dossier)
     assert "demande : une potion rouge" in md
+
+
+def test_illustrations_de_cartes(faux_diffusion):
+    from studiovoix import cartes, galerie
+
+    assert cartes.preparer("un chevalier", progress=no_progress) == "a red potion bottle"
+    assert _journal()[-1]["tache"] == {"mode": "carte", "texte": "un chevalier"}
+    with pytest.raises(gr.Error, match="Décris la scène"):
+        cartes.preparer(" ", progress=no_progress)
+    with pytest.raises(gr.Error, match="prompt de la scène"):
+        cartes.generer("Mon Jeu", "x", "", [], "", None, 1, 0, progress=no_progress)
+    styles = ["16-bit pixel art, limited palette, crisp pixels", "violet et or"]  # un choix de liste + une saisie libre
+    msg, images, dossier, projets = cartes.generer("Mon Jeu!", "Chevalier", "a golden knight.", styles, "soft rim light",
+                                                   "Carte entière (portrait 2:3)", 3, 42, True, "un chevalier",
+                                                   progress=no_progress)
+    d = Path(dossier)
+    assert d.parent == cfg.CARDS_DIR / "Mon Jeu" and projets["value"] == "Mon Jeu" and "Mon Jeu" in projets["choices"]
+    assert [Path(f).name for f, _ in images] == ["variante_1.png", "variante_2.png", "variante_3.png"]
+    assert images[0][1] == "Variante 1 (graine 42)" and "832×1248" in msg
+    assert all(Path(f).with_suffix(".webp").exists() for f, _ in images)
+    t = _journal()[-1]["tache"]
+    assert (t["largeur"], t["hauteur"], t["etapes"]) == (832, 1248, 9) and t["graines"][0] == 42 and len(t["graines"]) == 3
+    assert t["prompt"] == ("a golden knight. Art style: 16-bit pixel art, limited palette, crisp pixels, violet et or, "
+                           "soft rim light. No text, no letters, no frame.")
+    # le style est mémorisé pour le projet, et rechargé quand on revient au projet
+    assert cartes.style_projet("Mon Jeu") == (styles, "soft rim light", "Carte entière (portrait 2:3)")
+    maj, consignes, fmt = cartes.charger_style("Mon Jeu")
+    assert maj["value"] == styles and consignes == "soft rim light" and fmt == "Carte entière (portrait 2:3)"
+    assert cartes.style_projet("nouveau")[0] == cartes.STYLES_DEFAUT
+    # galerie : image affichée, recréation avec la graine d'une variante
+    (lib, chemin), = galerie.lister("Illustrations")
+    assert chemin == dossier and "🃏 Illustration · Mon Jeu — Chevalier — un chevalier" in lib
+    md, audio, versions, *_, modele, image = galerie.details(chemin, 2)
+    assert "Projet **Mon Jeu**, carte **Chevalier**, 832×1248" in md and audio is None
+    assert image["value"].endswith("variante_2.png") and image["visible"] and not modele["visible"]
+    graine_v2 = t["graines"][1]
+    msg, nouveau = galerie.recreer(chemin, 2, progress=no_progress)
+    assert nouveau != chemin and _journal()[-1]["tache"]["graines"] == [graine_v2]
+    assert galerie.lire(nouveau)["styles"] == styles and len(galerie.lister("Illustrations")) == 2
+    assert not any(p.name == "style.json" for p in Path(nouveau).iterdir())  # style au niveau du projet seulement

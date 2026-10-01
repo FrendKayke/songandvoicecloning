@@ -72,7 +72,7 @@ def test_installation_complete_puis_relance(inst):
     assert re.fullmatch(r"[0-9a-f]{64}", m["diffusion/.env-ok"]) and re.fullmatch(r"[0-9a-f]{64}", m["diffusion/.modeles-ok"])
     assert "Hunyuan3D-2/archive/" in m["diffusion/hunyuan3d/.complet"]
     telechargement = [a for a in inst.appels if "diffusion.py telecharger" in a][0]
-    assert "telecharger qwen forme3d texture3d image detourage" in telechargement
+    assert "telecharger qwen forme3d texture3d zimage detourage" in telechargement
 
     assert inst.lancer() == 0, inst.sortie
     assert inst.installs() == [] and "Mise à jour" not in inst.sortie

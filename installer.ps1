@@ -1,7 +1,7 @@
 ﻿# Studio Voix — installation complète, sans droits administrateur.
 # Installe : uv (gestionnaire Python), Python 3.10 / 3.11 / 3.12, ACE-Step 1.5, Seed-VC, Demucs,
 # Chatterbox (synthèse vocale), le nettoyage de voix (MossFormer2, VoiceFixer), RVC (Applio : entraînement
-# d'un modèle de ta voix), le moteur de diffusion (Qwen3-VL, Stable Audio Open, Hunyuan3D-2, SDXL : bruitages,
+# d'un modèle de ta voix), le moteur de diffusion (Qwen3-VL, Stable Audio Open, Hunyuan3D-2, Z-Image : bruitages,
 # modèles 3D), tous leurs modèles, et l'environnement de l'application.
 # Relançable : chaque étape terminée est sautée.
 
@@ -335,7 +335,7 @@ try {
     } else { Write-Host 'Déjà fait.' }
 
     # --- 15. Environnement de diffusion (Python 3.12, PyTorch 2.6 CUDA 12.6 : version des binaires de kijai) ---
-    Step 15 'Environnement de diffusion : Qwen3-VL, Stable Audio, Hunyuan3D-2, SDXL (Python 3.12)'
+    Step 15 'Environnement de diffusion : Qwen3-VL, Stable Audio, Hunyuan3D-2, Z-Image (Python 3.12)'
     $m = Join-Path $Dif '.env-ok'
     $sig = Get-Signature @('torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 cu126', $HyCommit, $KijaiCommit,
         (Join-Path $Listes 'diffusion.txt'))
@@ -380,15 +380,21 @@ try {
         } else { Write-Host 'Pas de jeton : les bruitages seront disponibles après l''avoir enregistré dans l''onglet Modèles.' -ForegroundColor Yellow }
     }
 
-    # --- 17. Modèles de diffusion (~35 Go : Qwen3-VL 4 Go, SDXL 7 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
-    Step 17 'Modèles de diffusion (~35 Go)'
+    # --- 17. Modèles de diffusion (~45 Go : Qwen3-VL 4 Go, Z-Image-Turbo 15 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
+    Step 17 'Modèles de diffusion (~45 Go)'
     $m = Join-Path $Dif '.modeles-ok'
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
     # le téléchargement reprend seulement ce qui manque.
-    $ModelesDif = @('qwen', 'forme3d', 'texture3d', 'image', 'detourage')
+    $ModelesDif = @('qwen', 'forme3d', 'texture3d', 'zimage', 'detourage')
     $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' '))
     if (-not (Test-Done $m $sig)) {
         Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif
+        # Stable Diffusion XL a été remplacé par Z-Image-Turbo (bien meilleur) : on libère ses 7 Go s'il est là
+        $sdxl = Join-Path $env:HF_HOME 'hub\models--stabilityai--stable-diffusion-xl-base-1.0'
+        if (Test-Path $sdxl) {
+            Write-Host 'Suppression de Stable Diffusion XL, remplacé par Z-Image-Turbo (7 Go libérés).'
+            Remove-Item $sdxl -Recurse -Force -ErrorAction SilentlyContinue
+        }
         if (Test-Path $jeton) {
             Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'bruitages') $Dif
         } else { Write-Host 'Stable Audio Open non téléchargé (pas de jeton) : onglet Modèles → Télécharger, une fois le jeton enregistré.' -ForegroundColor Yellow }

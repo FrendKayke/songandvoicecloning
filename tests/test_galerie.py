@@ -44,7 +44,7 @@ def test_liste_filtres_et_anciennes_creations(fake_acestep, fake_engines, gal):
     assert len(tout) == 4 and tout[-1][1] == str(ancienne) and "🎵 Chanson · rock, guitar" in tout[-1][0]
     assert [c for _, c in galerie.lister("Bande-son de jeu")][0].startswith(str(cfg.GAMES_DIR))
     assert "🗣️ Lecture · Bonjour" in galerie.lister("Synthèse vocale")[0][0]
-    md, fichier, versions, desc, paroles, fin, _ = galerie.details(str(ancienne))
+    md, fichier, versions, desc, paroles, fin, *_ = galerie.details(str(ancienne))
     assert "ancienne version" in md and fichier.endswith("chanson_finale.wav") and desc == "rock, guitar"
     with pytest.raises(gr.Error, match="ancienne"):
         galerie.recreer(str(ancienne), progress=no_progress)
@@ -55,7 +55,7 @@ def test_details_deux_versions(fake_acestep, fake_engines, gal):
     write_tone(cfg.VOICES_DIR / "moi.wav", seconds=10)
     _chanson(versions=2, graine=5)
     (_, dossier), = galerie.lister("Chansons")
-    md, fichier, versions, desc, paroles, fin, _ = galerie.details(dossier, 2)
+    md, fichier, versions, desc, paroles, fin, *_ = galerie.details(dossier, 2)
     assert Path(fichier).parts[-2:] == ("version_2", "chanson_finale.wav") and versions["visible"] and versions["value"] == 2
     assert "Graine(s) : 5, " in md and desc == "pop, piano" and paroles == "[Verse]\nla" and fin == 4.0
 

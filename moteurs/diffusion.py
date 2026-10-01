@@ -5,13 +5,13 @@ Quatre modèles qui partagent la même pile (diffusers, transformers) :
   - Stable Audio Open 1.0          : bruitages à partir d'une description (licence Stability Community,
                                      accès soumis à l'acceptation de la licence : jeton Hugging Face) ;
   - Hunyuan3D-2 (Tencent)          : image → forme 3D (turbo) puis texture (paint turbo + delight) ;
-  - Stable Diffusion XL            : texte → image d'objet, point de départ du texte → 3D.
+  - Z-Image-Turbo (Apache 2.0)     : texte → image (illustrations de cartes, objet du texte → 3D).
 
     python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | forme3d
-    python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | image | detourage
+    python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | detourage
 
 Sortie : « PROGRESSION i/n … », « RESULTAT <json> », « ERREUR : message » et « TERMINE <fichier> ».
-API vérifiées dans les dépôts : diffusers 0.39 (StableAudioPipeline.__call__, StableDiffusionXLPipeline),
+API vérifiées dans les dépôts : diffusers 0.39 (StableAudioPipeline.__call__, ZImagePipeline),
 Qwen3-VL (carte du modèle), Hunyuan3D-2 commit f8db630 (hy3dgen.shapegen.pipelines,
 hy3dgen.texgen.pipelines, gradio_app.py pour l'ordre des étapes et le mode basse mémoire).
 """
@@ -23,17 +23,23 @@ from pathlib import Path
 
 QWEN = "Qwen/Qwen3-VL-2B-Instruct"
 STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
-SDXL = "stabilityai/stable-diffusion-xl-base-1.0"
+# Z-Image-Turbo (Alibaba Tongyi-MAI, Apache 2.0) : encodeur de texte (Qwen3-4B), VAE et réglages depuis le dépôt
+# officiel ; le transformeur (6 milliards de paramètres, 24,6 Go en fp32 dans le dépôt officiel) depuis sa version
+# GGUF 8 bits (7,2 Go, qualité quasi identique), qui tient sur 12 Go avec le déchargement vers la mémoire vive.
+ZIMAGE = "Tongyi-MAI/Z-Image-Turbo"
+ZIMAGE_GGUF = ("unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q8_0.gguf")
 HUNYUAN = "tencent/Hunyuan3D-2"
 HUNYUAN_FORME = "hunyuan3d-dit-v2-0-turbo"
 HUNYUAN_TEXTURE = "hunyuan3d-paint-v2-0-turbo"
+# nom → [(dépôt, motifs à télécharger ou None pour tout)]
 MODELES = {
-    "qwen": (QWEN, None),
-    "bruitages": (STABLE_AUDIO, None),
-    "image": (SDXL, ["*.json", "*.txt", "text_encoder/*.fp16.safetensors", "text_encoder_2/*.fp16.safetensors",
-                     "unet/*.fp16.safetensors", "vae/*.fp16.safetensors", "tokenizer*/*"]),
-    "forme3d": (HUNYUAN, [f"{HUNYUAN_FORME}/*", "hunyuan3d-vae-v2-0-turbo/*"]),
-    "texture3d": (HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"]),
+    "qwen": [(QWEN, None)],
+    "bruitages": [(STABLE_AUDIO, None)],
+    "zimage": [(ZIMAGE, ["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*", "vae/*",
+                         "transformer/config.json"]),
+               (ZIMAGE_GGUF[0], [ZIMAGE_GGUF[1]])],
+    "forme3d": [(HUNYUAN, [f"{HUNYUAN_FORME}/*", "hunyuan3d-vae-v2-0-turbo/*"])],
+    "texture3d": [(HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"])],
 }
 
 
@@ -84,15 +90,14 @@ def _lire(chemin):
     return json.loads(Path(chemin).read_text(encoding="utf-8"))
 
 
-def _hors_ligne_si_present(repo, motifs=None):
-    """Modèle déjà téléchargé : on évite toute requête réseau (et la question du jeton)."""
+def _hors_ligne_si_present(*repos):
+    """Modèles déjà téléchargés (tous les dépôts nommés) : on évite toute requête réseau (et la question du jeton)."""
     from huggingface_hub import scan_cache_dir
 
     try:
-        for r in scan_cache_dir().repos:
-            if r.repo_id == repo and r.revisions:
-                os.environ.setdefault("HF_HUB_OFFLINE", "1")
-                return
+        presents = {r.repo_id for r in scan_cache_dir().repos if r.revisions}
+        if set(repos) <= presents:
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
     except Exception:
         pass
 
@@ -111,11 +116,16 @@ CONSIGNES = {
                  "only:\n\n"),
     "image": ("Describe this image in English in two sentences, as a prompt for an image generator: the main "
               "object, its materials and colors. No introduction."),
+    "carte": ("Rewrite the following description into an English prompt for an image generator that will paint "
+              "ONE illustration for a fantasy trading card: main subject, pose or action, setting, lighting, colors "
+              "and mood, composition centered on the subject. Do not mention any art style, artist or existing "
+              "work. No text, no letters, no card frame, no border, no user interface. Answer with the prompt "
+              "only:\n\n"),
 }
 
 
 def decrire(chemin_tache):
-    """Tâche : {mode: son|objet|bruitage|image, image?: chemin, texte?: str}. Renvoie RESULTAT {"texte": …}."""
+    """Tâche : {mode: son|objet|bruitage|image|carte, image?: chemin, texte?: str}. Renvoie RESULTAT {"texte": …}."""
     import torch
     from PIL import Image
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
@@ -134,7 +144,7 @@ def decrire(chemin_tache):
     if t.get("image"):
         contenu.append({"type": "image", "image": Image.open(t["image"]).convert("RGB")})
     consigne = CONSIGNES[mode]
-    if mode in ("objet", "bruitage"):
+    if mode in ("objet", "bruitage", "carte"):
         consigne += (t.get("texte") or "").strip()
     contenu.append({"type": "text", "text": consigne})
     entrees = processeur.apply_chat_template([{"role": "user", "content": contenu}], tokenize=True,
@@ -192,38 +202,49 @@ def bruitage(chemin_tache):
     print(f"TERMINE {fichiers[0]}", flush=True)
 
 
-# --- Stable Diffusion XL : image d'un objet ------------------------------------------------------------
-NEGATIF_IMAGE = "multiple objects, scene, background, text, watermark, blurry, cropped, low quality, deformed"
-
-
+# --- Z-Image-Turbo : images (illustrations de cartes, objet pour le texte → 3D) ------------------------------
 def image(chemin_tache):
-    """Tâche : {prompt, negatif?, graine, etapes, sortie}. Image 1024×1024 d'un objet sur fond blanc."""
+    """Tâche : {prompt, sorties: [chemins], graines: [entiers], etapes, largeur, hauteur}.
+    Une image par sortie, chacune avec sa graine (modèle chargé une seule fois). Z-Image-Turbo est distillé :
+    9 pas, sans guidage (guidance_scale=0) donc sans prompt négatif (carte du modèle). RESULTAT {fichiers, graines}.
+    Clés de test : depot / gguf (autre modèle, fichier local), sans_encodeur (plongements aléatoires)."""
     import torch
-    from diffusers import StableDiffusionXLPipeline
+    from diffusers import GGUFQuantizationConfig, ZImagePipeline, ZImageTransformer2DModel
+    from huggingface_hub import hf_hub_download
 
     t = _lire(chemin_tache)
     device = _device()
-    _hors_ligne_si_present(SDXL)
-    print("PROGRESSION 1/2 chargement de Stable Diffusion XL", flush=True)
-    pipe = StableDiffusionXLPipeline.from_pretrained(
-        SDXL, torch_dtype=torch.float16 if device == "cuda" else torch.float32, variant="fp16",
-        use_safetensors=True)
+    depot = t.get("depot", ZIMAGE)
+    _hors_ligne_si_present(depot, ZIMAGE_GGUF[0])
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    print("PROGRESSION 1/2 chargement de Z-Image-Turbo", flush=True)
+    gguf = t.get("gguf") or hf_hub_download(*ZIMAGE_GGUF)
+    transformeur = ZImageTransformer2DModel.from_single_file(
+        gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot, subfolder="transformer",
+        torch_dtype=dtype)
+    sans_encodeur = bool(t.get("sans_encodeur"))
+    pipe = ZImagePipeline.from_pretrained(depot, transformer=transformeur, torch_dtype=dtype,
+                                          **({"text_encoder": None, "tokenizer": None} if sans_encodeur else {}))
     if device == "cuda":
-        pipe.enable_model_cpu_offload()  # 12 Go : l'UNet, les encodeurs et le VAE passent tour à tour sur la carte
+        pipe.enable_model_cpu_offload()  # encodeur de texte (8 Go) puis transformeur (7 Go) passent tour à tour
     else:
         pipe = pipe.to(device)
-    graine = int(t.get("graine") or 0) or int(torch.randint(1, 2**31 - 1, (1,)))
-    taille = int(t.get("taille", 1024))
-    print("PROGRESSION 2/2 génération de l'image", flush=True)
-    im = _memoire(pipe)(
-        prompt=t["prompt"] + ", single object, centered, plain white background, studio lighting, high detail",
-        negative_prompt=t.get("negatif") or NEGATIF_IMAGE,
-        num_inference_steps=int(t.get("etapes", 30)), guidance_scale=7.0, width=taille, height=taille,
-        generator=torch.Generator(device).manual_seed(graine),
-    ).images[0]
-    im.save(t["sortie"])
-    _resultat({"fichier": t["sortie"], "graine": graine})
-    print(f"TERMINE {t['sortie']}", flush=True)
+    largeur, hauteur = int(t.get("largeur", 1024)), int(t.get("hauteur", 1024))
+    sorties, graines = t["sorties"], [int(g) for g in t["graines"]]
+    print(f"PROGRESSION 2/2 génération de {len(sorties)} image(s)", flush=True)
+    for i, (sortie, graine) in enumerate(zip(sorties, graines), 1):
+        options = {"prompt": t["prompt"]}
+        if sans_encodeur:  # test sans les 8 Go de l'encodeur : plongements de la bonne dimension
+            options = {"prompt_embeds": [torch.randn(24, pipe.transformer.config.cap_feat_dim, dtype=dtype)]}
+        im = _memoire(pipe)(
+            **options, height=hauteur, width=largeur, num_inference_steps=int(t.get("etapes", 9)),
+            guidance_scale=0.0, generator=torch.Generator("cpu").manual_seed(graine),
+        ).images[0]
+        Path(sortie).parent.mkdir(parents=True, exist_ok=True)
+        im.save(sortie)
+        print(f"Image {i}/{len(sorties)} : {sortie} (graine {graine})", flush=True)
+    _resultat({"fichiers": sorties, "graines": graines})
+    print(f"TERMINE {sorties[0]}", flush=True)
 
 
 # --- Hunyuan3D-2 : image → forme → texture -------------------------------------------------------------
@@ -337,9 +358,9 @@ def telecharger(noms):
 
         new_session("u2net")
         noms = [n for n in noms if n != "detourage"]
-    for n, nom in enumerate(noms, 1):
-        repo, motifs = MODELES[nom]
-        print(f"PROGRESSION {n}/{len(noms)} téléchargement : {repo}", flush=True)
+    depots = [(nom, repo, motifs) for nom in noms for repo, motifs in MODELES[nom]]
+    for n, (nom, repo, motifs) in enumerate(depots, 1):
+        print(f"PROGRESSION {n}/{len(depots)} téléchargement : {repo}", flush=True)
         try:
             snapshot_download(repo, allow_patterns=motifs)
         except Exception as e:

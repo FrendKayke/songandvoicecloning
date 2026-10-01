@@ -4,7 +4,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from . import (acestep, bruitages, chatterbox, demucs, diffusion, export, galerie, jeu, modele3d, nettoyage, rvc,
+from . import (acestep, bruitages, cartes, chatterbox, demucs, diffusion, export, galerie, jeu, modele3d, nettoyage, rvc,
                seedvc, serveur_acestep)
 from . import config as cfg
 from .modeles import models_status_md
@@ -302,6 +302,7 @@ def build_ui():
                     gal_version = gr.Radio([1], value=1, label="Version", visible=False)
                     gal_audio = gr.Audio(type="filepath", label="Écouter")
                     gal_modele = gr.Model3D(label="Modèle 3D", visible=False, clear_color=(0.92, 0.92, 0.92, 1.0))
+                    gal_image = gr.Image(label="Illustration", visible=False, interactive=False, type="filepath")
                     with gr.Row():
                         gal_recreer = gr.Button("🔁 Recréer (même graine)")
                         gal_dossier = gr.Button("📂 Ouvrir le dossier")
@@ -364,7 +365,7 @@ def build_ui():
                 with gr.Column():
                     sfx_texte = gr.Textbox(label="Description du bruitage", lines=3,
                                            placeholder="une porte de château en bois qui grince puis claque")
-                    sfx_exemples = gr.Dropdown([(lib, txt) for lib, txt in bruitages.EXEMPLES], label="Exemples (jeu de cartes)",
+                    sfx_exemples = gr.Dropdown([(lib, txt) for lib, txt in bruitages.EXEMPLES], label="Exemples (jeu de cartes)", value=None,
                                                allow_custom_value=True,
                                                info="Choisis un exemple : il remplit le prompt anglais directement.")
                 with gr.Column():
@@ -399,12 +400,12 @@ def build_ui():
                 "ACE-Step est arrêté automatiquement pendant la génération : la texture demande beaucoup de mémoire "
                 "graphique."
             )
-            with gr.Accordion("✍️ Pas d'image ? Décris l'objet : une image est générée d'abord (Qwen3-VL + Stable Diffusion XL)",
+            with gr.Accordion("✍️ Pas d'image ? Décris l'objet : une image est générée d'abord (Qwen3-VL + Z-Image-Turbo)",
                               open=False):
                 m3_texte = gr.Textbox(label="Description de l'objet (français ou anglais)", lines=2,
                                       placeholder="une potion de soin, fiole en verre rouge avec un bouchon de liège")
                 btn_m3_prep = gr.Button("🧠 Préparer le prompt de l'image (traduction et précision)")
-                m3_prompt = gr.Textbox(label="Prompt envoyé à Stable Diffusion XL (anglais, modifiable)", lines=2)
+                m3_prompt = gr.Textbox(label="Prompt envoyé à Z-Image (anglais, modifiable)", lines=2)
                 with gr.Row():
                     m3_img_graine = gr.Number(value=0, precision=0, label="Graine de l'image (0 = aléatoire)")
                     btn_m3_image = gr.Button("🖼️ Générer l'image de l'objet", variant="primary")
@@ -430,7 +431,44 @@ def build_ui():
                     m3_fichiers = gr.File(label="Fichiers produits", file_count="multiple", interactive=False)
                     btn_m3_dossier = gr.Button("📂 Ouvrir le dossier")
 
-        with gr.Tab("9. Modèles"):
+        with gr.Tab("9. Illustrations de cartes"):
+            gr.Markdown(
+                "Des **illustrations** pour tes cartes, avec Z-Image-Turbo (licence Apache 2.0 : tu peux vendre les "
+                "images). Le **style** est mémorisé par projet et réappliqué à chaque carte : seule la scène change, "
+                "tes cartes restent cohérentes entre elles. Décris la scène en français, « Préparer le prompt » la "
+                "traduit et la précise (Qwen3-VL) ; tu peux la retoucher. Chaque variante a sa graine : note celle "
+                "que tu gardes pour la retrouver. ACE-Step est arrêté automatiquement pendant la génération."
+            )
+            with gr.Row():
+                ill_projet = gr.Dropdown(cartes.projets() or ["mon-jeu"], value=(cartes.projets() or ["mon-jeu"])[0],
+                                         allow_custom_value=True, label="Projet (style mémorisé)")
+                ill_format = gr.Dropdown(list(cartes.FORMATS), value=cartes.FORMAT_DEFAUT, label="Format")
+            with gr.Row():
+                ill_styles = gr.Dropdown([(lib, val) for lib, val in cartes.STYLES], value=cartes.STYLES_DEFAUT,
+                                         multiselect=True, allow_custom_value=True, label="Style (plusieurs choix, ou tape le tien en anglais)")
+                ill_consignes = gr.Textbox(label="Consignes de style en plus (anglais)",
+                                           placeholder="gold and deep blue palette, soft rim light")
+            with gr.Row():
+                with gr.Column():
+                    ill_texte = gr.Textbox(label="Scène de la carte (français ou anglais)", lines=3,
+                                           placeholder="un chevalier en armure dorée qui brandit une épée lumineuse")
+                    ill_exemples = gr.Dropdown([(lib, txt) for lib, txt in cartes.EXEMPLES], label="Exemples", value=None,
+                                               allow_custom_value=True)
+                with gr.Column():
+                    btn_ill_prep = gr.Button("🧠 Préparer le prompt (traduction et précision)")
+                    ill_prompt = gr.Textbox(label="Scène envoyée à Z-Image (anglais, modifiable)", lines=4)
+            with gr.Row():
+                ill_nom = gr.Textbox(label="Nom de la carte", value="carte")
+                ill_variantes = gr.Radio([1, 2, 3, 4], value=2, label="Variantes")
+                ill_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
+                ill_webp = gr.Checkbox(value=True, label="Aussi en WebP (léger pour le web)")
+            btn_ill = gr.Button("🎨 Générer l'illustration", variant="primary")
+            ill_statut = gr.Markdown()
+            ill_dossier = gr.State()
+            ill_galerie = gr.Gallery(label="Variantes", columns=4, height=460, object_fit="contain")
+            btn_ill_dossier = gr.Button("📂 Ouvrir le dossier")
+
+        with gr.Tab("10. Modèles"):
             gr.Markdown(
                 "Les modèles sont volumineux (plusieurs Go au total) et ne sont téléchargés qu'une seule fois. "
                 "Vérifie ici leur présence et leur emplacement, ou lance le téléchargement."
@@ -462,7 +500,7 @@ def build_ui():
                 b_nt = gr.Button("⬇️ Télécharger le nettoyage", variant="primary")
                 b_rvc = gr.Button("⬇️ Télécharger RVC (modèles de base)", variant="primary")
             with gr.Row():
-                b_dif = gr.Button("⬇️ Télécharger Qwen3-VL, Hunyuan3D et SDXL", variant="primary")
+                b_dif = gr.Button("⬇️ Télécharger Qwen3-VL, Hunyuan3D et Z-Image", variant="primary")
                 b_sfx = gr.Button("⬇️ Télécharger Stable Audio Open (jeton requis)", variant="primary")
             with gr.Accordion("🔑 Jeton Hugging Face (nécessaire pour Stable Audio Open)", open=not diffusion.jeton_present()):
                 gr.Markdown(
@@ -511,7 +549,7 @@ def build_ui():
         btn_gpu_maj.click(serveur_acestep.etat, None, gpu_etat)
         for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download),
                       (b_cb, chatterbox.download), (b_nt, nettoyage.download), (b_rvc, rvc.download),
-                      (b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "image"])),
+                      (b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "zimage"])),
                       (b_sfx, lambda: diffusion.download(["bruitages"]))):
             b.click(fn, None, log).then(models_status_md, None, status)
         o_ace.click(lambda: open_folder(acestep.ckpt_dir()))
@@ -531,6 +569,15 @@ def build_ui():
         sfx_liste.change(lambda p: p, sfx_liste, sfx_audio)
         btn_sfx_export.click(export.exporter_fichier_formats, [sfx_audio, sfx_cible, sfx_formats],
                              [sfx_export_msg])
+        # Illustrations de cartes
+        ill_projet.change(cartes.charger_style, ill_projet, [ill_styles, ill_consignes, ill_format])
+        ill_exemples.change(lambda v: v or "", ill_exemples, ill_texte)
+        btn_ill_prep.click(cartes.preparer, ill_texte, ill_prompt)
+        btn_ill.click(cartes.generer,
+                      [ill_projet, ill_nom, ill_prompt, ill_styles, ill_consignes, ill_format, ill_variantes, ill_graine,
+                       ill_webp, ill_texte],
+                      [ill_statut, ill_galerie, ill_dossier, ill_projet])
+        btn_ill_dossier.click(lambda d: open_folder(d) if d else None, ill_dossier)
         # Modèles 3D
         btn_m3.click(modele3d.generer,
                      [m3_image, m3_nom, m3_qualite, m3_texture, m3_graine, m3_formats, m3_prompt, m3_texte,
@@ -564,7 +611,7 @@ def build_ui():
         )
         versions.change(lambda v: gr.update(visible=int(v) > 1), versions, final_2)
         btn_export_chanson.click(export.exporter_fichier, [final, chanson_cible], [chanson_mp3, chanson_export_msg])
-        sorties_details = [gal_details, gal_audio, gal_version, gal_desc, gal_paroles, gal_fin, gal_modele]
+        sorties_details = [gal_details, gal_audio, gal_version, gal_desc, gal_paroles, gal_fin, gal_modele, gal_image]
         for evt in (gal_filtre.change, gal_maj.click, demo.load):
             evt(galerie.maj_liste, [gal_filtre, gal_liste], gal_liste)
         gal_liste.change(galerie.details, [gal_liste], sorties_details)

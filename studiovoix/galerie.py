@@ -1,4 +1,4 @@
-"""Galerie : toutes les créations (chansons, pistes de jeu, lectures, bruitages, modèles 3D) à réécouter, recréer avec la même
+"""Galerie : toutes les créations (chansons, pistes de jeu, lectures, bruitages, modèles 3D, illustrations) à réécouter, recréer avec la même
 graine, retoucher (« Refaire un passage », tâche repaint d'ACE-Step) ou supprimer.
 
 Chaque création est un dossier décrit par creation.json (outils.ecrire_creation). Les chansons et lectures
@@ -17,9 +17,9 @@ from .outils import ecrire_creation, nouveau_dossier
 from .pipeline import INSTRUMENTAL, finaliser_depuis_infos
 
 TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture", "bruitage": "🔊 Bruitage",
-         "3d": "🧊 Modèle 3D"}
+         "3d": "🧊 Modèle 3D", "carte": "🃏 Illustration"}
 FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts",
-           "Bruitages": "bruitage", "Modèles 3D": "3d"}
+           "Bruitages": "bruitage", "Modèles 3D": "3d", "Illustrations": "carte"}
 # repaint_mode d'ACE-Step (release_task_models.py : conservative / balanced / aggressive)
 FORCES = {
     "Légère (garde au maximum l'original)": "conservative",
@@ -30,7 +30,7 @@ FORCES = {
 
 def _racines():
     return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR, "bruitage": cfg.SFX_DIR,
-            "3d": cfg.MODELS3D_DIR}
+            "3d": cfg.MODELS3D_DIR, "carte": cfg.CARDS_DIR}
 
 
 def lire(dossier):
@@ -61,11 +61,14 @@ def _dossiers():
     yield from (d for d in r["tts"].glob("*") if d.is_dir())
     yield from (d for d in r["bruitage"].glob("*") if d.is_dir())
     yield from (d for d in r["3d"].glob("*") if d.is_dir())
+    yield from (d for d in r["carte"].glob("*/*") if d.is_dir())
 
 
 def _resume(infos):
     if infos["type"] == "jeu":
         return f"{infos.get('projet')} — {infos.get('libelle')}"
+    if infos["type"] == "carte":
+        return f"{infos.get('projet')} — {infos.get('nom')} — {infos.get('description_fr') or infos.get('description')}"
     if infos["type"] in ("bruitage", "3d"):
         return f"{infos.get('nom')} — {infos.get('description_fr') or infos.get('description') or 'depuis une image'}"
     txt = infos.get("texte") if infos["type"] == "tts" else infos.get("description")
@@ -113,11 +116,12 @@ def _version(infos, version):
 
 def details(chemin, version=1):
     """(description en Markdown, fichier audio de la version, choix des versions, description, paroles,
-    fin conseillée, modèle 3D à afficher)."""
+    fin conseillée, modèle 3D à afficher, image à afficher)."""
     pas_de_3d = gr.update(value=None, visible=False)
+    pas_d_image = gr.update(value=None, visible=False)
     if not chemin:
         return ("*Aucune création pour l'instant.*", None, gr.update(choices=[1], value=1, visible=False), "", "", 10,
-                pas_de_3d)
+                pas_de_3d, pas_d_image)
     infos = _infos(chemin)
     i, v = _version(infos, version)
     fichier = v.get("fichier")
@@ -132,6 +136,9 @@ def details(chemin, version=1):
         lignes.append(f"Texte : {infos.get('texte', '')[:500]}")
     if infos["type"] == "bruitage" and infos.get("description_fr"):
         lignes.append(f"Demande : {infos['description_fr']} ({infos.get('duree')} s)")
+    if infos["type"] == "carte":
+        lignes.append(f"Projet **{infos.get('projet')}**, carte **{infos.get('nom')}**, {infos.get('largeur')}×"
+                      f"{infos.get('hauteur')}" + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
     if infos["type"] == "3d":
         texture = "texturé" if v.get("fichier") and v.get("fichier") != v.get("forme") else "forme seule"
         lignes.append(f"Modèle **{infos.get('nom')}** : qualité {infos.get('qualite')}, {infos.get('faces_obtenues')} "
@@ -149,10 +156,13 @@ def details(chemin, version=1):
     versions = gr.update(choices=list(range(1, n + 1)), value=i + 1, visible=n > 1)
     if infos["type"] == "3d":
         return ("\n\n".join(lignes), None, versions, infos.get("description") or "", "", 10,
+                gr.update(value=fichier, visible=True), pas_d_image)
+    if infos["type"] == "carte":
+        return ("\n\n".join(lignes), None, versions, infos.get("description") or "", "", 10, pas_de_3d,
                 gr.update(value=fichier, visible=True))
     duree = round(sf.info(fichier).duration, 1) if fichier else 10
     return ("\n\n".join(lignes), fichier, versions, infos.get("description") or "", infos.get("paroles") or "", duree,
-            pas_de_3d)
+            pas_de_3d, pas_d_image)
 
 
 def supprimer(chemin):
@@ -231,6 +241,13 @@ def recreer(chemin, version=1, progress=gr.Progress()):
                                        graine, infos.get("formats"), infos.get("description"),
                                        infos.get("description_fr"), infos.get("image_graine"), progress=progress)
         return f"✅ Modèle 3D recréé avec la graine {graine}.", dossier
+    if infos["type"] == "carte":
+        from . import cartes
+
+        _, _, dossier, _ = cartes.generer(infos.get("projet"), infos.get("nom"), infos.get("description"),
+                                          infos.get("styles"), infos.get("consignes"), infos.get("format"), 1, graine,
+                                          infos.get("webp", True), infos.get("description_fr"), progress=progress)
+        return f"✅ Illustration recréée avec la graine {graine}.", dossier
     reg = infos.get("reglages") or {}
     fichier, _ = chatterbox.synthese(infos.get("voix"), infos.get("texte"), infos.get("langue"),
                                      reg.get("exaggeration", 0.5), reg.get("cfg_weight", 0.5),
