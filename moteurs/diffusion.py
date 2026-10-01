@@ -7,7 +7,7 @@ Quatre modèles qui partagent la même pile (diffusers, transformers) :
   - Hunyuan3D-2 (Tencent)          : image → forme 3D (turbo) puis texture (paint turbo + delight) ;
   - Z-Image-Turbo (Apache 2.0)     : texte → image (illustrations de cartes, objet du texte → 3D).
 
-    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | forme3d
+    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | forme3d | alleger
     python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | detourage
 
 Sortie : « PROGRESSION i/n … », « RESULTAT <json> », « ERREUR : message » et « TERMINE <fichier> ».
@@ -250,7 +250,7 @@ def image(chemin_tache):
 # --- Hunyuan3D-2 : image → forme → texture -------------------------------------------------------------
 def forme3d(chemin_tache):
     """Tâche : {image, dossier, etapes, octree, faces, graine, texture: bool, formats: ["glb", "obj"]}.
-    Écrit dossier/forme.glb (blanc) et, si texture, dossier/modele.glb (texturé) ; avec « obj », le modèle final
+    Écrit dossier/forme.glb (blanc) et, si texture, dossier/modele.glb (texturé) [+ modele_web.glb si « web »] ; avec « obj », le modèle final
     est aussi écrit en OBJ (+ material.mtl et texture PNG à côté, écrits par trimesh) ; RESULTAT {…}."""
     import torch
     from PIL import Image
@@ -314,6 +314,8 @@ def forme3d(chemin_tache):
     resultat["texture"] = str(modele)
     if "obj" in formats:
         resultat["obj"] = _exporter_obj(texture_mesh, dossier / "modele.obj")
+    if t.get("web"):
+        resultat["web"] = _alleger_glb(modele, dossier / "modele_web.glb", int(t.get("texture_web", 1024)))["sortie"]
     _resultat(resultat)
     print(f"TERMINE {modele}", flush=True)
 
@@ -338,6 +340,44 @@ def _nettoyer(mesh, faces):
     mesh.update_faces(mesh.nondegenerate_faces())
     mesh.remove_unreferenced_vertices()
     return mesh
+
+
+def _alleger_glb(entree, sortie, texture_max=1024):
+    """GLB plus léger pour un jeu web : textures réduites à texture_max pixels de côté et stockées en JPEG
+    (au lieu de PNG 2048×2048), géométrie inchangée (la simplifier casserait les coordonnées de texture)."""
+    import io
+
+    import trimesh
+    from PIL import Image
+
+    scene = trimesh.load(str(entree), force="scene")
+    textures = 0
+    for geo in scene.geometry.values():
+        mat = getattr(getattr(geo, "visual", None), "material", None)
+        for attr in ("baseColorTexture", "image"):
+            im = getattr(mat, attr, None) if mat is not None else None
+            if im is None or not hasattr(im, "size"):
+                continue
+            im = im.convert("RGB")
+            if max(im.size) > texture_max:
+                im.thumbnail((texture_max, texture_max), Image.LANCZOS)
+            tampon = io.BytesIO()
+            im.save(tampon, format="JPEG", quality=85)
+            tampon.seek(0)
+            setattr(mat, attr, Image.open(tampon))  # format JPEG : trimesh l'écrit en JPEG dans le GLB
+            textures += 1
+    scene.export(str(sortie))
+    return {"sortie": str(sortie), "textures": textures, "avant": Path(entree).stat().st_size,
+            "apres": Path(sortie).stat().st_size}
+
+
+def alleger(chemin_tache):
+    """Tâche : {entree, sortie, texture_max}. RESULTAT {sortie, textures, avant, apres} (octets)."""
+    t = _lire(chemin_tache)
+    print("PROGRESSION 1/1 allègement du modèle", flush=True)
+    res = _alleger_glb(t["entree"], t["sortie"], int(t.get("texture_max", 1024)))
+    _resultat(res)
+    print(f"TERMINE {res['sortie']}", flush=True)
 
 
 def _exporter_obj(mesh, chemin):
@@ -373,10 +413,10 @@ def telecharger(noms):
 
 
 if __name__ == "__main__":
-    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "forme3d": forme3d}
+    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "forme3d": forme3d, "alleger": alleger}
     if len(sys.argv) >= 2 and sys.argv[1] == "telecharger":
         telecharger(sys.argv[2:])
     elif len(sys.argv) == 3 and sys.argv[1] in actions:
         actions[sys.argv[1]](sys.argv[2])
     else:
-        _erreur("usage : diffusion.py decrire|bruitage|image|forme3d <tache.json> | telecharger [modèle…]")
+        _erreur("usage : diffusion.py decrire|bruitage|image|forme3d|alleger <tache.json> | telecharger [modèle…]")

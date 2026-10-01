@@ -24,6 +24,8 @@ QUALITES = {
     "Aperçu (rapide)": {"etapes": 5, "octree": 192, "faces": 20000},
     "Normale": {"etapes": 5, "octree": 256, "faces": 40000},
     "Fine (plus lente, plus de mémoire)": {"etapes": 5, "octree": 384, "faces": 100000},
+    # Jeu dans le navigateur : peu de faces, et modele_web.glb (texture 1024 en JPEG) à côté du modèle complet
+    "Web léger (jeu dans le navigateur)": {"etapes": 5, "octree": 192, "faces": 10000, "web": True},
 }
 QUALITE_DEFAUT = "Normale"
 FORMATS = [("GLB (web, Blender, Unity, Godot)", "glb"), ("OBJ (+ MTL et texture PNG)", "obj")]
@@ -85,21 +87,67 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
     dossier = nouveau_dossier(cfg.MODELS3D_DIR)
     image = dossier / ("image" + Path(image_path).suffix.lower())
     shutil.copy(image_path, image)
-    res = diffusion.forme3d(image, dossier, q["etapes"], q["octree"], q["faces"], graine, texture, formats, progress)
+    res = diffusion.forme3d(image, dossier, q["etapes"], q["octree"], q["faces"], graine, texture, formats, progress,
+                            web=q.get("web", False))
     fichier = res.get("texture") or res["forme"]
     nom = nettoyer_nom(nom)
     ecrire_creation(dossier, {
         "type": "3d", "nom": nom, "image": image.name, "qualite": qualite if qualite in QUALITES else QUALITE_DEFAUT,
-        **q, "texture": bool(texture), "formats": formats, "description": (description or "").strip() or None,
+        **{k: v for k, v in q.items() if k != "web"}, "web": bool(q.get("web")), "texture": bool(texture), "formats": formats, "description": (description or "").strip() or None,
         "description_fr": (description_fr or "").strip() or None, "image_graine": image_graine,
         "faces_obtenues": res.get("faces"),
         "versions": [{"graine": res["graine"], "dossier": ".", "fichier": fichier, "forme": res["forme"],
-                      "obj": res.get("obj")}],
+                      "obj": res.get("obj"), "web": res.get("web")}],
     })
     note = ""
     if texture and not res.get("texture"):
         note = " ; texture non peinte (la peinture demande la carte graphique), forme blanche seulement"
+    if res.get("web"):
+        note += f" ; version web légère : {Path(res['web']).name}"
     msg = f"✅ Modèle « {nom} » : {res.get('faces')} faces, graine {res['graine']}{note}. Dossier : {dossier}"
     detouree = dossier / "image_detouree.png"
     return (msg, fichier, str(detouree) if detouree.exists() else None, fichiers_produits(dossier, image.name),
             str(dossier))
+
+
+def _taille(octets):
+    return f"{octets / 1e6:.1f} Mo" if octets >= 1e6 else f"{octets / 1e3:.0f} Ko"
+
+
+def alleger(dossier, progress=gr.Progress()):
+    """Version web du dernier modèle créé : modele_web.glb (texture 1024 px en JPEG). Renvoie (message, fichiers)."""
+    if not dossier or not Path(dossier).is_dir():
+        raise gr.Error("Crée d'abord un modèle 3D (ou ouvre-le depuis la galerie).")
+    d = Path(dossier)
+    source = d / "modele.glb" if (d / "modele.glb").exists() else d / "forme.glb"
+    if not source.exists():
+        raise gr.Error(f"Aucun modèle GLB dans {d}.")
+    res = diffusion.alleger(source, d / (source.stem + "_web.glb"), progress=progress)
+    if not res.get("textures"):
+        msg = (f"🪶 {Path(res['sortie']).name} : {_taille(res['apres'])} (pas de texture à réduire : la forme seule est "
+               "déjà légère ; pour moins de faces, choisis la qualité « Web léger »).")
+    else:
+        msg = f"🪶 {Path(res['sortie']).name} : {_taille(res['avant'])} → {_taille(res['apres'])} (texture 1024 px en JPEG)."
+    return msg, fichiers_produits(d, next((p.name for p in d.glob("image.*")), None))
+
+
+def generer_lot(images, prefixe, qualite, texture, graine, formats, progress=gr.Progress()):
+    """Plusieurs images à la suite, une création par image (même réglages ; graine 0 = aléatoire pour chacune).
+    Une image en échec n'arrête pas les suivantes. Renvoie (rapport, GLB du dernier modèle réussi, dossier)."""
+    images = [getattr(i, "name", i) for i in (images or [])]
+    if not images:
+        raise gr.Error("Ajoute des images (plusieurs fichiers à la fois).")
+    prefixe = nettoyer_nom(prefixe, "modele")
+    lignes, dernier, dossier = [], None, None
+    for n, image in enumerate(images, 1):
+        nom = f"{prefixe}_{Path(image).stem}"
+        progress((n - 1) / len(images), desc=f"Modèle {n}/{len(images)} : {Path(image).name}…")
+        try:
+            msg, fichier, _, _, dossier = generer(image, nom, qualite, texture, graine, formats, progress=progress)
+            dernier = fichier
+            lignes.append(f"- {msg}")
+        except gr.Error as e:
+            lignes.append(f"- ❌ {Path(image).name} : {e.message if hasattr(e, 'message') else e}")
+    reussis = sum(1 for l_ in lignes if l_.startswith("- ✅"))
+    return (f"**{reussis}/{len(images)} modèle(s) créé(s)** (un dossier par modèle, visibles dans la Galerie) :\n\n"
+            + "\n".join(lignes), dernier, dossier)

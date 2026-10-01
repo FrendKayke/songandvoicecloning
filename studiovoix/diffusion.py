@@ -90,8 +90,9 @@ def _verifier(*noms):
                           if "bruitages" in noms and not _present("bruitages") else "."))
 
 
-def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None):
-    """Écrit tache.json dans dossier, lance l'action et renvoie le dictionnaire de la ligne RESULTAT."""
+def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None, gpu=True):
+    """Écrit tache.json dans dossier, lance l'action et renvoie le dictionnaire de la ligne RESULTAT.
+    gpu : l'action utilise la carte graphique (ACE-Step est alors arrêté pour libérer sa mémoire)."""
     dossier.mkdir(parents=True, exist_ok=True)
     fichier = dossier / f"tache_{action}.json"
     fichier.write_text(json.dumps(tache, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -101,7 +102,8 @@ def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None
         if progress:
             progress(0.05 + 0.9 * (i - 1) / n, desc=f"{nom} : {libelles.get(i, f'étape {i}/{n}')}…")
 
-    serveur_acestep.liberer_gpu(progress)
+    if gpu:
+        serveur_acestep.liberer_gpu(progress)
     lignes = lancer_moteur([cfg.DIFFUSION_PYTHON, str(script()), action, str(fichier)], cfg.DIFFUSION_DIR, _env(),
                            nom, suivi)
     resultat = next((l_ for l_ in reversed(lignes) if l_.startswith("RESULTAT ")), None)
@@ -150,16 +152,24 @@ def image(prompt, sorties, graines_, largeur=1024, hauteur=1024, etapes=9, progr
                   {1: "chargement de Z-Image-Turbo", 2: f"génération de {len(sorties)} image(s)"})
 
 
-def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None):
+def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None, web=False):
     """Image → forme.glb (+ modele.glb texturé si `texture` et carte graphique ; + OBJ si demandé).
     RESULTAT {forme, faces, graine, texture: chemin ou None, obj: chemin ou None}."""
     _verifier("forme3d", *(["texture3d"] if texture else []))
     return lancer("forme3d", {"image": str(image_path), "dossier": str(dossier), "etapes": int(etapes),
                               "octree": int(octree), "faces": int(faces), "graine": int(graine or 0),
-                              "texture": bool(texture), "formats": list(formats)}, dossier, "Hunyuan3D", progress,
+                              "texture": bool(texture), "formats": list(formats), "web": bool(web)}, dossier,
+                  "Hunyuan3D", progress,
                   {1: "détourage de l'image", 2: "chargement du générateur de forme", 3: "génération de la forme",
                    4: "nettoyage et simplification", 5: "chargement du peintre de texture",
                    6: "peinture de la texture (plusieurs minutes)"})
+
+
+def alleger(entree, sortie, texture_max=1024, progress=None):
+    """GLB allégé pour le web (texture réduite, en JPEG). Sur le processeur : ACE-Step n'est pas arrêté."""
+    _installe()
+    return lancer("alleger", {"entree": str(entree), "sortie": str(sortie), "texture_max": int(texture_max)},
+                  Path(sortie).parent, "Allègement", progress, {1: "allègement du modèle"}, gpu=False)
 
 
 # --- Onglet Modèles ---------------------------------------------------------------------------------------

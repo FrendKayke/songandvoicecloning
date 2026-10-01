@@ -433,7 +433,16 @@ def build_ui():
                 with gr.Column(scale=1):
                     m3_detouree = gr.Image(label="Image détourée", interactive=False)
                     m3_fichiers = gr.File(label="Fichiers produits", file_count="multiple", interactive=False)
+                    btn_m3_web = gr.Button("🪶 Alléger pour le web (texture 1024 px en JPEG)")
                     btn_m3_dossier = gr.Button("📂 Ouvrir le dossier")
+            with gr.Accordion("📚 Plusieurs images à la suite (mêmes réglages)", open=False):
+                gr.Markdown("Chaque image donne son propre modèle (nom = préfixe + nom du fichier), rangé dans la "
+                            "Galerie. Une image qui échoue n'arrête pas les suivantes. Compte une à quelques minutes "
+                            "par modèle selon la qualité et la texture.")
+                m3_lot = gr.File(file_count="multiple", file_types=["image"], label="Images des objets")
+                m3_lot_prefixe = gr.Textbox(label="Préfixe des noms", value="carte")
+                btn_m3_lot = gr.Button("🧊 Créer tous les modèles", variant="primary")
+                m3_lot_statut = gr.Markdown()
 
         with gr.Tab("9. Illustrations de cartes"):
             gr.Markdown(
@@ -585,6 +594,9 @@ def build_ui():
                       [ill_statut, ill_galerie, ill_dossier, ill_projet])
         btn_ill_dossier.click(lambda d: open_folder(d) if d else None, ill_dossier)
         # Modèles 3D
+        btn_m3_web.click(modele3d.alleger, m3_dossier, [m3_statut, m3_fichiers])
+        btn_m3_lot.click(modele3d.generer_lot, [m3_lot, m3_lot_prefixe, m3_qualite, m3_texture, m3_graine, m3_formats],
+                         [m3_lot_statut, m3_vue, m3_dossier])
         btn_m3.click(modele3d.generer,
                      [m3_image, m3_nom, m3_qualite, m3_texture, m3_graine, m3_formats, m3_prompt, m3_texte,
                       m3_img_graine_ok],

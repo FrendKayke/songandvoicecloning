@@ -52,7 +52,8 @@ FAUX_MOTEUR = textwrap.dedent("""
             Image.new("RGB", (t["largeur"] // 16, t["hauteur"] // 16), (g % 256, 30, 30)).save(s)
         print("RESULTAT " + json.dumps({"fichiers": t["sorties"], "graines": t["graines"]}), flush=True)
     elif action == "forme3d":
-        if not Path(t["image"]).exists(): print("ERREUR : image introuvable", flush=True); sys.exit(2)
+        if not Path(t["image"]).exists() or "casse" in Path(t["image"]).read_text(errors="ignore"):
+            print("ERREUR : image illisible", flush=True); sys.exit(2)
         n = 6 if t["texture"] else 4
         for i in range(1, n + 1): print(f"PROGRESSION {i}/{n} x", flush=True)
         d = Path(t["dossier"]); d.mkdir(parents=True, exist_ok=True)
@@ -60,11 +61,19 @@ FAUX_MOTEUR = textwrap.dedent("""
         res = {"forme": str(d / "forme.glb"), "faces": 1234, "graine": t["graine"] or 555, "texture": None, "obj": None}
         if t["texture"]:
             (d / "modele.glb").write_bytes(b"glTF"); res["texture"] = str(d / "modele.glb")
+            if t.get("web"):
+                (d / "modele_web.glb").write_bytes(b"g"); res["web"] = str(d / "modele_web.glb")
         if "obj" in t["formats"]:
             base = "modele" if t["texture"] else "forme"
             (d / f"{base}.obj").write_text("o x"); (d / "material.mtl").write_text("newmtl material_0")
             (d / "material_0.png").write_bytes(b"png"); res["obj"] = str(d / f"{base}.obj")
         print("RESULTAT " + json.dumps(res), flush=True)
+    elif action == "alleger":
+        print("PROGRESSION 1/1 x", flush=True)
+        Path(t["sortie"]).write_bytes(b"g" * 100)
+        textures = 1 if "modele" in Path(t["entree"]).name else 0
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "textures": textures, "avant": 4_000_000,
+                                        "apres": 400_000}), flush=True)
     print("TERMINE -", flush=True)
 """)
 
@@ -298,3 +307,43 @@ def test_illustrations_de_cartes(faux_diffusion):
     assert nouveau != chemin and _journal()[-1]["tache"]["graines"] == [graine_v2]
     assert galerie.lire(nouveau)["styles"] == styles and len(galerie.lister("Illustrations")) == 2
     assert not any(p.name == "style.json" for p in Path(nouveau).iterdir())  # style au niveau du projet seulement
+
+
+def test_modele_3d_web_et_allegement(faux_diffusion, monkeypatch):
+    from studiovoix import serveur_acestep
+
+    im = faux_diffusion / "epee.png"
+    im.write_bytes(b"png")
+    msg, glb, _, fichiers, dossier = modele3d.generer(str(im), "Épée", "Web léger (jeu dans le navigateur)", True, 3,
+                                                      ["glb"], progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["web"] is True and t["faces"] == 10000 and t["octree"] == 192
+    assert "version web légère : modele_web.glb" in msg and any(f.endswith("modele_web.glb") for f in fichiers)
+    infos = json.loads((Path(dossier) / "creation.json").read_text(encoding="utf-8"))
+    assert infos["web"] is True and infos["versions"][0]["web"].endswith("modele_web.glb")
+    liberations = []
+    monkeypatch.setattr(serveur_acestep, "liberer_gpu", lambda progress=None: liberations.append(1))
+    msg, fichiers = modele3d.alleger(dossier, progress=no_progress)
+    assert "modele_web.glb : 4.0 Mo → 400 Ko" in msg and liberations == []  # sur le processeur : ACE-Step reste
+    assert _journal()[-1]["tache"]["entree"].endswith("modele.glb")
+    # forme seule : rien à réduire
+    *_, d2 = modele3d.generer(str(im), "x", "Normale", False, 0, ["glb"], progress=no_progress)
+    msg, _ = modele3d.alleger(d2, progress=no_progress)
+    assert "forme_web.glb" in msg and "pas de texture" in msg
+    with pytest.raises(gr.Error, match="Crée d'abord"):
+        modele3d.alleger(None, progress=no_progress)
+
+
+def test_modeles_3d_par_lot(faux_diffusion):
+    images = []
+    for nom, contenu in (("tasse.png", b"png"), ("casse.png", b"casse"), ("epee.jpg", b"jpg")):
+        (faux_diffusion / nom).write_bytes(contenu)
+        images.append(str(faux_diffusion / nom))
+    rapport, dernier, dossier = modele3d.generer_lot(images, "Carte", "Aperçu (rapide)", False, 0, ["glb"],
+                                                     progress=no_progress)
+    assert "**2/3 modèle(s) créé(s)**" in rapport and "❌ casse.png" in rapport and "image illisible" in rapport
+    assert "« Carte_tasse »" in rapport and "« Carte_epee »" in rapport
+    assert dernier.endswith("forme.glb") and Path(dossier).is_dir()
+    assert len([d for d in cfg.MODELS3D_DIR.iterdir() if (d / "creation.json").exists()]) == 2
+    with pytest.raises(gr.Error, match="Ajoute des images"):
+        modele3d.generer_lot([], "x", "Normale", False, 0, ["glb"], progress=no_progress)
