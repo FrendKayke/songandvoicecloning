@@ -240,7 +240,8 @@ def recreer(chemin, version=1, progress=gr.Progress()):
             raise gr.Error(f"Image de départ introuvable : {image}")
         *_, dossier = modele3d.generer(str(image), infos.get("nom"), infos.get("qualite"), infos.get("texture", True),
                                        graine, infos.get("formats"), infos.get("description"),
-                                       infos.get("description_fr"), infos.get("image_graine"), progress=progress)
+                                       infos.get("description_fr"), infos.get("image_graine"), infos.get("projet"),
+                                       progress=progress)
         return f"✅ Modèle 3D recréé avec la graine {graine}.", dossier
     if infos["type"] == "carte":
         from . import cartes

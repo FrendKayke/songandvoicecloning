@@ -124,10 +124,27 @@ def generer(projet, nom, scene, styles, consignes, format_label, variantes, grai
     ecrire_creation(dossier, {
         "type": "carte", "projet": projet, "nom": nom, "description": scene,
         "description_fr": (description_fr or "").strip() or None, "styles": styles, "consignes": consignes,
-        "format": format_label, "largeur": largeur, "hauteur": hauteur, "prompt": prompt, "webp": bool(webp),
+        "format": format_label, "largeur": largeur, "hauteur": hauteur, "prompt": prompt, "webp": bool(webp), "choisie": 1,
         "versions": [{"graine": g, "dossier": ".", "fichier": f} for f, g in zip(res["fichiers"], res["graines"])],
     })
     galerie = [(f, f"Variante {i} (graine {g})") for i, (f, g) in enumerate(zip(res["fichiers"], res["graines"]), 1)]
     msg = (f"✅ {len(galerie)} illustration(s) {largeur}×{hauteur} pour « {nom} » (projet {projet}) dans {dossier}. "
            f"Graines : {', '.join(str(g) for g in res['graines'])}.")
     return msg, galerie, str(dossier), gr.update(choices=projets(), value=projet)
+
+
+def choisir(dossier, evt: gr.SelectData):
+    """Clic sur une variante : elle devient celle du pack du jeu et l'illustration de la carte à composer.
+    Renvoie (message, chemin de l'illustration choisie)."""
+    if not dossier:
+        raise gr.Error("Génère d'abord une illustration.")
+    chemin = Path(dossier) / "creation.json"
+    infos = json.loads(chemin.read_text(encoding="utf-8"))
+    versions = infos.get("versions") or []
+    if not 0 <= evt.index < len(versions):
+        raise gr.Error("Variante introuvable.")
+    infos["choisie"] = evt.index + 1
+    chemin.write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
+    fichier = versions[evt.index]["fichier"]
+    return (f"⭐ Variante {evt.index + 1} gardée pour « {infos.get('nom')} » (pack du projet {infos.get('projet')}) ; "
+            "elle est prête à être composée en carte ci-dessous.", fichier)

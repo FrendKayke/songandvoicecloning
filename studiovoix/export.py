@@ -173,10 +173,52 @@ def bruitages_du_projet(projet):
     return resultat
 
 
+def _plus_recents(racine, motif, filtre):
+    """Pour chaque nom de création : (dossier, infos) de la plus récente (dossiers horodatés : le dernier gagne)."""
+    derniers = {}
+    for f in sorted(racine.glob(motif)) if racine.exists() else []:
+        try:
+            infos = json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if filtre(infos):
+            derniers[infos.get("nom") or f.parent.name] = (f.parent, infos)
+    return [(nom, *derniers[nom]) for nom in sorted(derniers)]
+
+
+def visuels_du_projet(projet):
+    """Illustrations (variante choisie), cartes composées et modèles 3D du projet : [(rubrique, id, source, infos)]."""
+    pris, elements = set(), []
+    for nom, dossier, infos in _plus_recents(cfg.CARDS_DIR / projet, "*/creation.json",
+                                             lambda i: i.get("type") == "carte"):
+        versions = infos.get("versions") or []
+        if versions:
+            v = versions[max(1, min(len(versions), int(infos.get("choisie") or 1))) - 1]
+            png = Path(v["fichier"])
+            source = png.with_suffix(".webp") if png.with_suffix(".webp").exists() else png
+            if source.exists():
+                elements.append(("illustrations", _slug(nom, pris), source, {**infos, "graine": v.get("graine")}))
+    pris = set()
+    for png in sorted((cfg.CARDS_DIR / projet / "composees").glob("*.png")):
+        champs = {}
+        if png.with_suffix(".json").exists():
+            champs = json.loads(png.with_suffix(".json").read_text(encoding="utf-8"))
+        source = png.with_suffix(".webp") if png.with_suffix(".webp").exists() else png
+        elements.append(("cartes", _slug(champs.get("nom") or png.stem, pris), source, champs))
+    pris = set()
+    for nom, dossier, infos in _plus_recents(cfg.MODELS3D_DIR, "*/creation.json",
+                                             lambda i: i.get("type") == "3d" and i.get("projet") == projet):
+        candidats = [dossier / "modele_web.glb", dossier / "modele.glb", dossier / "forme.glb"]
+        source = next((c for c in candidats if c.exists()), None)
+        if source:
+            elements.append(("modeles3d", _slug(nom, pris), source, infos))
+    return elements
+
+
 def exporter_pack(projet, cible_label, formats, progress=gr.Progress()):
-    """Pack audio du jeu : la piste la plus récente de chaque situation et, pour chaque bruitage du projet, sa
-    variante choisie ; tout au même volume, en OGG et/ou MP3, avec un seul manifest.json (musiques dans « pistes »,
-    bruitages dans « bruitages ») et une archive zip."""
+    """Pack complet du jeu : la piste la plus récente de chaque situation et, pour chaque bruitage du projet, sa
+    variante choisie, au même volume, en OGG et/ou MP3 ; plus les visuels du projet (visuels_du_projet) copiés tels
+    quels. Un seul manifest.json (pistes, bruitages, illustrations, cartes, modeles3d) et l'archive <projet>_pack.zip."""
     from .jeu import nom_projet  # import tardif : jeu importe déjà ce module indirectement via l'interface
 
     projet = nom_projet(projet)
@@ -190,9 +232,10 @@ def exporter_pack(projet, cible_label, formats, progress=gr.Progress()):
         if recentes:
             pistes.append(recentes[0])
     sons = bruitages_du_projet(projet)
-    if not pistes and not sons:
-        raise gr.Error(f"Aucune piste ni aucun bruitage dans le projet « {projet} » : génère d'abord la bande-son "
-                       "ou des bruitages (en leur donnant ce nom de projet).")
+    visuels = visuels_du_projet(projet)
+    if not pistes and not sons and not visuels:
+        raise gr.Error(f"Rien dans le projet « {projet} » : ni piste, ni bruitage, ni illustration, ni modèle 3D. "
+                       "Donne ce nom de projet à tes créations dans les onglets du groupe Jeu.")
     cible = CIBLES.get(cible_label, -16.0)
     racine.mkdir(parents=True, exist_ok=True)
     export = racine / "export"
@@ -200,7 +243,8 @@ def exporter_pack(projet, cible_label, formats, progress=gr.Progress()):
         shutil.rmtree(export)
     export.mkdir(parents=True)
     total = len(pistes) + len(sons)
-    manifest = {"projet": projet, "volume_cible_lufs": cible, "formats": formats, "pistes": [], "bruitages": []}
+    manifest = {"projet": projet, "volume_cible_lufs": cible, "formats": formats, "pistes": [], "bruitages": [],
+                "illustrations": [], "cartes": [], "modeles3d": []}
     for n, dossier in enumerate(pistes, 1):
         progress(n / (total + 1), desc=f"Export {n}/{total} : {dossier.parent.name}…")
         infos = json.loads((dossier / "creation.json").read_text(encoding="utf-8"))
@@ -237,8 +281,25 @@ def exporter_pack(projet, cible_label, formats, progress=gr.Progress()):
             "graine": (infos.get("versions") or [{}])[variante - 1].get("graine"),
             "description": infos.get("description"),
         })
+    for rubrique, ident, source, infos in visuels:  # copiés tels quels (WebP de préférence, plus léger)
+        (export / rubrique).mkdir(exist_ok=True)
+        fichier = f"{rubrique}/{ident}{source.suffix}"
+        shutil.copy(source, export / fichier)
+        entree = {"id": ident, "nom": infos.get("nom") or ident, "fichier": fichier}
+        if rubrique == "illustrations":
+            entree.update(largeur=infos.get("largeur"), hauteur=infos.get("hauteur"), graine=infos.get("graine"),
+                          description=infos.get("description"))
+        elif rubrique == "cartes":
+            entree.update({k: infos.get(k) for k in ("cout", "type", "effet", "ambiance", "attaque", "defense",
+                                                     "faction", "rarete")})
+        else:
+            entree.update(faces=infos.get("faces_obtenues"), web=source.name == "modele_web.glb")
+        manifest[rubrique].append(entree)
     (export / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
-    archive = shutil.make_archive(str(racine / f"{projet}_bande-son"), "zip", export)
-    msg = (f"✅ {len(pistes)} piste(s) et {len(sons)} bruitage(s) exportés à {cible:.0f} LUFS dans {export} "
-           f"(formats : {', '.join(formats)}), archive : {archive}")
+    archive = shutil.make_archive(str(racine / f"{projet}_pack"), "zip", export)
+    compte = ", ".join(f"{len(manifest[r])} {nom}" for r, nom in (
+        ("pistes", "piste(s)"), ("bruitages", "bruitage(s)"), ("illustrations", "illustration(s)"),
+        ("cartes", "carte(s) composée(s)"), ("modeles3d", "modèle(s) 3D")))
+    msg = (f"✅ Pack exporté : {compte}, sons à {cible:.0f} LUFS, dans {export} "
+           f"(formats audio : {', '.join(formats)}), archive : {archive}")
     return archive, msg

@@ -1,7 +1,7 @@
 """Onglet « Modèles 3D » : image ou texte → modèle 3D, version web, création par lot."""
 import gradio as gr
 
-from .. import modele3d
+from .. import modele3d, projets
 from ..outils import open_folder
 from .commun import espace_de_noms
 
@@ -32,6 +32,8 @@ def construire():
             m3_image = gr.Image(type="filepath", label="Image de l'objet (PNG ou JPG, ou l'image générée ci-dessus)")
         with gr.Column():
             m3_nom = gr.Textbox(label="Nom", value="modele")
+            m3_projet = gr.Dropdown(projets.tous(), value=None, allow_custom_value=True,
+                                    label="Projet de jeu (pour le pack, facultatif)")
             m3_qualite = gr.Radio(list(modele3d.QUALITES), value=modele3d.QUALITE_DEFAUT, label="Qualité")
             m3_texture = gr.Checkbox(value=True, label="Peindre la texture (plusieurs minutes de plus)")
             m3_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
@@ -62,11 +64,12 @@ def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     # Modèles 3D
     c.btn_m3_web.click(modele3d.alleger, c.m3_dossier, [c.m3_statut, c.m3_fichiers])
-    c.btn_m3_lot.click(modele3d.generer_lot, [c.m3_lot, c.m3_lot_prefixe, c.m3_qualite, c.m3_texture, c.m3_graine, c.m3_formats],
+    c.btn_m3_lot.click(modele3d.generer_lot, [c.m3_lot, c.m3_lot_prefixe, c.m3_qualite, c.m3_texture, c.m3_graine, c.m3_formats,
+                                                     c.m3_projet],
                      [c.m3_lot_statut, c.m3_vue, c.m3_dossier])
     c.btn_m3.click(modele3d.generer,
                  [c.m3_image, c.m3_nom, c.m3_qualite, c.m3_texture, c.m3_graine, c.m3_formats, c.m3_prompt, c.m3_texte,
-                  c.m3_img_graine_ok],
+                  c.m3_img_graine_ok, c.m3_projet],
                  [c.m3_statut, c.m3_vue, c.m3_detouree, c.m3_fichiers, c.m3_dossier])
     c.btn_m3_prep.click(modele3d.preparer_prompt, c.m3_texte, c.m3_prompt)
     c.btn_m3_image.click(modele3d.generer_image, [c.m3_prompt, c.m3_img_graine], [c.m3_image, c.m3_img_graine_ok, c.m3_img_msg])

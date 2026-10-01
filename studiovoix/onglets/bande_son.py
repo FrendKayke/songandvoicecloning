@@ -1,7 +1,7 @@
 """Onglet « Bande-son de jeu » : situations, thème de référence, génération en lot, pack du jeu."""
 import gradio as gr
 
-from .. import export, jeu
+from .. import export, jeu, projets
 from .commun import espace_de_noms, liste_style
 
 
@@ -13,7 +13,9 @@ def construire():
         "On décrit un style (JRPG, 16-bit…), jamais une œuvre existante : la musique produite est originale."
     )
     with gr.Row():
-        jeu_projet = gr.Textbox(label="Nom du projet", value="mon jeu de cartes")
+        jeu_projet = gr.Dropdown(projets.tous() or ["mon jeu de cartes"], value=(projets.tous() or ["mon jeu de cartes"])[0],
+                                 allow_custom_value=True, label="Projet de jeu",
+                                 info="Le même nom dans les onglets du groupe Jeu réunit tout dans un seul pack.")
         jeu_epoque = gr.Dropdown(jeu.EPOQUES, value=jeu.EPOQUES[0][1], allow_custom_value=True,
                                  label="Époque / style général",
                                  info="Choisis dans la liste ou tape ton style (en anglais de préférence).")
@@ -53,16 +55,16 @@ def construire():
         jeu_jonction = gr.Audio(label="Jonction : 5 s de fin puis 5 s de début", type="filepath")
     with gr.Accordion("📦 Export pour le jeu (OGG / MP3, volume harmonisé, manifest.json)", open=False):
         gr.Markdown(
-            "Prend la piste la plus récente de chaque situation du projet, les met toutes au même volume "
-            "et écrit `data/jeux/<projet>/export/` : un fichier par situation et un `manifest.json` "
-            "(identifiant, fichiers, boucle, durée, BPM). OGG pour tous les navigateurs récents, MP3 en "
-            "secours ; les boucles restent exactes dans les deux formats."
+            "Réunit tout le projet dans `data/jeux/<projet>/export/` et une archive zip : la piste la plus récente "
+            "de chaque situation et les bruitages gardés, au même volume (OGG pour les navigateurs récents, MP3 en "
+            "secours, boucles exactes), les illustrations gardées, les cartes composées et les modèles 3D du projet "
+            "(version web si elle existe), avec un seul `manifest.json`."
         )
         with gr.Row():
             jeu_cible = gr.Dropdown(list(export.CIBLES), value=list(export.CIBLES)[1], label="Volume cible")
             jeu_formats = gr.CheckboxGroup([("OGG", "ogg"), ("MP3", "mp3")], value=["ogg", "mp3"],
                                            label="Formats")
-        btn_export_jeu = gr.Button("📦 Exporter le pack du jeu (musiques + bruitages du projet)")
+        btn_export_jeu = gr.Button("📦 Exporter le pack du jeu (musiques, bruitages, illustrations, cartes, 3D)")
         jeu_export_msg = gr.Markdown()
         jeu_zip = gr.File(label="Archive à télécharger")
     return espace_de_noms(locals())

@@ -13,7 +13,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
-from . import diffusion
+from . import diffusion, projets
 from .outils import ecrire_creation, nouveau_dossier
 
 DUREE_MAX = 30
@@ -46,18 +46,12 @@ def preparer(texte, image_path, progress=gr.Progress()):
 
 
 def projets_de_jeu():
-    """Projets connus : ceux de la bande-son de jeu et ceux déjà donnés à des bruitages."""
-    noms = {d.name for d in cfg.GAMES_DIR.iterdir() if d.is_dir()} if cfg.GAMES_DIR.exists() else set()
-    for f in cfg.SFX_DIR.glob("*/creation.json") if cfg.SFX_DIR.exists() else []:
-        try:
-            noms.add(json.loads(f.read_text(encoding="utf-8")).get("projet") or "")
-        except ValueError:
-            pass
-    return sorted(n for n in noms if n)
+    """Projets connus, tous onglets confondus (projets.tous)."""
+    return projets.tous()
 
 
 def _nom_projet(projet):
-    return "".join(c for c in (projet or "").strip() if c.isalnum() or c in "-_ ").strip() or None
+    return projets.nom(projet)
 
 
 def choisir(dossier, fichier):

@@ -14,7 +14,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
-from . import diffusion
+from . import diffusion, projets
 from .outils import ecrire_creation, nouveau_dossier
 
 # Le modèle de forme est la version « turbo » (distillée) : 5 pas suffisent (gradio_app.py d'Hunyuan3D-2 :
@@ -74,7 +74,7 @@ def generer_image(prompt, graine, progress=gr.Progress()):
 
 
 def generer(image_path, nom, qualite, texture, graine, formats, description=None, description_fr=None,
-            image_graine=None, progress=gr.Progress()):
+            image_graine=None, projet=None, progress=gr.Progress()):
     """Image → modèle 3D. Renvoie (message, GLB à afficher, image détourée, fichiers à télécharger, dossier)."""
     if not image_path or not Path(image_path).is_file():
         raise gr.Error("Importe une image de l'objet (PNG ou JPG : un seul objet, bien visible, fond simple).")
@@ -92,7 +92,7 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
     fichier = res.get("texture") or res["forme"]
     nom = nettoyer_nom(nom)
     ecrire_creation(dossier, {
-        "type": "3d", "nom": nom, "image": image.name, "qualite": qualite if qualite in QUALITES else QUALITE_DEFAUT,
+        "type": "3d", "nom": nom, "projet": projets.nom(projet), "image": image.name, "qualite": qualite if qualite in QUALITES else QUALITE_DEFAUT,
         **{k: v for k, v in q.items() if k != "web"}, "web": bool(q.get("web")), "texture": bool(texture), "formats": formats, "description": (description or "").strip() or None,
         "description_fr": (description_fr or "").strip() or None, "image_graine": image_graine,
         "faces_obtenues": res.get("faces"),
@@ -131,7 +131,7 @@ def alleger(dossier, progress=gr.Progress()):
     return msg, fichiers_produits(d, next((p.name for p in d.glob("image.*")), None))
 
 
-def generer_lot(images, prefixe, qualite, texture, graine, formats, progress=gr.Progress()):
+def generer_lot(images, prefixe, qualite, texture, graine, formats, projet=None, progress=gr.Progress()):
     """Plusieurs images à la suite, une création par image (même réglages ; graine 0 = aléatoire pour chacune).
     Une image en échec n'arrête pas les suivantes. Renvoie (rapport, GLB du dernier modèle réussi, dossier)."""
     images = [getattr(i, "name", i) for i in (images or [])]
@@ -143,7 +143,8 @@ def generer_lot(images, prefixe, qualite, texture, graine, formats, progress=gr.
         nom = f"{prefixe}_{Path(image).stem}"
         progress((n - 1) / len(images), desc=f"Modèle {n}/{len(images)} : {Path(image).name}…")
         try:
-            msg, fichier, _, _, dossier = generer(image, nom, qualite, texture, graine, formats, progress=progress)
+            msg, fichier, _, _, dossier = generer(image, nom, qualite, texture, graine, formats, projet=projet,
+                                                  progress=progress)
             dernier = fichier
             lignes.append(f"- {msg}")
         except gr.Error as e:

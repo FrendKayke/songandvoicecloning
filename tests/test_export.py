@@ -70,7 +70,7 @@ def test_pack_de_bande_son(fake_acestep, env, monkeypatch):
         ["manifest.json", "combat.ogg", "combat.mp3", "victoire.ogg", "victoire.mp3"])
     with pytest.raises(gr.Error, match="format"):
         export.exporter_pack("p", CIBLE_16, [], progress=no_progress)
-    with pytest.raises(gr.Error, match="Aucune piste"):
+    with pytest.raises(gr.Error, match="Rien dans le projet"):
         export.exporter_pack("vide", CIBLE_16, ["ogg"], progress=no_progress)
 
 
@@ -104,7 +104,7 @@ def test_pack_avec_bruitages(env):
     archive, msg = export.exporter_pack("p", CIBLE_16, ["ogg"], progress=no_progress)  # bruitages seuls : pas de musique
     dossier = cfg.GAMES_DIR / "p" / "export"
     manifest = json.loads((dossier / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["pistes"] == [] and "0 piste(s) et 2 bruitage(s)" in msg
+    assert manifest["pistes"] == [] and "0 piste(s), 2 bruitage(s), 0 illustration(s)" in msg
     clic, epee = manifest["bruitages"]
     assert (clic["id"], epee["id"]) == ("clic-menu", "epee") and epee["nom"] == "Épée"
     assert epee["variante"] == 3 and epee["graine"] == 103 and epee["fichiers"] == {"ogg": "bruitages/epee.ogg"}
@@ -115,5 +115,5 @@ def test_pack_avec_bruitages(env):
     assert abs(np.argmax(spectre) * sr / len(y) - 880) < 5
     assert sorted(zipfile.ZipFile(archive).namelist()) == sorted(
         ["manifest.json", "bruitages/", "bruitages/clic-menu.ogg", "bruitages/epee.ogg"])
-    with pytest.raises(gr.Error, match="ni aucun bruitage"):
+    with pytest.raises(gr.Error, match="Rien dans le projet"):
         export.exporter_pack("vide", CIBLE_16, ["ogg"], progress=no_progress)
