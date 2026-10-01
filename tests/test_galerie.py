@@ -1,5 +1,6 @@
 """Galerie : liste, détails, recréer avec la même graine, refaire un passage (repaint), supprimer."""
 import json
+from pathlib import Path
 
 import gradio as gr
 import pytest
@@ -55,7 +56,7 @@ def test_details_deux_versions(fake_acestep, fake_engines, gal):
     _chanson(versions=2, graine=5)
     (_, dossier), = galerie.lister("Chansons")
     md, fichier, versions, desc, paroles, fin, _ = galerie.details(dossier, 2)
-    assert fichier.endswith("version_2/chanson_finale.wav") and versions["visible"] and versions["value"] == 2
+    assert Path(fichier).parts[-2:] == ("version_2", "chanson_finale.wav") and versions["visible"] and versions["value"] == 2
     assert "Graine(s) : 5, " in md and desc == "pop, piano" and paroles == "[Verse]\nla" and fin == 4.0
 
 
