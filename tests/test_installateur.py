@@ -72,7 +72,7 @@ def test_installation_complete_puis_relance(inst):
     assert re.fullmatch(r"[0-9a-f]{64}", m["diffusion/.env-ok"]) and re.fullmatch(r"[0-9a-f]{64}", m["diffusion/.modeles-ok"])
     assert "Hunyuan3D-2/archive/" in m["diffusion/hunyuan3d/.complet"]
     telechargement = [a for a in inst.appels if "diffusion.py telecharger" in a][0]
-    assert "telecharger qwen forme3d texture3d zimage detourage" in telechargement
+    assert "telecharger qwen forme3d texture3d zimage personnages detourage" in telechargement
 
     assert inst.lancer() == 0, inst.sortie
     assert inst.installs() == [] and "Mise à jour" not in inst.sortie
@@ -140,7 +140,7 @@ def test_moteurs_retires_sautes_puis_reinstalles(inst):
     assert not any("chatterbox" in a.lower() for a in inst.appels)  # ni code, ni environnement, ni modèles
     telechargement = [a for a in inst.appels if "diffusion.py telecharger" in a]
     assert telechargement and "texture3d" not in telechargement[0]  # liste de modèles changée → étape 17 refaite
-    assert "telecharger qwen forme3d zimage detourage" in telechargement[0]
+    assert "telecharger qwen forme3d zimage personnages detourage" in telechargement[0]
     # tout le moteur de diffusion retiré : étapes 15 à 17 sautées, plus de question de jeton
     (inst.eng / "moteurs-retires.txt").write_text("chatterbox\ndiffusion\n", encoding="utf-8")
     sh.rmtree(inst.eng / "diffusion")

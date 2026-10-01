@@ -73,6 +73,8 @@ def test_essai_complet(env, monkeypatch):
     monkeypatch.setattr(diffusion, "decrire", lambda *a, **k: "door creak")
     monkeypatch.setattr(diffusion, "image", lambda p, sorties, *a, **k: {"fichiers": [str(sorties[0])], "graines": [42]})
     monkeypatch.setattr(diffusion, "present", lambda nom: nom != "bruitages")
+    monkeypatch.setattr(diffusion, "personnage",
+                        lambda p, refs, sorties, *a, **k: vus.setdefault("references", refs) and {"fichiers": [str(sorties[0])]})
 
     def forme(*a, **k):
         raise RuntimeError("CUDA error: no kernel image is available")
@@ -82,6 +84,8 @@ def test_essai_complet(env, monkeypatch):
     assert "✅ **ACE-Step (génération musicale)** : 10 s de musique, graine 7" in texte
     assert "✅ **Chatterbox (synthèse vocale)** : lecture écrite (moi.wav)" in texte
     assert "✅ **Qwen3-VL (description)** : « door creak »" in texte
+    assert "✅ **FLUX.2 klein 4B (personnage d'après une référence)** : image 768×768" in texte
+    assert [Path(r).name for r in vus["references"]] == ["zimage.png"]  # l'image de Z-Image sert de référence
     assert "❌ **Stable Audio Open (bruitage)** : Stable Audio Open non téléchargé" in texte  # échec n'arrête rien
     assert "❌ **Hunyuan3D-2 (forme + texture)** : RuntimeError : CUDA error: no kernel image" in texte
     assert Path(fichier).name == "rapport.txt" and "Essai complet" in Path(fichier).read_text(encoding="utf-8")

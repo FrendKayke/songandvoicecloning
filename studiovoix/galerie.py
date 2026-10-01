@@ -138,7 +138,8 @@ def details(chemin, version=1):
         lignes.append(f"Demande : {infos['description_fr']} ({infos.get('duree')} s)")
     if infos["type"] == "carte":
         lignes.append(f"Projet **{infos.get('projet')}**, carte **{infos.get('nom')}**, {infos.get('largeur')}×"
-                      f"{infos.get('hauteur')}" + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
+                      f"{infos.get('hauteur')}" + (f", personnage **{infos['personnage']}**" if infos.get("personnage") else "")
+                      + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
     if infos["type"] == "3d":
         texture = "texturé" if v.get("fichier") and v.get("fichier") != v.get("forme") else "forme seule"
         lignes.append(f"Modèle **{infos.get('nom')}** : qualité {infos.get('qualite')}, {infos.get('faces_obtenues')} "
@@ -248,7 +249,8 @@ def recreer(chemin, version=1, progress=gr.Progress()):
 
         _, _, dossier, _ = cartes.generer(infos.get("projet"), infos.get("nom"), infos.get("description"),
                                           infos.get("styles"), infos.get("consignes"), infos.get("format"), 1, graine,
-                                          infos.get("webp", True), infos.get("description_fr"), progress=progress)
+                                          infos.get("webp", True), infos.get("description_fr"),
+                                          personnage=infos.get("personnage"), progress=progress)
         return f"✅ Illustration recréée avec la graine {graine}.", dossier
     reg = infos.get("reglages") or {}
     fichier, _ = chatterbox.synthese(infos.get("voix"), infos.get("texte"), infos.get("langue"),

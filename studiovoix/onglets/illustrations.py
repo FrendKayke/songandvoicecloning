@@ -1,9 +1,12 @@
 """Onglet « Illustrations de cartes » : style mémorisé par projet, variantes Z-Image."""
 import gradio as gr
 
-from .. import cartes, compo_cartes, projets
+from .. import cartes, compo_cartes, personnages, projets
 from ..outils import open_folder
 from .commun import espace_de_noms
+
+CONFIRMER_PERSONNAGE = ("(p, n) => [p, (n && confirm('Supprimer le personnage « ' + n + ' » et ses images de référence ?'))"
+                        " ? n : null]")
 
 
 def construire():
@@ -38,12 +41,33 @@ def construire():
         ill_variantes = gr.Radio([1, 2, 3, 4], value=2, label="Variantes")
         ill_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
         ill_webp = gr.Checkbox(value=True, label="Aussi en WebP (léger pour le web)")
+    with gr.Row():
+        ill_personnage = gr.Dropdown([personnages.AUCUN], value=personnages.AUCUN, scale=2,
+                                     label="Personnage de la scène (même visage et même tenue d'une carte à l'autre)")
+        ill_perso_info = gr.Markdown("Avec un personnage, la scène est peinte par FLUX.2 klein 4B à partir de ses "
+                                     "images de référence (volet « 👤 Personnages » ci-dessous).")
     btn_ill = gr.Button("🎨 Générer l'illustration", variant="primary")
     ill_statut = gr.Markdown()
     ill_dossier = gr.State()
     ill_galerie = gr.Gallery(label="Variantes", columns=4, height=460, object_fit="contain")
     ill_choix_msg = gr.Markdown("Clique sur une variante pour la garder (pack du jeu) et la composer en carte.")
     btn_ill_dossier = gr.Button("📂 Ouvrir le dossier")
+    with gr.Accordion("👤 Personnages récurrents (le même héros sur plusieurs cartes)", open=False):
+        gr.Markdown("Un personnage = 1 à 4 images de référence : un portrait net du visage, une image en pied, la "
+                    "tenue… Crée-les d'abord ici (illustration sur fond simple, clique sur la variante réussie puis "
+                    "« Ajouter la variante gardée »), ou importe tes propres images. Ensuite, choisis-le dans "
+                    "« Personnage de la scène » : chaque nouvelle scène le montre avec la même apparence. "
+                    "Décris la nouvelle pose et le décor dans la scène, pas son apparence.")
+        with gr.Row():
+            perso_nom = gr.Dropdown([], value=None, allow_custom_value=True, label="Personnage (choisis ou tape un nom)")
+            perso_images = gr.File(label="Importer des images du personnage", file_count="multiple",
+                                   file_types=["image"], type="filepath")
+        with gr.Row():
+            btn_perso_variante = gr.Button("⭐ Ajouter la variante gardée à ce personnage")
+            btn_perso_import = gr.Button("📥 Ajouter les images importées")
+            btn_perso_suppr = gr.Button("🗑️ Supprimer ce personnage", variant="stop")
+        perso_msg = gr.Markdown()
+        perso_galerie = gr.Gallery(label="Images de référence", columns=4, height=260, object_fit="contain")
     with gr.Accordion("🃏 Composer la carte (cadre, nom, coût, texte, attaque, défense)", open=True):
         gr.Markdown("La carte est dessinée autour de l'illustration, avec des polices libres (usage commercial "
                     "permis), en PNG 300 ppp prêt à imprimer et en WebP pour le web. Le texte rapetisse tout seul "
@@ -82,15 +106,32 @@ def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     # Illustrations de cartes
     c.ill_projet.change(cartes.charger_style, c.ill_projet, [c.ill_styles, c.ill_consignes, c.ill_format])
+    c.ill_projet.change(personnages.choix, c.ill_projet, c.ill_personnage).then(
+        lambda p: (gr.update(choices=personnages.liste(p), value=None), []), c.ill_projet, [c.perso_nom, c.perso_galerie])
+    demo.load(personnages.choix, c.ill_projet, c.ill_personnage).then(
+        lambda p: gr.update(choices=personnages.liste(p)), c.ill_projet, c.perso_nom)
     c.ill_exemples.change(lambda v: v or "", c.ill_exemples, c.ill_texte)
     c.btn_ill_prep.click(cartes.preparer, c.ill_texte, c.ill_prompt)
     c.btn_ill.click(cartes.generer,
                   [c.ill_projet, c.ill_nom, c.ill_prompt, c.ill_styles, c.ill_consignes, c.ill_format, c.ill_variantes, c.ill_graine,
-                   c.ill_webp, c.ill_texte],
+                   c.ill_webp, c.ill_texte, c.ill_personnage],
                   [c.ill_statut, c.ill_galerie, c.ill_dossier, c.ill_projet])
     c.btn_ill_dossier.click(lambda d: open_folder(d) if d else None, c.ill_dossier)
     c.ill_galerie.select(cartes.choisir, c.ill_dossier, [c.ill_choix_msg, c.cc_illustration]).then(
         lambda nom, actuel: actuel or nom, [c.ill_nom, c.cc_nom], c.cc_nom)
+    # Personnages récurrents : après un ajout, la liste du volet suit la liste « Personnage de la scène »
+    noms_perso = lambda p, n: gr.update(choices=personnages.liste(p), value=n)  # noqa: E731
+    c.perso_nom.change(personnages.afficher, [c.ill_projet, c.perso_nom], c.perso_galerie)
+    c.btn_perso_variante.click(lambda p, n, i: personnages.ajouter(p, n, [i] if i else []),
+                               [c.ill_projet, c.perso_nom, c.cc_illustration],
+                               [c.perso_msg, c.perso_galerie, c.ill_personnage]).then(
+        noms_perso, [c.ill_projet, c.perso_nom], c.perso_nom)
+    c.btn_perso_import.click(personnages.ajouter, [c.ill_projet, c.perso_nom, c.perso_images],
+                             [c.perso_msg, c.perso_galerie, c.ill_personnage]).then(
+        noms_perso, [c.ill_projet, c.perso_nom], c.perso_nom)
+    c.btn_perso_suppr.click(personnages.supprimer, [c.ill_projet, c.perso_nom],
+                            [c.perso_msg, c.perso_galerie, c.ill_personnage], js=CONFIRMER_PERSONNAGE).then(
+        lambda p: gr.update(choices=personnages.liste(p), value=None), c.ill_projet, c.perso_nom)
     c.btn_composer.click(compo_cartes.composer_et_enregistrer,
                          [c.ill_projet, c.cc_illustration, c.cc_nom, c.cc_cout, c.cc_type, c.cc_effet, c.cc_ambiance,
                           c.cc_attaque, c.cc_defense, c.cc_faction, c.cc_rarete, c.cc_pied, c.cc_format, c.cc_webp],

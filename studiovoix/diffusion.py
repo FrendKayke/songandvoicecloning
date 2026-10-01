@@ -1,4 +1,5 @@
-"""Client du moteur « diffusion » (moteurs/diffusion.py) : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, Hunyuan3D-2.
+"""Client du moteur « diffusion » (moteurs/diffusion.py) : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein,
+Hunyuan3D-2.
 
 Environnement dédié (<lecteur>:\\StudioVoix\\diffusion\\.venv), appelé en sous-processus. Les modèles vont dans
 le cache Hugging Face (HF_HOME, dans StudioVoix). Stable Audio Open exige l'acceptation de sa licence sur
@@ -27,6 +28,10 @@ MODELES = {
     "zimage": ("Tongyi-MAI/Z-Image-Turbo", "Z-Image-Turbo (images : illustrations, texte → 3D)",
                ["text_encoder/model-00001-of-00003.safetensors", "vae/diffusion_pytorch_model.safetensors",
                 ("unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q8_0.gguf")]),
+    # encodeur de texte et tokeniseur repris de Z-Image (identiques) : « zimage » est aussi nécessaire
+    "personnages": ("black-forest-labs/FLUX.2-klein-4B", "FLUX.2 klein 4B (personnages récurrents)",
+                    ["vae/diffusion_pytorch_model.safetensors", "transformer/config.json",
+                     ("unsloth/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf")]),
     "forme3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 forme (image → 3D)",
                 ["hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors"]),
     "texture3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 texture (peinture)",
@@ -156,6 +161,17 @@ def image(prompt, sorties, graines_, largeur=1024, hauteur=1024, etapes=9, progr
                   {1: "chargement de Z-Image-Turbo", 2: f"génération de {len(sorties)} image(s)"})
 
 
+def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024, etapes=4, progress=None):
+    """FLUX.2 klein 4B : images du personnage des `references` (1 à 4 images) dans la scène du prompt."""
+    _verifier("zimage", "personnages")
+    sorties = [str(s) for s in sorties]
+    return lancer("personnage", {"prompt": prompt, "references": [str(r) for r in references], "sorties": sorties,
+                                 "graines": [int(g) for g in graines_], "largeur": int(largeur),
+                                 "hauteur": int(hauteur), "etapes": int(etapes)},
+                  Path(sorties[0]).parent, "FLUX.2 klein", progress,
+                  {1: "chargement de FLUX.2 klein", 2: f"génération de {len(sorties)} image(s) du personnage"})
+
+
 def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None, web=False):
     """Image → forme.glb (+ modele.glb texturé si `texture` et carte graphique ; + OBJ si demandé).
     RESULTAT {forme, faces, graine, texture: chemin ou None, obj: chemin ou None}."""
@@ -200,6 +216,8 @@ def download(noms=None):
         yield (f"❌ Stable Audio Open demande d'accepter sa licence sur {LICENCE_BRUITAGES} puis d'enregistrer "
                f"un jeton Hugging Face (créé sur {JETONS}) dans le champ ci-dessus.")
         return
+    if "personnages" in noms and "zimage" not in noms and not _present("zimage"):
+        noms.append("zimage")  # FLUX.2 klein reprend l'encodeur de texte de Z-Image
     for n in noms:  # télécharger un modèle retiré, c'est le réinstaller : l'installateur ne le saute plus
         retraits.enlever(f"diffusion:{n}")
     yield from stream_command([cfg.DIFFUSION_PYTHON, str(script()), "telecharger", *noms, "detourage"],

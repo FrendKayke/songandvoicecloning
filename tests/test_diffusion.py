@@ -44,7 +44,8 @@ FAUX_MOTEUR = textwrap.dedent("""
             fichiers.append(str(f))
         graines = [t["graine"] or 111] + [222, 333][: t["variantes"] - 1]
         print("RESULTAT " + json.dumps({"fichiers": fichiers, "graines": graines, "frequence": 44100}), flush=True)
-    elif action == "image":
+    elif action in ("image", "personnage"):
+        if action == "personnage": assert all(Path(r).exists() for r in t["references"])
         print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
         from PIL import Image
         for s, g in zip(t["sorties"], t["graines"]):  # vrais PNG (gr.Image relit les fichiers), taille demandée / 16
@@ -161,10 +162,16 @@ def test_jeton_et_telechargement(faux_diffusion):
     assert "❌" in list(diffusion.download(["bruitages"]))[0]  # sans jeton, pas de téléchargement lancé
     dernier = list(diffusion.download(["qwen", "zimage"]))[-1]
     assert "Terminé" in dernier and _journal()[-1]["args"] == ["qwen", "zimage", "detourage"]
+    list(diffusion.download(["personnages"]))  # Z-Image présent : seul klein est téléchargé
+    assert _journal()[-1]["args"] == ["personnages", "detourage"]
+    import shutil
+    shutil.rmtree(diffusion.ckpt_dir("zimage"))  # klein reprend l'encodeur de texte de Z-Image : téléchargé avec
+    list(diffusion.download(["personnages"]))
+    assert _journal()[-1]["args"] == ["personnages", "zimage", "detourage"]
 
 
 def test_etat_des_modeles(faux_diffusion):
-    assert "| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, Hunyuan3D-2 | ✅ présent |" in models_status_md()
+    assert "| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein, Hunyuan3D-2 | ✅ présent |" in models_status_md()
 
 
 def test_galerie_bruitage(faux_diffusion):
@@ -347,3 +354,60 @@ def test_modeles_3d_par_lot(faux_diffusion):
     assert len([d for d in cfg.MODELS3D_DIR.iterdir() if (d / "creation.json").exists()]) == 2
     with pytest.raises(gr.Error, match="Ajoute des images"):
         modele3d.generer_lot([], "x", "Normale", False, 0, ["glb"], progress=no_progress)
+
+
+def test_personnages_recurrents(faux_diffusion):
+    from PIL import Image
+
+    from studiovoix import cartes, galerie, personnages
+
+    assert personnages.liste("Mon Jeu") == [] and personnages.choix("Mon Jeu")["choices"] == [personnages.AUCUN]
+    with pytest.raises(gr.Error, match="nom"):
+        personnages.ajouter("Mon Jeu", " ", ["x.png"])
+    with pytest.raises(gr.Error, match="au moins une image"):
+        personnages.ajouter("Mon Jeu", "Héroïne", [])
+    images = []
+    for i in range(5):
+        f = cfg.DATA_DIR.parent / f"ref{i}.jpg"
+        Image.new("RGB", (2048, 1024), (40 * i, 0, 0)).save(f)
+        images.append(str(f))
+    msg, gal, liste = personnages.ajouter("Mon Jeu", "Héroïne", images[:2])
+    assert "2 image(s) ajoutée(s)" in msg and liste["value"] == "Héroïne" and liste["choices"][1:] == ["Héroïne"]
+    ref1 = Image.open(gal[0][0])
+    assert ref1.size == (1024, 512) and Path(gal[0][0]).name == "ref_1.png"  # réduite, en PNG
+    # même nom à la casse près (comme Windows) : même personnage ; 4 références au plus
+    msg, gal, _ = personnages.ajouter("Mon Jeu", "HÉROÏNE", images[2:])
+    assert "2 image(s) ajoutée(s)" in msg and "1 image(s) ignorée(s)" in msg and len(gal) == 4
+    with pytest.raises(gr.Error, match="déjà 4"):
+        personnages.ajouter("Mon Jeu", "héroïne", images[:1])
+    assert personnages.liste("Mon Jeu") == ["Héroïne"] and personnages.liste("Autre") == []
+
+    # génération avec le personnage : FLUX.2 klein reçoit ses références, 4 pas
+    with pytest.raises(gr.Error, match="pas d'image de référence"):
+        cartes.generer("Mon Jeu", "x", "a scene", [], "", None, 1, 0, personnage="Inconnu", progress=no_progress)
+    msg, imgs, dossier, _ = cartes.generer("Mon Jeu", "Héroïne au combat", "she fights a dragon", ["anime style"], "",
+                                           None, 2, 7, personnage="Héroïne", progress=no_progress)
+    j = _journal()[-1]
+    assert j["action"] == "personnage" and "avec le personnage « Héroïne »" in msg
+    assert [Path(r).name for r in j["tache"]["references"]] == ["ref_1.png", "ref_2.png", "ref_3.png", "ref_4.png"]
+    assert j["tache"]["etapes"] == 4 and j["tache"]["graines"][0] == 7
+    assert j["tache"]["prompt"].startswith("she fights a dragon. " + cartes.MEME_PERSONNAGE + ". Art style: anime")
+    infos = galerie.lire(dossier)
+    assert infos["personnage"] == "Héroïne" and infos["moteur"] == "FLUX.2 klein 4B"
+    assert "personnage **Héroïne**" in galerie.details(dossier, 1)[0]
+    galerie.recreer(dossier, 2, progress=no_progress)  # la recréation repasse par le personnage
+    assert _journal()[-1]["action"] == "personnage"
+    # sans personnage : Z-Image-Turbo, comme avant
+    cartes.generer("Mon Jeu", "Décor", "a castle", [], "", None, 1, 0, personnage=personnages.AUCUN,
+                   progress=no_progress)
+    assert _journal()[-1]["action"] == "image" and galerie.lire(_journal()[-1]["tache"]["sorties"][0].rsplit("variante", 1)[0])["personnage"] is None
+    # klein absent : message clair
+    import shutil
+    shutil.rmtree(diffusion.ckpt_dir("personnages"))
+    with pytest.raises(gr.Error, match="FLUX.2 klein"):
+        cartes.generer("Mon Jeu", "x", "a scene", [], "", None, 1, 0, personnage="Héroïne", progress=no_progress)
+    # suppression (annulée, puis confirmée)
+    assert "annulée" in personnages.supprimer("Mon Jeu", None)[0]
+    msg, gal, liste = personnages.supprimer("Mon Jeu", "héroïne")
+    assert "supprimé" in msg and gal == [] and personnages.liste("Mon Jeu") == [] and liste["value"] == personnages.AUCUN
+    assert len(galerie.lister("Illustrations")) == 3  # les illustrations faites avec lui restent

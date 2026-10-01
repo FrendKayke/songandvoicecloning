@@ -23,10 +23,11 @@ LIBELLES = {
     "chatterbox": "Synthèse vocale (Chatterbox) : environnement et modèles",
     "nettoyage": "Nettoyage de voix : environnement et modèles",
     "rvc": "RVC : environnement et modèles de base (tes modèles entraînés sont gardés)",
-    "diffusion": "Moteur de diffusion entier (bruitages, illustrations, 3D) : environnement et tous ses modèles",
+    "diffusion": "Moteur de diffusion entier (bruitages, illustrations, personnages, 3D) : environnement et tous ses modèles",
     "diffusion:qwen": "Qwen3-VL (préparation des prompts)",
     "diffusion:bruitages": "Stable Audio Open (bruitages)",
-    "diffusion:zimage": "Z-Image-Turbo (illustrations, texte → 3D)",
+    "diffusion:zimage": "Z-Image-Turbo (illustrations, texte → 3D ; son encodeur de texte sert aussi à FLUX.2 klein)",
+    "diffusion:personnages": "FLUX.2 klein 4B (personnages récurrents)",
     "diffusion:forme3d": "Hunyuan3D-2 : forme",
     "diffusion:texture3d": "Hunyuan3D-2 : texture (le plus gros)",
 }
@@ -148,7 +149,8 @@ def inventaire():
 
 
 # Choix proposés dans l'interface : (libellé, clé)
-CHOIX_RETRAIT = [(LIBELLES[c], c) for c in ("diffusion:texture3d", "diffusion:zimage", "diffusion:bruitages",
+CHOIX_RETRAIT = [(LIBELLES[c], c) for c in ("diffusion:texture3d", "diffusion:zimage", "diffusion:personnages",
+                                             "diffusion:bruitages",
                                              "diffusion:qwen", "diffusion:forme3d", "diffusion", "rvc", "chatterbox",
                                              "nettoyage")]
 CHOIX_VIDER = [("Cache de téléchargement (uv) — retéléchargé si besoin", "uv-cache"),

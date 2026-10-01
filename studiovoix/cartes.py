@@ -6,6 +6,8 @@ dans data/cartes/<projet>/style.json et réappliqué à chaque carte du projet ;
 française de la scène est reformulée en anglais par Qwen3-VL (mode « carte »), modifiable avant génération.
 Rangement : data/cartes/<projet>/<horodatage>/ : variante_<i>.png (+ .webp), creation.json (type « carte »).
 Jamais de nom d'artiste ni d'œuvre dans les styles (comme pour la musique).
+Personnage récurrent (personnages.py) : la scène est alors peinte par FLUX.2 klein 4B à partir des images de
+référence du personnage, pour qu'il garde le même visage et la même tenue d'une carte à l'autre.
 """
 import json
 from pathlib import Path
@@ -14,7 +16,7 @@ import gradio as gr
 from PIL import Image
 
 from . import config as cfg
-from . import diffusion
+from . import diffusion, personnages
 from .outils import ecrire_creation, nouveau_dossier
 from .styles import texte
 
@@ -84,8 +86,15 @@ def charger_style(projet):
     return gr.update(value=styles), consignes, fmt
 
 
-def prompt_final(scene, styles, consignes):
+# Ajouté à la scène quand un personnage est choisi : FLUX.2 klein reçoit ses images de référence
+MEME_PERSONNAGE = ("The main character is exactly the same character as in the reference image(s): same face, "
+                   "hair, body shape, outfit and colors, shown in a new pose for this scene")
+
+
+def prompt_final(scene, styles, consignes, personnage=False):
     scene = (scene or "").strip().rstrip(".")
+    if personnage:
+        scene = f"{scene}. {MEME_PERSONNAGE}"
     style = ", ".join(x for x in (texte(styles), (consignes or "").strip()) if x)
     return f"{scene}. Art style: {style}. No text, no letters, no frame." if style else f"{scene}. No text, no letters."
 
@@ -99,12 +108,17 @@ def preparer(description, progress=gr.Progress()):
 
 
 def generer(projet, nom, scene, styles, consignes, format_label, variantes, graine, webp=True, description_fr=None,
-            progress=gr.Progress()):
-    """Génère les variantes. Renvoie (message, galerie [(image, légende)], dossier, liste des projets)."""
+            personnage=None, progress=gr.Progress()):
+    """Génère les variantes (avec FLUX.2 klein si un personnage est choisi, Z-Image-Turbo sinon).
+    Renvoie (message, galerie [(image, légende)], dossier, liste des projets)."""
     scene = (scene or "").strip()
     if not scene:
         raise gr.Error("Il manque le prompt de la scène : clique d'abord sur « Préparer le prompt », ou écris-le en anglais.")
     projet = nom_projet(projet)
+    personnage = None if personnage in (None, "", personnages.AUCUN) else personnage
+    references = personnages.references(projet, personnage) if personnage else []
+    if personnage and not references:
+        raise gr.Error(f"Le personnage « {personnage} » n'a pas d'image de référence dans le projet {projet}.")
     format_label = format_label if format_label in FORMATS else FORMAT_DEFAUT
     largeur, hauteur = FORMATS[format_label]
     n = max(1, min(4, int(variantes or 1)))
@@ -113,9 +127,13 @@ def generer(projet, nom, scene, styles, consignes, format_label, variantes, grai
     _fichier_style(projet).write_text(json.dumps({"styles": list(styles or []) if not isinstance(styles, str) else [styles],
                                                   "consignes": (consignes or "").strip(), "format": format_label},
                                                  ensure_ascii=False, indent=1), encoding="utf-8")
-    prompt = prompt_final(scene, styles, consignes)
+    prompt = prompt_final(scene, styles, consignes, personnage=bool(personnage))
     sorties = [dossier / f"variante_{i}.png" for i in range(1, n + 1)]
-    res = diffusion.image(prompt, sorties, diffusion.graines(n, graine), largeur, hauteur, progress=progress)
+    if personnage:
+        res = diffusion.personnage(prompt, references, sorties, diffusion.graines(n, graine), largeur, hauteur,
+                                   progress=progress)
+    else:
+        res = diffusion.image(prompt, sorties, diffusion.graines(n, graine), largeur, hauteur, progress=progress)
     if webp:  # léger pour un jeu web, sans perte visible
         for f in res["fichiers"]:
             with Image.open(f) as im:
@@ -125,10 +143,13 @@ def generer(projet, nom, scene, styles, consignes, format_label, variantes, grai
         "type": "carte", "projet": projet, "nom": nom, "description": scene,
         "description_fr": (description_fr or "").strip() or None, "styles": styles, "consignes": consignes,
         "format": format_label, "largeur": largeur, "hauteur": hauteur, "prompt": prompt, "webp": bool(webp), "choisie": 1,
+        "personnage": personnage, "references": [str(r) for r in references] or None,
+        "moteur": "FLUX.2 klein 4B" if personnage else "Z-Image-Turbo",
         "versions": [{"graine": g, "dossier": ".", "fichier": f} for f, g in zip(res["fichiers"], res["graines"])],
     })
     galerie = [(f, f"Variante {i} (graine {g})") for i, (f, g) in enumerate(zip(res["fichiers"], res["graines"]), 1)]
-    msg = (f"✅ {len(galerie)} illustration(s) {largeur}×{hauteur} pour « {nom} » (projet {projet}) dans {dossier}. "
+    avec = f", avec le personnage « {personnage} »" if personnage else ""
+    msg = (f"✅ {len(galerie)} illustration(s) {largeur}×{hauteur} pour « {nom} » (projet {projet}{avec}) dans {dossier}. "
            f"Graines : {', '.join(str(g) for g in res['graines'])}.")
     return msg, galerie, str(dossier), gr.update(choices=projets(), value=projet)
 

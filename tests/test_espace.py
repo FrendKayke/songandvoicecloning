@@ -68,6 +68,9 @@ def test_inventaire(disque):
     assert sum(espace.taille(c) for c in espace.chemins("diffusion:texture3d")) == 1600
     assert sum(espace.taille(c) for c in espace.chemins("diffusion:forme3d")) == 450
     assert sum(espace.taille(c) for c in espace.chemins("diffusion:zimage")) == 1000
+    # FLUX.2 klein reprend l'encodeur de Z-Image : le retirer ne touche pas au dépôt de Z-Image
+    assert [c.name for c in espace.chemins("diffusion:personnages")] == [
+        "models--black-forest-labs--FLUX.2-klein-4B", "models--unsloth--FLUX.2-klein-4B-GGUF"]
 
 
 def test_retirer_puis_reinstaller_un_modele(disque):

@@ -5,13 +5,15 @@ Quatre modèles qui partagent la même pile (diffusers, transformers) :
   - Stable Audio Open 1.0          : bruitages à partir d'une description (licence Stability Community,
                                      accès soumis à l'acceptation de la licence : jeton Hugging Face) ;
   - Hunyuan3D-2 (Tencent)          : image → forme 3D (turbo) puis texture (paint turbo + delight) ;
-  - Z-Image-Turbo (Apache 2.0)     : texte → image (illustrations de cartes, objet du texte → 3D).
+  - Z-Image-Turbo (Apache 2.0)     : texte → image (illustrations de cartes, objet du texte → 3D) ;
+  - FLUX.2 klein 4B (Apache 2.0)   : image d'un personnage à partir de 1 à 4 images de référence (même personnage
+                                     d'une carte à l'autre).
 
-    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | forme3d | alleger
-    python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | detourage
+    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | personnage | forme3d | alleger
+    python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | personnages | detourage
 
 Sortie : « PROGRESSION i/n … », « RESULTAT <json> », « ERREUR : message » et « TERMINE <fichier> ».
-API vérifiées dans les dépôts : diffusers 0.39 (StableAudioPipeline.__call__, ZImagePipeline),
+API vérifiées dans les dépôts : diffusers 0.39 (StableAudioPipeline.__call__, ZImagePipeline, Flux2KleinPipeline),
 Qwen3-VL (carte du modèle), Hunyuan3D-2 commit f8db630 (hy3dgen.shapegen.pipelines,
 hy3dgen.texgen.pipelines, gradio_app.py pour l'ordre des étapes et le mode basse mémoire).
 """
@@ -28,6 +30,13 @@ STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
 # GGUF 8 bits (7,2 Go, qualité quasi identique), qui tient sur 12 Go avec le déchargement vers la mémoire vive.
 ZIMAGE = "Tongyi-MAI/Z-Image-Turbo"
 ZIMAGE_GGUF = ("unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q8_0.gguf")
+# FLUX.2 klein 4B (Black Forest Labs, Apache 2.0 ; les versions 9B sont non commerciales) : transformeur en GGUF 8 bits
+# (4,3 Go au lieu de 7,75), VAE et réglages depuis le dépôt officiel. Son encodeur de texte est le même Qwen3-4B que
+# celui de Z-Image (même configuration, mêmes poids sur les couches lues : klein lit les couches 9, 18 et 27) : on
+# reprend celui de Z-Image, ce qui évite 8 Go de téléchargement. Le modèle est distillé : 4 pas, guidage ignoré.
+KLEIN = "black-forest-labs/FLUX.2-klein-4B"
+KLEIN_GGUF = ("unsloth/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf")
+REFERENCES_MAX = 4  # limite de klein dans l'API de Black Forest Labs ; chaque référence ajoute jusqu'à 4096 jetons
 HUNYUAN = "tencent/Hunyuan3D-2"
 HUNYUAN_FORME = "hunyuan3d-dit-v2-0-turbo"
 HUNYUAN_TEXTURE = "hunyuan3d-paint-v2-0-turbo"
@@ -38,6 +47,9 @@ MODELES = {
     "zimage": [(ZIMAGE, ["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*", "vae/*",
                          "transformer/config.json"]),
                (ZIMAGE_GGUF[0], [ZIMAGE_GGUF[1]])],
+    # l'encodeur de texte et le tokeniseur viennent de Z-Image (« zimage » doit être présent aussi)
+    "personnages": [(KLEIN, ["model_index.json", "scheduler/*", "vae/*", "transformer/config.json"]),
+                    (KLEIN_GGUF[0], [KLEIN_GGUF[1]])],
     "forme3d": [(HUNYUAN, [f"{HUNYUAN_FORME}/*", "hunyuan3d-vae-v2-0-turbo/*"])],
     "texture3d": [(HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"])],
 }
@@ -229,22 +241,80 @@ def image(chemin_tache):
         pipe.enable_model_cpu_offload()  # encodeur de texte (8 Go) puis transformeur (7 Go) passent tour à tour
     else:
         pipe = pipe.to(device)
+    options = {"prompt": t["prompt"]}
+    if sans_encodeur:  # test sans les 8 Go de l'encodeur : plongements de la bonne dimension
+        options = {"prompt_embeds": [torch.randn(24, pipe.transformer.config.cap_feat_dim, dtype=dtype)]}
+    _generer(pipe, t, dict(options, guidance_scale=0.0), etapes=9)
+
+
+def _generer(pipe, t, options, etapes):
+    """Une image par sortie de la tâche, chacune avec sa graine (générateur sur le processeur : reproductible)."""
+    import torch
+
     largeur, hauteur = int(t.get("largeur", 1024)), int(t.get("hauteur", 1024))
     sorties, graines = t["sorties"], [int(g) for g in t["graines"]]
     print(f"PROGRESSION 2/2 génération de {len(sorties)} image(s)", flush=True)
     for i, (sortie, graine) in enumerate(zip(sorties, graines), 1):
-        options = {"prompt": t["prompt"]}
-        if sans_encodeur:  # test sans les 8 Go de l'encodeur : plongements de la bonne dimension
-            options = {"prompt_embeds": [torch.randn(24, pipe.transformer.config.cap_feat_dim, dtype=dtype)]}
         im = _memoire(pipe)(
-            **options, height=hauteur, width=largeur, num_inference_steps=int(t.get("etapes", 9)),
-            guidance_scale=0.0, generator=torch.Generator("cpu").manual_seed(graine),
+            **options, height=hauteur, width=largeur, num_inference_steps=int(t.get("etapes", etapes)),
+            generator=torch.Generator("cpu").manual_seed(graine),
         ).images[0]
         Path(sortie).parent.mkdir(parents=True, exist_ok=True)
         im.save(sortie)
         print(f"Image {i}/{len(sorties)} : {sortie} (graine {graine})", flush=True)
     _resultat({"fichiers": sorties, "graines": graines})
     print(f"TERMINE {sorties[0]}", flush=True)
+
+
+# --- FLUX.2 klein 4B : le même personnage d'une image à l'autre -----------------------------------------------
+def personnage(chemin_tache):
+    """Tâche : {prompt, references: [images], sorties, graines, etapes, largeur, hauteur}.
+    Les images de référence (1 à 4 : visage, en pied, tenue…) sont encodées par le VAE et données au transformeur
+    avec le texte (argument `image` de Flux2KleinPipeline.__call__, images PIL obligatoirement) ; la taille de sortie
+    est toujours donnée (sinon klein prend celle de la première référence). 4 pas, guidage 1 (carte du modèle).
+    Clés de test : depot / gguf / depot_encodeur (autres modèles), sans_encodeur (plongements aléatoires)."""
+    import torch
+    from diffusers import (AutoencoderKLFlux2, FlowMatchEulerDiscreteScheduler, Flux2KleinPipeline,
+                           Flux2Transformer2DModel, GGUFQuantizationConfig)
+    from huggingface_hub import hf_hub_download
+    from PIL import Image
+
+    t = _lire(chemin_tache)
+    references = [Image.open(r).convert("RGB") for r in t.get("references") or []][:REFERENCES_MAX]
+    if not references:
+        _erreur("il faut au moins une image de référence du personnage.")
+    device = _device()
+    depot, depot_encodeur = t.get("depot", KLEIN), t.get("depot_encodeur", ZIMAGE)
+    _hors_ligne_si_present(depot, KLEIN_GGUF[0], depot_encodeur)
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    print("PROGRESSION 1/2 chargement de FLUX.2 klein", flush=True)
+    gguf = t.get("gguf") or hf_hub_download(*KLEIN_GGUF)
+    # config= obligatoire : sans lui, diffusers reconnaît « flux-2-dev » et lit la configuration de FLUX.2-dev
+    # (dépôt soumis à licence non commerciale)
+    transformeur = Flux2Transformer2DModel.from_single_file(
+        gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot, subfolder="transformer",
+        torch_dtype=dtype)
+    sans_encodeur = bool(t.get("sans_encodeur"))
+    encodeur = tokeniseur = None
+    if not sans_encodeur:
+        from transformers import AutoTokenizer, Qwen3ForCausalLM
+
+        encodeur = Qwen3ForCausalLM.from_pretrained(depot_encodeur, subfolder="text_encoder", torch_dtype=dtype)
+        tokeniseur = AutoTokenizer.from_pretrained(depot_encodeur, subfolder="tokenizer")
+    # pipeline assemblée composant par composant : from_pretrained voudrait aussi les 16 Go de poids officiels
+    pipe = Flux2KleinPipeline(
+        scheduler=FlowMatchEulerDiscreteScheduler.from_pretrained(depot, subfolder="scheduler"),
+        vae=AutoencoderKLFlux2.from_pretrained(depot, subfolder="vae", torch_dtype=dtype),
+        text_encoder=encodeur, tokenizer=tokeniseur, transformer=transformeur, is_distilled=True)
+    if device == "cuda":
+        pipe.enable_model_cpu_offload()  # encodeur de texte (8 Go) puis transformeur (4 Go) passent tour à tour
+    else:
+        pipe = pipe.to(device)
+    options = {"prompt": t["prompt"]}
+    if sans_encodeur:  # 3 couches cachées de l'encodeur mises bout à bout
+        options = {"prompt_embeds": torch.randn(1, 24, pipe.transformer.config.joint_attention_dim, dtype=dtype)}
+    print(f"{len(references)} image(s) de référence du personnage.", flush=True)
+    _generer(pipe, t, dict(options, image=references, guidance_scale=1.0), etapes=4)
 
 
 # --- Hunyuan3D-2 : image → forme → texture -------------------------------------------------------------
@@ -413,10 +483,11 @@ def telecharger(noms):
 
 
 if __name__ == "__main__":
-    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "forme3d": forme3d, "alleger": alleger}
+    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "forme3d": forme3d,
+               "alleger": alleger}
     if len(sys.argv) >= 2 and sys.argv[1] == "telecharger":
         telecharger(sys.argv[2:])
     elif len(sys.argv) == 3 and sys.argv[1] in actions:
         actions[sys.argv[1]](sys.argv[2])
     else:
-        _erreur("usage : diffusion.py decrire|bruitage|image|forme3d|alleger <tache.json> | telecharger [modèle…]")
+        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|forme3d|alleger <tache.json> | telecharger [modèle…]")

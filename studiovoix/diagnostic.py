@@ -4,7 +4,7 @@ pour dépannage.
 - Diagnostic rapide (moins d'une minute) : système, carte graphique (nvidia-smi), espace disque, chaque environnement
   Python (PyTorch importable, CUDA disponible), modèles manquants, serveur ACE-Step.
 - Essai complet (10 à 20 minutes) : une vraie génération courte par moteur (ACE-Step, Demucs, Seed-VC, Chatterbox,
-  nettoyage, Qwen3-VL, Z-Image, Stable Audio, Hunyuan3D forme + texture), dans l'ordre qui évite de recharger
+  nettoyage, Qwen3-VL, Z-Image, FLUX.2 klein, Stable Audio, Hunyuan3D forme + texture), dans l'ordre qui évite de recharger
   ACE-Step, avec la durée et la mémoire graphique utilisée après chaque étape. Les fichiers produits vont dans
   data/diagnostic/<horodatage>/ (les dossiers de la galerie sont redirigés pendant l'essai : rien ne s'y ajoute).
 Une étape en échec n'arrête pas les suivantes ; le message d'erreur est gardé dans le rapport.
@@ -209,6 +209,14 @@ def _etapes(d, voix):
         etat["image"] = Path(res["fichiers"][0])
         return "image 1024×1024"
 
+    def klein():
+        image = etat.get("image")
+        if not image:
+            raise gr.Error("pas d'image de référence (l'étape Z-Image a échoué)")
+        diffusion.personnage("The same red potion bottle from the reference image, standing on a wooden table in a "
+                             "tavern, warm candle light", [image], [d / "personnage.png"], [42], 768, 768)
+        return "image 768×768 à partir d'une référence"
+
     def audio():
         if "bruitages" in [k for k in diffusion.MODELES if not diffusion.present(k)]:
             raise gr.Error("Stable Audio Open non téléchargé (jeton Hugging Face requis)")
@@ -228,6 +236,7 @@ def _etapes(d, voix):
             ("Seed-VC (conversion)", svc, None), ("Chatterbox (synthèse vocale)", tts, "chatterbox"),
             ("Nettoyage de voix (léger)", net, "nettoyage"), ("Qwen3-VL (description)", qwen, "diffusion:qwen"),
             ("Z-Image-Turbo (image)", zimage, "diffusion:zimage"),
+            ("FLUX.2 klein 4B (personnage d'après une référence)", klein, "diffusion:personnages"),
             ("Stable Audio Open (bruitage)", audio, "diffusion:bruitages"),
             ("Hunyuan3D-2 (forme + texture)", forme, "diffusion:texture3d")]
 
