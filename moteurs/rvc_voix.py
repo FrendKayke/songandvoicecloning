@@ -68,8 +68,9 @@ def _lancer(cmd, etape, suivi=None):
             suivi(ligne)
     if proc.wait() != 0:
         if any("CUDA out of memory" in l_ or "OutOfMemoryError" in l_ for l_ in dernieres):
-            _erreur(f"{etape} : mémoire de la carte graphique insuffisante. Ferme la fenêtre ACE-Step et baisse "
-                    "la taille de lot, puis relance.", 3)
+            _erreur(f"{etape} : mémoire de la carte graphique insuffisante. Baisse la taille de lot. Ferme "
+                     f"les autres programmes qui utilisent la carte (jeux, vidéos) ; si tu as désactivé la "
+                     f"libération automatique, arrête ACE-Step dans l'onglet Modèles, puis relance.", 3)
         _erreur(f"{etape} a échoué (voir les lignes ci-dessus).")
 
 

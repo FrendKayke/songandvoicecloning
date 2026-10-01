@@ -130,8 +130,9 @@ def synthese(chemin_tache):
                 segments.append(np.zeros(int(PAUSE_S * modele.sr), dtype="float32"))
     except torch.cuda.OutOfMemoryError:
         _erreur(
-            "mémoire de la carte graphique insuffisante. Ferme la fenêtre « ACE-Step - ne pas fermer » "
-            "(le serveur de génération musicale occupe la carte), puis relance la synthèse.", 3
+            "mémoire de la carte graphique insuffisante. Ferme les autres programmes qui utilisent la carte "
+            "(jeux, vidéos) ; si tu as désactivé la libération automatique, arrête ACE-Step dans l'onglet "
+            "Modèles, puis relance la synthèse.", 3
         )
     sf.write(t["sortie"], np.concatenate(segments), modele.sr)
     print(f"TERMINE {t['sortie']}", flush=True)

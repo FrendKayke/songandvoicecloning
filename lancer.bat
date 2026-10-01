@@ -27,12 +27,9 @@ set "RVC_PYTHON="
 set "DIFFUSION_DIR="
 set "DIFFUSION_PYTHON="
 
-curl -s -f -o nul -m 2 %ACESTEP_URL%/health
-if not errorlevel 1 goto serveur_ok
-echo Demarrage du serveur ACE-Step dans une fenetre separee - ne la ferme pas.
-start "ACE-Step - ne pas fermer" /min /D "%ENG%\ace-step" cmd /k start_api_server.bat
-
-:serveur_ok
+rem Le serveur ACE-Step est demarre (et arrete pour liberer la carte graphique) par l'application elle-meme,
+rem sans fenetre separee : son journal est dans %ENG%\ace-step\serveur.log
+echo Studio Voix demarre. Ferme cette fenetre pour tout arreter (ACE-Step compris).
 ".venv\Scripts\python.exe" studio_voix.py
 pause
 exit /b

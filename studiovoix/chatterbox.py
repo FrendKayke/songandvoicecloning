@@ -11,6 +11,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
+from . import serveur_acestep
 from .outils import ecrire_creation, lancer_moteur, nouveau_dossier, stream_command
 from .voix import chemin_voix
 
@@ -97,6 +98,7 @@ def synthese(voix, texte, langue_label, exaggeration, cfg_weight, temperature, g
                      "temperature": float(temperature)},
         "versions": [{"graine": int(graine or 0), "dossier": ".", "fichier": str(sortie)}],
     })
+    serveur_acestep.liberer_gpu(progress)
     lancer_moteur(
         [cfg.CHATTERBOX_PYTHON, str(script()), str(tache)], workdir, env, "Chatterbox",
         lambda i, n: progress(0.1 + 0.85 * (i - 1) / n, desc=f"Synthèse vocale : morceau {i}/{n}…"),

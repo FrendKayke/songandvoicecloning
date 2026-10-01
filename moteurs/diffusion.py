@@ -74,8 +74,9 @@ def _memoire(action):
         try:
             return action(*a, **k)
         except torch.cuda.OutOfMemoryError:
-            _erreur("mémoire de la carte graphique insuffisante. Ferme la fenêtre « ACE-Step - ne pas fermer » "
-                    "et les autres programmes qui utilisent la carte, puis relance.", 3)
+            _erreur("mémoire de la carte graphique insuffisante. Ferme les autres programmes qui utilisent la "
+                    "carte (jeux, vidéos) ; si tu as désactivé la libération automatique, arrête ACE-Step "
+                    "dans l'onglet Modèles, puis relance.", 3)
     return enveloppe
 
 

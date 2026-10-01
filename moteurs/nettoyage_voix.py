@@ -96,8 +96,9 @@ def nettoyer(chemin_tache):
             {"mossformer2": mossformer2, "voicefixer": voicefixer}[nom](courant, cible)
             courant = cible
     except torch.cuda.OutOfMemoryError:
-        _erreur("mémoire de la carte graphique insuffisante. Ferme la fenêtre « ACE-Step - ne pas fermer », "
-                "puis relance le nettoyage.", 3)
+        _erreur("mémoire de la carte graphique insuffisante. Ferme les autres programmes qui utilisent la "
+                "carte (jeux, vidéos) ; si tu as désactivé la libération automatique, arrête ACE-Step dans "
+                "l'onglet Modèles, puis relance le nettoyage.", 3)
     if not sortie.exists():
         _erreur("le nettoyage n'a produit aucun fichier.")
     print(f"TERMINE {sortie}", flush=True)

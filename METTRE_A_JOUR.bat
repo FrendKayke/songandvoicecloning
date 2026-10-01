@@ -9,7 +9,7 @@ if not "%~1"=="--copie" (
 set "APP=%~2"
 cd /d "%APP%"
 echo === Mise a jour de Studio Voix ===
-echo Ferme d'abord Studio Voix (la fenetre de lancer.bat) et la fenetre ACE-Step.
+echo Ferme d'abord Studio Voix (la fenetre de lancer.bat).
 pause
 
 where git >nul 2>nul

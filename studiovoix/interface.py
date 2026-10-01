@@ -4,7 +4,8 @@ from pathlib import Path
 
 import gradio as gr
 
-from . import acestep, bruitages, chatterbox, demucs, diffusion, export, galerie, jeu, modele3d, nettoyage, rvc, seedvc
+from . import (acestep, bruitages, chatterbox, demucs, diffusion, export, galerie, jeu, modele3d, nettoyage, rvc,
+               seedvc, serveur_acestep)
 from . import config as cfg
 from .modeles import models_status_md
 from .outils import open_folder
@@ -356,7 +357,8 @@ def build_ui():
                 "Effets sonores pour ton jeu, à partir d'une **description** (en français ou en anglais) ou d'une "
                 "**image**. « Préparer le prompt » traduit et précise ta description en anglais (Qwen3-VL) ; tu peux "
                 "le retoucher avant de générer. Stable Audio Open produit 1 à 3 variantes en 44,1 kHz. "
-                "Ferme la fenêtre ACE-Step avant : les modèles ont besoin de la carte graphique."
+                "ACE-Step est arrêté automatiquement pendant la génération (mémoire graphique), puis relancé à la "
+                "chanson suivante."
             )
             with gr.Row():
                 with gr.Column():
@@ -394,7 +396,8 @@ def build_ui():
                 "retire le fond, sculpte la forme puis peint la texture. Une image nette, un seul objet, fond simple : "
                 "c'est ce qui marche le mieux. Résultat en GLB (visionneuse ci-dessous, utilisable tel quel dans un "
                 "jeu web, Blender, Unity ou Godot) et en OBJ si demandé. "
-                "Ferme la fenêtre ACE-Step avant : la texture demande beaucoup de mémoire graphique."
+                "ACE-Step est arrêté automatiquement pendant la génération : la texture demande beaucoup de mémoire "
+                "graphique."
             )
             with gr.Accordion("✍️ Pas d'image ? Décris l'objet : une image est générée d'abord (Qwen3-VL + Stable Diffusion XL)",
                               open=False):
@@ -434,6 +437,22 @@ def build_ui():
             )
             status = gr.Markdown(models_status_md())
             btn_refresh = gr.Button("🔄 Actualiser l'état")
+            with gr.Accordion("🎛️ Carte graphique et serveur ACE-Step", open=False):
+                gr.Markdown(
+                    "Le serveur ACE-Step (génération musicale) occupe ~8 Go de mémoire graphique tant qu'il tourne. "
+                    "Avec la libération automatique, il est arrêté avant les bruitages, la 3D, les illustrations, la "
+                    "synthèse vocale, le nettoyage et l'entraînement RVC, puis relancé à la chanson suivante "
+                    "(la première génération après une relance prend une minute de plus). "
+                    f"Journal du serveur : `{serveur_acestep.journal()}`."
+                )
+                with gr.Row():
+                    gpu_auto = gr.Checkbox(value=serveur_acestep.LIBERATION_AUTO,
+                                           label="Libérer automatiquement la carte graphique")
+                    gpu_etat = gr.Markdown(serveur_acestep.etat())
+                with gr.Row():
+                    btn_gpu_stop = gr.Button("⏹️ Arrêter ACE-Step maintenant")
+                    btn_gpu_maj = gr.Button("🔄 État du serveur")
+                gpu_msg = gr.Markdown()
             log = gr.Textbox(label="Journal de téléchargement", lines=14, max_lines=14, autoscroll=True, interactive=False)
             with gr.Row():
                 b_ace = gr.Button("⬇️ Télécharger ACE-Step", variant="primary")
@@ -487,6 +506,9 @@ def build_ui():
             [tts_sortie, tts_statut],
         )
         btn_refresh.click(models_status_md, None, status)
+        gpu_auto.change(serveur_acestep.regler_liberation, gpu_auto, gpu_msg)
+        btn_gpu_stop.click(serveur_acestep.arreter_depuis_interface, None, gpu_etat)
+        btn_gpu_maj.click(serveur_acestep.etat, None, gpu_etat)
         for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download),
                       (b_cb, chatterbox.download), (b_nt, nettoyage.download), (b_rvc, rvc.download),
                       (b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "image"])),

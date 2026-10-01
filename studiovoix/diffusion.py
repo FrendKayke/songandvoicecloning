@@ -11,6 +11,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
+from . import serveur_acestep
 from .outils import lancer_moteur, stream_command
 
 # nom → (dépôt Hugging Face, libellé, fichiers attendus dans le cache — un par composant essentiel)
@@ -90,6 +91,7 @@ def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None
         if progress:
             progress(0.05 + 0.9 * (i - 1) / n, desc=f"{nom} : {libelles.get(i, f'étape {i}/{n}')}…")
 
+    serveur_acestep.liberer_gpu(progress)
     lignes = lancer_moteur([cfg.DIFFUSION_PYTHON, str(script()), action, str(fichier)], cfg.DIFFUSION_DIR, _env(),
                            nom, suivi)
     resultat = next((l_ for l_ in reversed(lignes) if l_.startswith("RESULTAT ")), None)

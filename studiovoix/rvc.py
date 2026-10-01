@@ -14,6 +14,7 @@ import librosa
 import soundfile as sf
 
 from . import config as cfg
+from . import serveur_acestep
 from .outils import lancer_moteur, stream_command
 from .voix import analyser, list_voices, nettoyer_nom
 
@@ -185,6 +186,7 @@ def entrainer(nom, fichiers, voix_biblio, duree_label, lot, progress=gr.Progress
         etape = "Préparation" if i == 1 else "Extraction" if i == 2 else "Index" if i == n else f"Époque {i - 2}/{n - 3}"
         progress(i / n, desc=f"Entraînement RVC : {etape}…")
 
+    serveur_acestep.liberer_gpu(progress)
     lignes = lancer_moteur([cfg.RVC_PYTHON, str(script()), "entrainer", str(tache)], cfg.RVC_DIR, None, "RVC", suivi)
     termine = next((l_ for l_ in reversed(lignes) if l_.startswith("TERMINE ")), None)
     if not termine:

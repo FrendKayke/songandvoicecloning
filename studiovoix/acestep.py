@@ -10,6 +10,7 @@ import gradio as gr
 import requests
 
 from . import config as cfg
+from . import serveur_acestep
 from .outils import has_weights, stream_command
 from .styles import texte
 
@@ -35,20 +36,9 @@ def _unwrap(resp_json):
 
 
 def wait_acestep(progress, timeout=15 * 60):
-    """Attend que le serveur ACE-Step réponde (il charge ses modèles au démarrage)."""
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        try:
-            if requests.get(f"{cfg.ACESTEP_URL}/health", timeout=3).ok:
-                return
-        except requests.RequestException:
-            pass
-        progress(0.02, desc=f"Démarrage du serveur ACE-Step… ({int(time.time() - t0)} s)")
-        time.sleep(3)
-    raise gr.Error(
-        "Le serveur ACE-Step ne répond pas. Regarde la fenêtre « ACE-Step - ne pas fermer » "
-        "(elle s'ouvre avec lancer.bat) pour voir le message d'erreur."
-    )
+    """Serveur ACE-Step prêt : démarré par l'application s'il ne tourne pas (il a pu être arrêté pour libérer la
+    carte graphique), puis attente de sa réponse (il charge ses modèles au démarrage)."""
+    serveur_acestep.assurer(progress, timeout)
 
 
 def _valeur_formulaire(v):
@@ -106,7 +96,7 @@ def generer(params, dests, progress, etape="1/1", fichiers=None, graine=None):
     except requests.RequestException as e:
         raise gr.Error(
             f"Impossible de joindre le serveur ACE-Step sur {cfg.ACESTEP_URL}. "
-            f"Relance lancer.bat. ({e})"
+            f"Fin du journal du serveur ({serveur_acestep.journal()}) :\n{serveur_acestep.fin_du_journal()}\n({e})"
         )
     task_id = _unwrap(r.json())["task_id"]
 
@@ -147,7 +137,7 @@ def generer(params, dests, progress, etape="1/1", fichiers=None, graine=None):
                 progress(0.15, desc="Échec avec le mode réflexion, nouvel essai sans…")
                 return generer({**params, "thinking": False}, dests, progress, etape, fichiers, seeds[0])
             raise gr.Error(f"ACE-Step a échoué : {item.get('result')}")
-    raise gr.Error("Délai dépassé (30 min) pour la génération. Regarde la fenêtre ACE-Step.")
+    raise gr.Error(f"Délai dépassé (30 min) pour la génération. Journal du serveur : {serveur_acestep.journal()}")
 
 
 def text2music_params(prompt, lyrics, langue, duree, bpm, thinking, negatif=None):

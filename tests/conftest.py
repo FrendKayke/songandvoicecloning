@@ -75,6 +75,13 @@ def no_progress(*args, **kwargs):
     pass
 
 
+@pytest.fixture(autouse=True)
+def _acestep_injoignable(monkeypatch):
+    """Par défaut, aucun serveur ACE-Step : un test ne doit jamais arrêter le vrai serveur d'un poste de
+    développement (liberer_gpu) ; fake_acestep remplace cette adresse par celle de son faux serveur."""
+    monkeypatch.setattr(cfg, "ACESTEP_URL", "http://127.0.0.1:9")
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     """Dossiers de données et de moteurs isolés dans un dossier temporaire."""

@@ -12,6 +12,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
+from . import serveur_acestep
 from .outils import lancer_moteur, nouveau_dossier, stream_command
 
 NIVEAUX = {
@@ -76,6 +77,7 @@ def nettoyer(audio_path, niveau_label, progress=gr.Progress()):
                                 ensure_ascii=False, indent=1), encoding="utf-8")
     cfg.NETTOYAGE_DIR.mkdir(parents=True, exist_ok=True)
 
+    serveur_acestep.liberer_gpu(progress)
     progress(0.05, desc="Chargement du nettoyage…")
     lancer_moteur(
         [cfg.NETTOYAGE_PYTHON, str(script()), str(tache)], cfg.NETTOYAGE_DIR, None, "Nettoyage",
