@@ -72,3 +72,48 @@ def test_pack_de_bande_son(fake_acestep, env, monkeypatch):
         export.exporter_pack("p", CIBLE_16, [], progress=no_progress)
     with pytest.raises(gr.Error, match="Aucune piste"):
         export.exporter_pack("vide", CIBLE_16, ["ogg"], progress=no_progress)
+
+
+def _bruitage(horodatage, projet, nom, freqs, secondes=1.0, choisie=1):
+    from conftest import write_tone
+    from studiovoix.outils import ecrire_creation
+
+    d = cfg.SFX_DIR / horodatage
+    d.mkdir(parents=True)
+    versions = []
+    for i, f in enumerate(freqs, 1):
+        write_tone(d / f"variante_{i}.wav", seconds=secondes, freq=f, amp=0.05 * i, channels=2)
+        versions.append({"graine": 100 + i, "dossier": ".", "fichier": str(d / f"variante_{i}.wav")})
+    ecrire_creation(d, {"type": "bruitage", "nom": nom, "projet": projet, "choisie": choisie,
+                        "description": f"{nom} sound", "versions": versions})
+    return d
+
+
+def test_pack_avec_bruitages(env):
+    from studiovoix import bruitages
+
+    _bruitage("20260101_100000", "p", "Épée", [440, 550])
+    recent = _bruitage("20260102_100000", "p", "Épée", [660, 770, 880])  # plus récent : c'est lui qui part
+    _bruitage("20260103_100000", "p", "Clic menu", [1000], secondes=0.2)  # très court (moins d'un bloc de mesure)
+    _bruitage("20260104_100000", "autre", "Porte", [300])
+    assert "Variante 3 gardée" in bruitages.choisir(str(recent), str(recent / "variante_3.wav"))
+    with pytest.raises(gr.Error, match="n'appartient pas"):
+        bruitages.choisir(str(recent), str(env / "ailleurs.wav"))
+    assert bruitages.projets_de_jeu() == ["autre", "p"]
+
+    archive, msg = export.exporter_pack("p", CIBLE_16, ["ogg"], progress=no_progress)  # bruitages seuls : pas de musique
+    dossier = cfg.GAMES_DIR / "p" / "export"
+    manifest = json.loads((dossier / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["pistes"] == [] and "0 piste(s) et 2 bruitage(s)" in msg
+    clic, epee = manifest["bruitages"]
+    assert (clic["id"], epee["id"]) == ("clic-menu", "epee") and epee["nom"] == "Épée"
+    assert epee["variante"] == 3 and epee["graine"] == 103 and epee["fichiers"] == {"ogg": "bruitages/epee.ogg"}
+    assert epee["volume_lufs"] == pytest.approx(-16.0, abs=0.6) and clic["duree"] == pytest.approx(0.2, abs=0.01)
+    # la variante 3 (880 Hz) est bien celle exportée
+    y, sr = sf.read(str(dossier / "bruitages" / "epee.ogg"))
+    spectre = np.abs(np.fft.rfft(y[:, 0]))
+    assert abs(np.argmax(spectre) * sr / len(y) - 880) < 5
+    assert sorted(zipfile.ZipFile(archive).namelist()) == sorted(
+        ["manifest.json", "bruitages/", "bruitages/clic-menu.ogg", "bruitages/epee.ogg"])
+    with pytest.raises(gr.Error, match="ni aucun bruitage"):
+        export.exporter_pack("vide", CIBLE_16, ["ogg"], progress=no_progress)

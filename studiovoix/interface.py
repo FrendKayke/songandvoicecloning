@@ -255,7 +255,7 @@ def build_ui():
                     jeu_cible = gr.Dropdown(list(export.CIBLES), value=list(export.CIBLES)[1], label="Volume cible")
                     jeu_formats = gr.CheckboxGroup([("OGG", "ogg"), ("MP3", "mp3")], value=["ogg", "mp3"],
                                                    label="Formats")
-                btn_export_jeu = gr.Button("📦 Exporter le pack")
+                btn_export_jeu = gr.Button("📦 Exporter le pack du jeu (musiques + bruitages du projet)")
                 jeu_export_msg = gr.Markdown()
                 jeu_zip = gr.File(label="Archive à télécharger")
 
@@ -374,6 +374,9 @@ def build_ui():
             sfx_prompt = gr.Textbox(label="Prompt envoyé à Stable Audio (anglais, modifiable)", lines=2)
             with gr.Row():
                 sfx_nom = gr.Textbox(label="Nom", value="bruitage")
+                sfx_projet = gr.Dropdown(bruitages.projets_de_jeu(), value=None, allow_custom_value=True,
+                                         label="Projet de jeu (pour le pack)",
+                                         info="Le même nom que dans « Bande-son de jeu » : le bruitage rejoint son pack.")
                 sfx_duree = gr.Slider(1, bruitages.DUREE_MAX, value=3, step=0.5, label="Durée (s)")
                 sfx_variantes = gr.Radio([1, 2, 3], value=2, label="Variantes")
                 sfx_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
@@ -389,6 +392,7 @@ def build_ui():
                 sfx_formats = gr.CheckboxGroup([("OGG", "ogg"), ("MP3", "mp3"), ("WAV", "wav")], value=["ogg", "mp3"],
                                                label="Formats")
                 btn_sfx_export = gr.Button("📦 Exporter la variante écoutée")
+                btn_sfx_choisir = gr.Button("⭐ Garder cette variante pour le pack du jeu")
             sfx_export_msg = gr.Markdown()
 
         with gr.Tab("8. Modèles 3D"):
@@ -564,8 +568,10 @@ def build_ui():
         sfx_exemples.change(lambda v: v or "", sfx_exemples, sfx_prompt)
         btn_sfx_prep.click(bruitages.preparer, [sfx_texte, sfx_image], sfx_prompt)
         btn_sfx.click(bruitages.generer,
-                      [sfx_prompt, sfx_nom, sfx_duree, sfx_variantes, sfx_graine, sfx_etapes, sfx_image, sfx_texte],
+                      [sfx_prompt, sfx_nom, sfx_duree, sfx_variantes, sfx_graine, sfx_etapes, sfx_image, sfx_texte,
+                       sfx_projet],
                       [sfx_statut, sfx_liste, sfx_audio, sfx_dossier])
+        btn_sfx_choisir.click(bruitages.choisir, [sfx_dossier, sfx_audio], sfx_export_msg)
         sfx_liste.change(lambda p: p, sfx_liste, sfx_audio)
         btn_sfx_export.click(export.exporter_fichier_formats, [sfx_audio, sfx_cible, sfx_formats],
                              [sfx_export_msg])

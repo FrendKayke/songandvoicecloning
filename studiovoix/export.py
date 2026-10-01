@@ -7,6 +7,7 @@ soundfile/libsndfile ; la longueur est conservée à l'échantillon près (véri
 """
 import json
 import shutil
+import unicodedata
 from pathlib import Path
 
 import gradio as gr
@@ -137,9 +138,45 @@ def exporter_fichier_formats(src, cible_label, formats):
     return f"✅ Exporté {_note_volume(lufs, cible)} : {', '.join(str(p) for p in fichiers.values())}"
 
 
+def _slug(nom, pris):
+    """Identifiant de fichier sûr pour le web : minuscules ASCII sans accents, tirets, unique dans le pack."""
+    ascii_ = unicodedata.normalize("NFKD", nom or "son").encode("ascii", "ignore").decode()
+    base = "".join(c if c.isalnum() else "-" for c in ascii_.strip().lower()).strip("-") or "son"
+    base = "-".join(x for x in base.split("-") if x)
+    ident, i = base, 2
+    while ident in pris:
+        ident, i = f"{base}-{i}", i + 1
+    pris.add(ident)
+    return ident
+
+
+def bruitages_du_projet(projet):
+    """Pour chaque nom de bruitage du projet : (création la plus récente, variante choisie)."""
+    derniers = {}
+    for f in sorted(cfg.SFX_DIR.glob("*/creation.json")) if cfg.SFX_DIR.exists() else []:
+        try:
+            infos = json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if infos.get("type") == "bruitage" and infos.get("projet") == projet:
+            derniers[infos.get("nom") or "bruitage"] = (f.parent, infos)  # dossiers horodatés : le dernier gagne
+    resultat = []
+    for nom in sorted(derniers):
+        dossier, infos = derniers[nom]
+        versions = infos.get("versions") or []
+        i = max(1, min(len(versions), int(infos.get("choisie") or 1))) - 1 if versions else 0
+        fichier = Path(versions[i]["fichier"]) if versions else None
+        if fichier is not None and not fichier.is_absolute():
+            fichier = dossier / fichier
+        if fichier is not None and fichier.exists():
+            resultat.append((nom, dossier, infos, i + 1, fichier))
+    return resultat
+
+
 def exporter_pack(projet, cible_label, formats, progress=gr.Progress()):
-    """Pack de bande-son : la piste la plus récente de chaque situation, au même volume, en OGG et/ou MP3,
-    avec manifest.json (identifiant, fichiers, boucle, durée, BPM, volume) et une archive zip."""
+    """Pack audio du jeu : la piste la plus récente de chaque situation et, pour chaque bruitage du projet, sa
+    variante choisie ; tout au même volume, en OGG et/ou MP3, avec un seul manifest.json (musiques dans « pistes »,
+    bruitages dans « bruitages ») et une archive zip."""
     from .jeu import nom_projet  # import tardif : jeu importe déjà ce module indirectement via l'interface
 
     projet = nom_projet(projet)
@@ -152,16 +189,20 @@ def exporter_pack(projet, cible_label, formats, progress=gr.Progress()):
         recentes = sorted((d for d in dossier_situation.iterdir() if (d / "piste.wav").exists()), reverse=True)
         if recentes:
             pistes.append(recentes[0])
-    if not pistes:
-        raise gr.Error(f"Aucune piste dans le projet « {projet} » : génère d'abord la bande-son.")
+    sons = bruitages_du_projet(projet)
+    if not pistes and not sons:
+        raise gr.Error(f"Aucune piste ni aucun bruitage dans le projet « {projet} » : génère d'abord la bande-son "
+                       "ou des bruitages (en leur donnant ce nom de projet).")
     cible = CIBLES.get(cible_label, -16.0)
+    racine.mkdir(parents=True, exist_ok=True)
     export = racine / "export"
     if export.exists():
         shutil.rmtree(export)
     export.mkdir(parents=True)
-    manifest = {"projet": projet, "volume_cible_lufs": cible, "formats": formats, "pistes": []}
+    total = len(pistes) + len(sons)
+    manifest = {"projet": projet, "volume_cible_lufs": cible, "formats": formats, "pistes": [], "bruitages": []}
     for n, dossier in enumerate(pistes, 1):
-        progress(n / (len(pistes) + 1), desc=f"Export {n}/{len(pistes)} : {dossier.parent.name}…")
+        progress(n / (total + 1), desc=f"Export {n}/{total} : {dossier.parent.name}…")
         infos = json.loads((dossier / "creation.json").read_text(encoding="utf-8"))
         ident = dossier.parent.name
         y, lufs = normaliser(load_stereo(dossier / "piste.wav"), cfg.SR, cible)
@@ -178,8 +219,26 @@ def exporter_pack(projet, cible_label, formats, progress=gr.Progress()):
             "graine": (infos.get("versions") or [{}])[0].get("graine"),
             "description": infos.get("description"),
         })
+    if sons:
+        (export / "bruitages").mkdir()
+    pris = set()
+    for n, (nom, dossier, infos, variante, fichier) in enumerate(sons, len(pistes) + 1):
+        progress(n / (total + 1), desc=f"Export {n}/{total} : bruitage {nom}…")
+        ident = _slug(nom, pris)
+        y, lufs = normaliser(load_stereo(fichier), cfg.SR, cible)
+        fichiers = ecrire(y, cfg.SR, export / "bruitages" / ident, formats)
+        manifest["bruitages"].append({
+            "id": ident,
+            "nom": nom,
+            "fichiers": {f: f"bruitages/{p.name}" for f, p in fichiers.items()},
+            "duree": round(y.shape[1] / cfg.SR, 3),
+            "volume_lufs": round(lufs, 1) if np.isfinite(lufs) else None,
+            "variante": variante,
+            "graine": (infos.get("versions") or [{}])[variante - 1].get("graine"),
+            "description": infos.get("description"),
+        })
     (export / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     archive = shutil.make_archive(str(racine / f"{projet}_bande-son"), "zip", export)
-    msg = (f"✅ {len(pistes)} piste(s) exportée(s) à {cible:.0f} LUFS dans {export} "
+    msg = (f"✅ {len(pistes)} piste(s) et {len(sons)} bruitage(s) exportés à {cible:.0f} LUFS dans {export} "
            f"(formats : {', '.join(formats)}), archive : {archive}")
     return archive, msg

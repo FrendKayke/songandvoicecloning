@@ -2,8 +2,11 @@
 
 Qwen3-VL transforme la description française en prompt anglais précis (ou décrit les sons d'une image) ;
 Stable Audio Open génère 1 à 3 variantes ; l'export reprend le volume harmonisé de la bande-son.
-Rangement : data/bruitages/<horodatage>/ (variante_<i>.wav, creation.json).
+Rangement : data/bruitages/<horodatage>/ (variante_<i>.wav, creation.json). Un bruitage peut appartenir à un projet
+de jeu (le même nom que dans « Bande-son de jeu ») : le pack du jeu reprend alors, pour chaque nom de bruitage, la
+création la plus récente et sa variante choisie (« choisie » dans creation.json, 1 par défaut).
 """
+import json
 import shutil
 from pathlib import Path
 
@@ -42,7 +45,38 @@ def preparer(texte, image_path, progress=gr.Progress()):
     return diffusion.decrire("bruitage", texte, progress=progress)
 
 
-def generer(prompt, nom, duree, variantes, graine, etapes, image_path=None, description=None,
+def projets_de_jeu():
+    """Projets connus : ceux de la bande-son de jeu et ceux déjà donnés à des bruitages."""
+    noms = {d.name for d in cfg.GAMES_DIR.iterdir() if d.is_dir()} if cfg.GAMES_DIR.exists() else set()
+    for f in cfg.SFX_DIR.glob("*/creation.json") if cfg.SFX_DIR.exists() else []:
+        try:
+            noms.add(json.loads(f.read_text(encoding="utf-8")).get("projet") or "")
+        except ValueError:
+            pass
+    return sorted(n for n in noms if n)
+
+
+def _nom_projet(projet):
+    return "".join(c for c in (projet or "").strip() if c.isalnum() or c in "-_ ").strip() or None
+
+
+def choisir(dossier, fichier):
+    """Retient la variante écoutée pour le pack du jeu."""
+    if not dossier or not fichier:
+        raise gr.Error("Génère d'abord un bruitage, puis écoute la variante à garder.")
+    chemin = Path(dossier) / "creation.json"
+    infos = json.loads(chemin.read_text(encoding="utf-8"))
+    fichiers = [Path(v["fichier"]).name for v in infos.get("versions", [])]
+    if Path(fichier).name not in fichiers:
+        raise gr.Error("Cette variante n'appartient pas au dernier bruitage généré.")
+    infos["choisie"] = fichiers.index(Path(fichier).name) + 1
+    chemin.write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
+    projet = infos.get("projet")
+    return (f"⭐ Variante {infos['choisie']} gardée pour « {infos.get('nom')} »"
+            + (f" (pack du projet {projet})." if projet else ". Donne un projet au bruitage pour l'ajouter à un pack."))
+
+
+def generer(prompt, nom, duree, variantes, graine, etapes, image_path=None, description=None, projet=None,
             progress=gr.Progress()):
     """Génère les variantes. Renvoie (message, choix des variantes, première variante, dossier)."""
     prompt = (prompt or "").strip()
@@ -56,7 +90,7 @@ def generer(prompt, nom, duree, variantes, graine, etapes, image_path=None, desc
     nom = "".join(c for c in (nom or "").strip() if c.isalnum() or c in "-_ ").strip() or "bruitage"
     ecrire_creation(dossier, {
         "type": "bruitage", "nom": nom, "description": prompt, "description_fr": (description or "").strip() or None,
-        "duree": duree, "etapes": int(etapes), "negatif": NEGATIF,
+        "projet": _nom_projet(projet), "choisie": 1, "duree": duree, "etapes": int(etapes), "negatif": NEGATIF,
         "versions": [{"graine": g, "dossier": ".", "fichier": f} for f, g in zip(res["fichiers"], res["graines"])],
     })
     choix = [(f"Variante {i} (graine {g})", f) for i, (f, g) in enumerate(zip(res["fichiers"], res["graines"]), 1)]

@@ -229,7 +229,8 @@ def recreer(chemin, version=1, progress=gr.Progress()):
 
         msg, _, fichier, dossier = bruitages.generer(infos["description"], infos.get("nom"), infos.get("duree", 3),
                                                      1, graine, infos.get("etapes", 100), None,
-                                                     infos.get("description_fr"), progress=progress)
+                                                     infos.get("description_fr"), infos.get("projet"),
+                                                     progress=progress)
         return f"✅ Bruitage recréé avec la graine {graine}.", dossier
     if infos["type"] == "3d":
         from . import modele3d
