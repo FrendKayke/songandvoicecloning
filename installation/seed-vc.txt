@@ -1,0 +1,20 @@
+# Environnement Seed-VC + Demucs (Python 3.10). PyTorch 2.4.0 CUDA 12.4 est installé avant, depuis l'index cu124.
+# Dépendances utiles à la conversion (on laisse de côté l'interface et les outils d'évaluation de Seed-VC).
+torch==2.4.0
+torchaudio==2.4.0
+accelerate
+scipy==1.13.1
+librosa==0.10.2
+huggingface-hub>=0.28.1
+munch==4.0.0
+einops==0.8.0
+descript-audio-codec==1.0.0
+pydub==0.25.1
+transformers==4.46.3
+soundfile==0.12.1
+numpy==1.26.4
+hydra-core==1.3.2
+pyyaml
+python-dotenv
+matplotlib
+demucs==4.0.1

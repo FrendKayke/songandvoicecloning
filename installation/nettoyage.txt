@@ -1,0 +1,9 @@
+# Environnement du nettoyage de voix (Python 3.11). PyTorch 2.6.0 CUDA 12.4 est installé avant (index cu124).
+# ClearerVoice (MossFormer2) avec ses dépendances ; matplotlib et torchlibrosa pour VoiceFixer, installé
+# ensuite sans ses dépendances (streamlit, GitPython inutiles).
+torch==2.6.0
+torchaudio==2.6.0
+torchvision==0.21.0
+clearvoice==0.1.2
+matplotlib==3.11.2
+torchlibrosa==0.1.0

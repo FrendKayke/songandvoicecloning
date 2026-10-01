@@ -1,0 +1,20 @@
+# Environnement Chatterbox (Python 3.11). PyTorch 2.6.0 CUDA 12.4 est installé avant, depuis l'index cu124.
+# Dépendances du pyproject de Chatterbox (versions testées), sans gradio (inutile ici) et avec resemble-perth
+# pris sur PyPI (le dépôt le demande via git, qui n'est pas forcément installé).
+# setuptools < 81 : le filigrane Perth importe pkg_resources, retiré des versions récentes.
+torch==2.6.0
+torchaudio==2.6.0
+numpy==1.26.4
+librosa==0.11.0
+s3tokenizer==0.3.0
+transformers==5.2.0
+diffusers==0.29.0
+resemble-perth==1.0.1
+conformer==0.3.2
+safetensors==0.5.3
+spacy-pkuseg==1.0.1
+pykakasi==2.3.0
+pyloudnorm==0.2.0
+omegaconf==2.3.1
+soundfile
+setuptools<81

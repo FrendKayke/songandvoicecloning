@@ -15,6 +15,8 @@ Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 | `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`, `rvc_voix.py`, `diffusion.py`) |
 | `tests/` | tests automatiques sans carte graphique (moteurs simulés) |
 | `installer.ps1` / `INSTALLER.bat` | installation complète en un clic |
+| `METTRE_A_JOUR.bat` | mise à jour en un clic (dernière version sur GitHub, puis étapes nouvelles ou modifiées) |
+| `installation/` | listes des dépendances de chaque environnement (lues par l'installateur et par la vérification automatique) |
 | `lancer.bat` | démarrage (serveur ACE-Step + application) |
 | `CLAUDE.md` | contexte technique pour Claude Code |
 
@@ -61,6 +63,10 @@ C'est tout. Aucun droit administrateur n'est nécessaire, et ni Python ni Git n'
 - l'environnement de l'application.
 
 Compte 55 à 60 Go à télécharger, soit deux heures ou plus selon ta connexion, et au moins 80 Go libres. Si l'installation s'interrompt, relance INSTALLER.bat : les étapes terminées sont sautées.
+
+### Mettre à jour
+
+Ferme Studio Voix et la fenêtre ACE-Step, puis double-clique sur **METTRE_A_JOUR.bat**. Il récupère la dernière version sur GitHub, puis relance l'installateur : seules les étapes nouvelles ou modifiées sont refaites (chaque étape garde une empreinte de ses dépendances et refait le travail si elles ont changé). Tes voix, chansons, bruitages et modèles 3D (dossier `data`) ne sont jamais touchés, ni tes modèles RVC entraînés. Il faut [Git](https://git-scm.com/download/win) pour cela ; si tu as modifié des fichiers du code, il te propose de les remplacer par la version de GitHub.
 
 **Tu avais déjà installé Studio Voix avant l'arrivée de la synthèse vocale ou du nettoyage ?** Relance simplement INSTALLER.bat : seules les étapes manquantes s'exécutent (Chatterbox : environ 6 Go, 10 à 25 minutes ; nettoyage : environ 1 Go, 5 minutes ; RVC : environ 5 Go, 10 à 20 minutes ; diffusion : environ 40 Go, une heure). Sans cela, tout le reste fonctionne et l'application t'indique ce qui manque.
 
@@ -217,7 +223,7 @@ Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de
 
 ## Tests (pour le développement)
 
-Les tests n'ont pas besoin de carte graphique : ACE-Step est remplacé par un faux serveur HTTP, Demucs et Seed-VC par de faux scripts. Depuis le dossier de l'application :
+Les tests n'ont pas besoin de carte graphique : ACE-Step est remplacé par un faux serveur HTTP, Demucs et Seed-VC par de faux scripts. L'installateur est simulé sous Linux avec PowerShell 7 et de faux `uv.exe` / `python.exe` (`tests/test_installateur.py`, ignoré sans `pwsh`). Depuis le dossier de l'application :
 
 ```
 uv run --python 3.12 --with-requirements requirements.txt --with pytest --with pyloudnorm pytest tests

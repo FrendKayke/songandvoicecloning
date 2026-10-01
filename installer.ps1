@@ -11,7 +11,8 @@ $ProgressPreference = 'SilentlyContinue'   # sinon Invoke-WebRequest est très l
 
 $App = $PSScriptRoot
 # Chemin court sur le même disque que l'appli : évite la limite de 260 caractères de Windows
-$Eng = Join-Path ([IO.Path]::GetPathRoot($App)) 'StudioVoix'
+# (STUDIOVOIX_MOTEURS, la variable que lit aussi l'application, sert aux tests de l'installateur)
+$Eng = if ($env:STUDIOVOIX_MOTEURS) { $env:STUDIOVOIX_MOTEURS } else { Join-Path ([IO.Path]::GetPathRoot($App)) 'StudioVoix' }
 $UvDir = Join-Path $Eng 'uv'
 $Uv = Join-Path $UvDir 'uv.exe'
 $Ace = Join-Path $Eng 'ace-step'
@@ -37,6 +38,8 @@ $HyCommit = 'f8db63096c8282cb27354314d896feba5ba6ff8a'
 $KijaiCommit = '2609efa38f6a98292476f714839b7c1e5f9b699a'
 $KijaiRaw = "https://raw.githubusercontent.com/kijai/ComfyUI-Hunyuan3DWrapper/$KijaiCommit"
 $AppPy = Join-Path $App '.venv\Scripts\python.exe'
+# Listes de dépendances de chaque environnement (lues aussi par la vérification automatique du dépôt)
+$Listes = Join-Path $App 'installation'
 
 # Tout reste sur ce disque (caches compris), rien d'important sur C:
 $env:UV_CACHE_DIR = Join-Path $Eng 'uv-cache'
@@ -50,7 +53,33 @@ $env:PYTHONIOENCODING = 'utf-8'
 $env:PATH = "$UvDir;$env:PATH"
 
 function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/18] $txt ===" -ForegroundColor Cyan }
-function Done($marker) { New-Item -ItemType File -Force -Path $marker | Out-Null }
+# Marqueurs d'étape : le fichier contient la « signature » de l'étape (empreinte de sa liste de dépendances, des
+# versions épinglées, des modèles demandés). Si une mise à jour change la signature, l'étape est refaite.
+# Un marqueur vide (installation d'avant les signatures) est adopté tel quel.
+function Get-Signature([string[]]$parts) {
+    $texte = ($parts | ForEach-Object {
+            if ($_ -and (Test-Path -LiteralPath $_ -PathType Leaf)) { [IO.File]::ReadAllText($_) -replace "`r`n", "`n" } else { $_ }
+        }) -join "`n--`n"
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $octets = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($texte)) } finally { $sha.Dispose() }
+    return ([BitConverter]::ToString($octets) -replace '-', '').ToLowerInvariant()
+}
+function Test-Done([string]$marker, [string]$signature = '') {
+    if (-not (Test-Path -LiteralPath $marker)) { return $false }
+    $actuelle = ([IO.File]::ReadAllText($marker)).Trim()
+    if (-not $signature) { return $true }
+    if (-not $actuelle) {
+        if ($signature) { [IO.File]::WriteAllText($marker, $signature) }
+        return $true
+    }
+    if ($actuelle -eq $signature) { return $true }
+    Write-Host 'Mise à jour : cette étape a changé depuis la dernière installation, elle est refaite.' -ForegroundColor Yellow
+    return $false
+}
+function Done([string]$marker, [string]$signature = '') {
+    New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
+    [IO.File]::WriteAllText($marker, $signature)
+}
 
 function Run([string]$exe, [string[]]$argList, [string]$cwd = $null) {
     if ($cwd) { Push-Location $cwd }
@@ -96,8 +125,10 @@ function Remove-Venv([string]$venv) {
 
 function Get-Repo([string]$url, [string]$dest) {
     $ok = Join-Path $dest '.complet'
-    if (Test-Path $ok) { Write-Host "Déjà présent : $dest"; return }
-    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+    if (Test-Done $ok $url) { Write-Host "Déjà présent : $dest"; return }
+    # Dossier déjà là mais d'une autre version (mise à jour) : le nouveau code est copié par-dessus, sans rien
+    # supprimer (le dossier d'Applio contient tes modèles RVC entraînés, celui d'ACE-Step ses modèles).
+    $miseAJour = Test-Path (Join-Path $dest '*')
     $zip = Join-Path $Eng '_depot.zip'
     $tmp = Join-Path $Eng '_depot'
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
@@ -105,9 +136,15 @@ function Get-Repo([string]$url, [string]$dest) {
     Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
     Expand-Archive -Path $zip -DestinationPath $tmp -Force
     $inner = Get-ChildItem $tmp -Directory | Select-Object -First 1
-    Move-Item $inner.FullName $dest
+    if ($miseAJour) {
+        Write-Host "Mise à jour du code dans $dest (tes fichiers sont gardés)"
+        Copy-Item -Path (Join-Path $inner.FullName '*') -Destination $dest -Recurse -Force
+    } else {
+        if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+        Move-Item $inner.FullName $dest
+    }
     Remove-Item $tmp, $zip -Recurse -Force
-    Done $ok
+    Done $ok $url
 }
 
 try {
@@ -179,21 +216,17 @@ try {
     # --- 5. Environnement Seed-VC + Demucs (Python 3.10, PyTorch 2.4 CUDA 12.4) ---
     Step 5 'Environnement Seed-VC et Demucs (Python 3.10)'
     $m = Join-Path $Sv '.env-ok'
-    if (-not (Test-Path $m)) {
+    $sig = Get-Signature @('torch==2.4.0 torchaudio==2.4.0 cu124', (Join-Path $Listes 'seed-vc.txt'))
+    if (-not (Test-Done $m $sig)) {
         $venv = Join-Path $Sv '.venv'
-        if (Test-Path $venv) { Remove-Item $venv -Recurse -Force }
+        Remove-Venv $venv
         Run $Uv @('venv', '--python', '3.10', $venv)
         Run $Uv @('pip', 'install', '--python', $SvPy, 'torch==2.4.0', 'torchaudio==2.4.0',
             '--index-url', 'https://download.pytorch.org/whl/cu124')
-        # Dépendances utiles à la conversion (on laisse de côté l'interface et les outils d'évaluation)
-        Run $Uv @('pip', 'install', '--python', $SvPy,
-            'torch==2.4.0', 'torchaudio==2.4.0', 'accelerate', 'scipy==1.13.1', 'librosa==0.10.2',
-            'huggingface-hub>=0.28.1', 'munch==4.0.0', 'einops==0.8.0', 'descript-audio-codec==1.0.0',
-            'pydub==0.25.1', 'transformers==4.46.3', 'soundfile==0.12.1', 'numpy==1.26.4',
-            'hydra-core==1.3.2', 'pyyaml', 'python-dotenv', 'matplotlib', 'demucs==4.0.1')
+        Run $Uv @('pip', 'install', '--python', $SvPy, '-r', (Join-Path $Listes 'seed-vc.txt'))
         Repair-TorchOmp $SvPy $venv
         Run $SvPy @('-c', 'import torch; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''GPU :'', torch.cuda.get_device_name(0))')
-        Done $m
+        Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 
     # --- 6. Modèles Seed-VC (téléchargés par une mini-conversion de test) ---
@@ -221,25 +254,20 @@ try {
     # --- 8. Environnement Chatterbox (Python 3.11, PyTorch 2.6 CUDA 12.4) ---
     Step 8 'Environnement Chatterbox, synthèse vocale (Python 3.11, PyTorch ~2,5 Go)'
     $m = Join-Path $Cb '.env-ok'
-    if (-not (Test-Path $m)) {
+    $sig = Get-Signature @('torch==2.6.0 torchaudio==2.6.0 cu124', $CbCommit, (Join-Path $Listes 'chatterbox.txt'))
+    if (-not (Test-Done $m $sig)) {
         $venv = Join-Path $Cb '.venv'
         Remove-Venv $venv
         Run $Uv @('venv', '--python', '3.11', $venv)
         # PyTorch CUDA d'abord : depuis PyPI, Windows recevrait la version sans carte graphique
         Run $Uv @('pip', 'install', '--python', $CbPy, 'torch==2.6.0', 'torchaudio==2.6.0',
             '--index-url', 'https://download.pytorch.org/whl/cu124')
-        # Dépendances du pyproject de Chatterbox (versions testées), sans gradio (inutile ici) et avec
-        # resemble-perth pris sur PyPI (le dépôt le demande via git, qui n'est pas forcément installé).
-        # setuptools < 81 : le filigrane Perth importe pkg_resources, retiré des versions récentes.
-        Run $Uv @('pip', 'install', '--python', $CbPy,
-            'torch==2.6.0', 'torchaudio==2.6.0', 'numpy==1.26.4', 'librosa==0.11.0', 's3tokenizer==0.3.0',
-            'transformers==5.2.0', 'diffusers==0.29.0', 'resemble-perth==1.0.1', 'conformer==0.3.2',
-            'safetensors==0.5.3', 'spacy-pkuseg==1.0.1', 'pykakasi==2.3.0', 'pyloudnorm==0.2.0',
-            'omegaconf==2.3.1', 'soundfile', 'setuptools<81')
+        # Dépendances de Chatterbox (versions testées, voir installation\chatterbox.txt)
+        Run $Uv @('pip', 'install', '--python', $CbPy, '-r', (Join-Path $Listes 'chatterbox.txt'))
         Run $Uv @('pip', 'install', '--python', $CbPy, '--no-deps', $CbSrc)
         Repair-TorchOmp $CbPy $venv
         Run $CbPy @('-c', 'import torch, perth; from chatterbox.mtl_tts import ChatterboxMultilingualTTS; assert perth.PerthImplicitWatermarker is not None, ''filigrane Perth indisponible''; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''Chatterbox prêt, GPU :'', torch.cuda.get_device_name(0))')
-        Done $m
+        Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 
     # --- 9. Modèles Chatterbox (~3,2 Go, chargés une fois sur le processeur pour vérification) ---
@@ -253,7 +281,8 @@ try {
     # --- 10. Environnement du nettoyage de voix (Python 3.11, même PyTorch 2.6 que Chatterbox) ---
     Step 10 'Environnement du nettoyage de voix (Python 3.11)'
     $m = Join-Path $Nt '.env-ok'
-    if (-not (Test-Path $m)) {
+    $sig = Get-Signature @('torch==2.6.0 torchaudio==2.6.0 torchvision==0.21.0 cu124 voicefixer==0.1.3', (Join-Path $Listes 'nettoyage.txt'))
+    if (-not (Test-Done $m $sig)) {
         New-Item -ItemType Directory -Force -Path $Nt | Out-Null
         $venv = Join-Path $Nt '.venv'
         Remove-Venv $venv
@@ -262,14 +291,13 @@ try {
         Run $Uv @('pip', 'install', '--python', $NtPy, 'torch==2.6.0', 'torchaudio==2.6.0', 'torchvision==0.21.0',
             '--index-url', 'https://download.pytorch.org/whl/cu124')
         # ClearerVoice (MossFormer2) avec ses dépendances ; matplotlib et torchlibrosa pour VoiceFixer
-        Run $Uv @('pip', 'install', '--python', $NtPy, 'torch==2.6.0', 'torchaudio==2.6.0', 'torchvision==0.21.0',
-            'clearvoice==0.1.2', 'matplotlib==3.11.2', 'torchlibrosa==0.1.0')
+        Run $Uv @('pip', 'install', '--python', $NtPy, '-r', (Join-Path $Listes 'nettoyage.txt'))
         # VoiceFixer sans ses dépendances inutiles ici (streamlit, GitPython)
         Run $Uv @('pip', 'install', '--python', $NtPy, '--no-deps', 'voicefixer==0.1.3')
         Repair-TorchOmp $NtPy $venv
         # Surtout pas « import voicefixer » ici : il téléchargerait ses modèles dans le dossier personnel (C:)
         Run $NtPy @('-c', 'import importlib.util, torch, clearvoice; assert importlib.util.find_spec(''voicefixer''), ''VoiceFixer absent''; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''Nettoyage prêt, GPU :'', torch.cuda.get_device_name(0))')
-        Done $m
+        Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 
     # --- 11. Modèles du nettoyage (~0,8 Go), rangés dans StudioVoix\nettoyage ---
@@ -284,7 +312,8 @@ try {
     # --- 12. Environnement RVC (Applio, Python 3.12, PyTorch 2.11 CUDA 12.8) ---
     Step 12 'Environnement RVC, entraînement de ta voix (Python 3.12, PyTorch ~2,8 Go)'
     $m = Join-Path $Rvc '.env-ok'
-    if (-not (Test-Path $m)) {
+    $sig = Get-Signature @($RvcCommit, 'cu128 unsafe-best-match')
+    if (-not (Test-Done $m $sig)) {
         $venv = Join-Path $Rvc '.venv'
         Remove-Venv $venv
         Run $Uv @('venv', '--python', '3.12', $venv)
@@ -293,7 +322,7 @@ try {
             '--extra-index-url', 'https://download.pytorch.org/whl/cu128', '--index-strategy', 'unsafe-best-match')
         Repair-TorchOmp $RvcPy $venv
         Run $RvcPy @('-c', 'import torch, faiss, librosa; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''RVC prêt, GPU :'', torch.cuda.get_device_name(0))')
-        Done $m
+        Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 
     # --- 13. Modèles de base de RVC (~1,8 Go : pré-entraînés, RMVPE, ContentVec) ---
@@ -308,19 +337,16 @@ try {
     # --- 15. Environnement de diffusion (Python 3.12, PyTorch 2.6 CUDA 12.6 : version des binaires de kijai) ---
     Step 15 'Environnement de diffusion : Qwen3-VL, Stable Audio, Hunyuan3D-2, SDXL (Python 3.12)'
     $m = Join-Path $Dif '.env-ok'
-    if (-not (Test-Path $m)) {
+    $sig = Get-Signature @('torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 cu126', $HyCommit, $KijaiCommit,
+        (Join-Path $Listes 'diffusion.txt'))
+    if (-not (Test-Done $m $sig)) {
         $venv = Join-Path $Dif '.venv'
         Remove-Venv $venv
         Run $Uv @('venv', '--python', '3.12', $venv)
         Run $Uv @('pip', 'install', '--python', $DifPy, 'torch==2.6.0', 'torchvision==0.21.0', 'torchaudio==2.6.0',
             '--index-url', 'https://download.pytorch.org/whl/cu126')
-        # Pile commune (versions testées) ; transformers 4.57 : la 5 renomme les poids de l'encodeur d'image de
-        # Hunyuan3D-2 (échec de chargement) ; diffusers 0.39 : la 0.40 exige huggingface-hub >= 1.23, incompatible
-        # avec transformers 4.57 (< 1.0) ; torchsde : ordonnanceur de Stable Audio ; rembg/onnxruntime : détourage
-        Run $Uv @('pip', 'install', '--python', $DifPy, 'torch==2.6.0', 'torchvision==0.21.0', 'torchaudio==2.6.0',
-            'diffusers==0.39.0', 'transformers==4.57.6', 'accelerate', 'torchsde', 'einops', 'omegaconf',
-            'opencv-python-headless', 'numpy', 'trimesh', 'pymeshlab', 'pygltflib', 'xatlas', 'rembg', 'onnxruntime',
-            'scikit-image', 'soundfile', 'pillow', 'huggingface-hub', 'sentencepiece', 'protobuf')
+        # Pile commune (versions testées et raisons des versions dans installation\diffusion.txt)
+        Run $Uv @('pip', 'install', '--python', $DifPy, '-r', (Join-Path $Listes 'diffusion.txt'))
         # Hunyuan3D-2 sans ses dépendances (déjà listées ci-dessus, sans gradio ni outils d'entraînement), en mode
         # « editable » : le code reste dans $HySrc, où l'on dépose le module compilé mesh_processor
         Run $Uv @('pip', 'install', '--python', $DifPy, '--no-deps', '-e', $HySrc)
@@ -333,7 +359,7 @@ try {
         Invoke-WebRequest -Uri "$KijaiRaw/hy3dgen/texgen/differentiable_renderer/mesh_processor.cp312-win_amd64.pyd" -OutFile $pyd -UseBasicParsing
         Repair-TorchOmp $DifPy $venv
         Run $DifPy @('-c', 'import torch, diffusers, transformers, custom_rasterizer; from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; from hy3dgen.texgen.differentiable_renderer.mesh_processor import meshVerticeInpaint; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''Diffusion prête, GPU :'', torch.cuda.get_device_name(0))')
-        Done $m
+        Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 
     # --- 16. Jeton Hugging Face (facultatif : seulement pour Stable Audio Open, sous licence à accepter) ---
@@ -357,23 +383,28 @@ try {
     # --- 17. Modèles de diffusion (~35 Go : Qwen3-VL 4 Go, SDXL 7 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
     Step 17 'Modèles de diffusion (~35 Go)'
     $m = Join-Path $Dif '.modeles-ok'
-    if (-not (Test-Path $m)) {
-        Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'qwen', 'forme3d', 'texture3d', 'image', 'detourage') $Dif
+    # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
+    # le téléchargement reprend seulement ce qui manque.
+    $ModelesDif = @('qwen', 'forme3d', 'texture3d', 'image', 'detourage')
+    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' '))
+    if (-not (Test-Done $m $sig)) {
+        Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif
         if (Test-Path $jeton) {
             Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'bruitages') $Dif
         } else { Write-Host 'Stable Audio Open non téléchargé (pas de jeton) : onglet Modèles → Télécharger, une fois le jeton enregistré.' -ForegroundColor Yellow }
-        Done $m
+        Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 
     # --- 18. Environnement de l'application ---
     Step 18 'Environnement de Studio Voix (Python 3.12)'
     $m = Join-Path $App '.venv\installe.ok'
-    if (-not (Test-Path $m)) {
+    $sig = Get-Signature @((Join-Path $App 'requirements.txt'))
+    if (-not (Test-Done $m $sig)) {
         $venv = Join-Path $App '.venv'
         Remove-Venv $venv
         Run $Uv @('venv', '--python', '3.12', $venv)
-        Run $Uv @('pip', 'install', '--python', $AppPy, 'gradio>=5.0', 'requests', 'numpy', 'librosa', 'soundfile')
-        Done $m
+        Run $Uv @('pip', 'install', '--python', $AppPy, '-r', (Join-Path $App 'requirements.txt'))
+        Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 
     Done (Join-Path $Eng 'installation.ok')
