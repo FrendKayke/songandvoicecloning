@@ -373,8 +373,9 @@ def test_personnages_recurrents(faux_diffusion):
         images.append(str(f))
     msg, gal, liste = personnages.ajouter("Mon Jeu", "Héroïne", images[:2])
     assert "2 image(s) ajoutée(s)" in msg and liste["value"] == "Héroïne" and liste["choices"][1:] == ["Héroïne"]
-    ref1 = Image.open(gal[0][0])
-    assert ref1.size == (1024, 512) and Path(gal[0][0]).name == "ref_1.png"  # réduite, en PNG
+    with Image.open(gal[0][0]) as ref1:  # fermée : sinon Windows refuse la suppression plus bas
+        taille = ref1.size
+    assert taille == (1024, 512) and Path(gal[0][0]).name == "ref_1.png"  # réduite, en PNG
     # même nom à la casse près (comme Windows) : même personnage ; 4 références au plus
     msg, gal, _ = personnages.ajouter("Mon Jeu", "HÉROÏNE", images[2:])
     assert "2 image(s) ajoutée(s)" in msg and "1 image(s) ignorée(s)" in msg and len(gal) == 4

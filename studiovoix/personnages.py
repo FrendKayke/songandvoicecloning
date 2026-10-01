@@ -110,5 +110,9 @@ def supprimer(projet, nom):
     d = _dossier(projet, nom)
     if d is None or d.parent != _racine(projet):
         raise gr.Error(f"Personnage introuvable : {nom}")
-    shutil.rmtree(d)
+    try:
+        shutil.rmtree(d)
+    except OSError as e:  # Windows : image ouverte dans un autre programme
+        raise gr.Error(f"Suppression impossible : une image du personnage est ouverte ailleurs ({e}). Ferme-la et "
+                       "recommence.")
     return f"🗑️ Personnage « {d.name} » supprimé (les illustrations déjà faites sont gardées).", [], choix(projet)
