@@ -223,7 +223,7 @@ Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de
 
 ## Tests (pour le développement)
 
-Les tests n'ont pas besoin de carte graphique : ACE-Step est remplacé par un faux serveur HTTP, Demucs et Seed-VC par de faux scripts. L'installateur est simulé sous Linux avec PowerShell 7 et de faux `uv.exe` / `python.exe` (`tests/test_installateur.py`, ignoré sans `pwsh`). Depuis le dossier de l'application :
+À chaque envoi sur GitHub, une vérification automatique (`.github/workflows/verification.yml`, onglet « Actions » du dépôt) lance les tests sous Linux et Windows, analyse l'installateur (compatibilité PowerShell 5.1) et vérifie que les dépendances de chaque environnement se résolvent pour Windows (`installation/verifier_dependances.py`, utilisable aussi en local). Les tests n'ont pas besoin de carte graphique : ACE-Step est remplacé par un faux serveur HTTP, Demucs et Seed-VC par de faux scripts. L'installateur est simulé sous Linux avec PowerShell 7 et de faux `uv.exe` / `python.exe` (`tests/test_installateur.py`, ignoré sans `pwsh`). Depuis le dossier de l'application :
 
 ```
 uv run --python 3.12 --with-requirements requirements.txt --with pytest --with pyloudnorm pytest tests

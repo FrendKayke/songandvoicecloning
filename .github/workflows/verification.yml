@@ -1,0 +1,51 @@
+# Vérification automatique à chaque envoi sur GitHub : tests (Linux et Windows), installateur (syntaxe,
+# compatibilité PowerShell 5.1, simulation complète) et résolution des dépendances de chaque environnement
+# pour Windows. Aucune carte graphique : les moteurs sont simulés.
+name: Vérification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Tests (l'installateur est simulé sous Linux, avec pwsh)
+        run: uv run --python 3.12 --with-requirements requirements.txt --with pytest --with pyloudnorm pytest tests -q -rs
+
+  installateur:
+    name: Installateur (PowerShell 5.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntaxe et compatibilité avec Windows PowerShell 5.1
+        shell: pwsh
+        run: ./tests/installateur/analyse.ps1
+
+  dependances:
+    name: Dépendances (résolution pour Windows)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Chaque environnement se résout pour Windows / CUDA
+        run: uv run --python 3.12 python installation/verifier_dependances.py
