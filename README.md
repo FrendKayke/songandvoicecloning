@@ -47,7 +47,8 @@ Modules de `studiovoix/` :
 | `pipeline.py` | enchaînement complet des étapes |
 | `modeles.py` | état des modèles (onglet « Modèles ») |
 | `outils.py` | journal de commande en direct, ouverture de dossier |
-| `interface.py` | interface Gradio |
+| `interface.py` | interface Gradio : assemble les onglets |
+| `onglets/` | un fichier par onglet (composants et événements) |
 
 ## Installation (une seule fois)
 

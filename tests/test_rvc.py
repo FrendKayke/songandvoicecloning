@@ -143,7 +143,8 @@ def test_chanson_convertie_avec_rvc(fake_acestep, fake_engines, faux_rvc):
 
 
 def test_lecture_puis_rvc(faux_rvc, monkeypatch):
-    from studiovoix import interface
+    from studiovoix import chatterbox
+    from studiovoix.onglets import synthese as interface
 
     _modele()
     sortie_tts = cfg.TTS_DIR / "20260101_000000"
@@ -151,11 +152,11 @@ def test_lecture_puis_rvc(faux_rvc, monkeypatch):
 
     def fausse_synthese(voix, texte, *a, progress=None):
         f = write_tone(sortie_tts / "parole.wav", seconds=3)
-        interface.chatterbox.ecrire_creation(sortie_tts, {"type": "tts", "texte": texte,
+        chatterbox.ecrire_creation(sortie_tts, {"type": "tts", "texte": texte,
                                                           "versions": [{"graine": 0, "fichier": str(f)}]})
         return str(f), "Terminé."
 
-    monkeypatch.setattr(interface.chatterbox, "synthese", fausse_synthese)
+    monkeypatch.setattr(chatterbox, "synthese", fausse_synthese)
     fichier, msg = interface.synthese_puis_rvc("moi", "Bonjour", "Français", 0.5, 0.5, 0.8, 0, "moi", -2,
                                                progress=no_progress)
     assert fichier.endswith("parole_rvc.wav") and "modèle RVC « moi »" in msg
