@@ -6,12 +6,18 @@ from ..outils import open_folder
 from .commun import CONFIRMER_SUPPRESSION_CREATION, espace_de_noms
 
 
+ATTENDRE_GALERIE = ("() => new Promise(fin => { const t0 = Date.now(); const essai = () => { "
+                    "const liste = document.querySelector('#galerie-liste'); "
+                    "if ((liste && liste.offsetParent) || Date.now() - t0 > 3000) setTimeout(fin, 100); "
+                    "else setTimeout(essai, 50); }; essai(); })")
+
+
 def construire():
     """Composants de l'onglet (dans l'onglet ouvert par l'appelant)."""
     with gr.Row():
         gal_filtre = gr.Radio(list(galerie.FILTRES), value="Tout", label="Afficher")
         gal_maj = gr.Button("🔄 Actualiser", scale=0)
-    gal_liste = gr.Dropdown([], label="Création (la plus récente en premier)")
+    gal_liste = gr.Dropdown([], label="Création (la plus récente en premier)", elem_id="galerie-liste")
     gal_etat = gr.State()
     with gr.Row():
         with gr.Column(scale=3):
@@ -51,7 +57,13 @@ def brancher(c, demo, o):
     c.gal_liste.change(galerie.details, [c.gal_liste], sorties_details)
     # La visionneuse 3D (Babylon.js) ne s'initialise pas si sa valeur arrive pendant que l'onglet est caché
     # (chargement de la page) et ignore une valeur identique : on la vide puis on réaffiche la création.
-    c.onglet.select(lambda: None, None, c.gal_modele).then(galerie.details, [c.gal_liste, c.gal_version], sorties_details)
+    c.onglet.select(lambda: None, None, c.gal_modele).then(galerie.details, [c.gal_liste, c.gal_version],
+                                                           sorties_details)
+    # Idem quand on ouvre le groupe qui contient la galerie (elle y est l'onglet affiché d'office) : le contenu de
+    # l'onglet intérieur n'est monté qu'après l'événement du groupe ; le navigateur attend donc que la liste des
+    # créations soit réellement affichée (3 s au plus) avant de réafficher la création.
+    c.groupe.select(lambda: None, None, c.gal_modele).then(None, None, None, js=ATTENDRE_GALERIE).then(
+        galerie.details, [c.gal_liste, c.gal_version], sorties_details)
     c.gal_version.input(galerie.details, [c.gal_liste, c.gal_version], sorties_details)
     c.gal_recreer.click(galerie.recreer, [c.gal_liste, c.gal_version], [c.gal_msg, c.gal_etat]).then(
         galerie.maj_liste, [c.gal_filtre, c.gal_etat], c.gal_liste)

@@ -128,3 +128,26 @@ def test_jeton_hugging_face(inst):
     jeton = inst.eng / "hf-home" / "token"
     assert jeton.read_bytes() == b"hf_abcdefghijklmnopqrstuvwxyz"  # sans BOM ni fin de ligne
     assert any("telecharger bruitages" in a for a in inst.appels)
+
+
+def test_moteurs_retires_sautes_puis_reinstalles(inst):
+    assert inst.lancer() == 0
+    (inst.eng / "moteurs-retires.txt").write_text("chatterbox\ndiffusion:texture3d\n", encoding="utf-8")
+    import shutil as sh
+    sh.rmtree(inst.eng / "chatterbox")  # ce que fait « Espace disque » en retirant Chatterbox
+    assert inst.lancer() == 0, inst.sortie
+    assert inst.sortie.count("Retiré pour gagner de la place") == 2  # étapes 8 et 9
+    assert not any("chatterbox" in a.lower() for a in inst.appels)  # ni code, ni environnement, ni modèles
+    telechargement = [a for a in inst.appels if "diffusion.py telecharger" in a]
+    assert telechargement and "texture3d" not in telechargement[0]  # liste de modèles changée → étape 17 refaite
+    assert "telecharger qwen forme3d zimage detourage" in telechargement[0]
+    # tout le moteur de diffusion retiré : étapes 15 à 17 sautées, plus de question de jeton
+    (inst.eng / "moteurs-retires.txt").write_text("chatterbox\ndiffusion\n", encoding="utf-8")
+    sh.rmtree(inst.eng / "diffusion")
+    assert inst.lancer(reponse="hf_abcdefghijklmnopqrstuvwxyz") == 0, inst.sortie
+    assert not any("diffusion" in a for a in inst.appels if "pip install" in a or "venv" in a)
+    assert not any(a.startswith("READ-HOST") for a in inst.appels) and not (inst.eng / "hf-home" / "token").exists()
+    # « Réinstaller » : la clé disparaît, la prochaine mise à jour refait les étapes
+    (inst.eng / "moteurs-retires.txt").unlink()
+    assert inst.lancer() == 0, inst.sortie
+    assert any("chatterbox.txt" in a for a in inst.installs()) and any("diffusion.txt" in a for a in inst.installs())

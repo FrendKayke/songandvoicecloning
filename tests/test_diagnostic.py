@@ -93,7 +93,7 @@ def test_essai_complet(env, monkeypatch):
 
 def test_essai_sans_voix(env, monkeypatch):
     monkeypatch.setattr(diagnostic, "carte_graphique", lambda: None)
-    etapes = dict(diagnostic._etapes(env, None))
+    etapes = {nom: f for nom, f, _ in diagnostic._etapes(env, None)}
     try:
         etapes["Chatterbox (synthèse vocale)"]()
         raise AssertionError("une erreur était attendue")

@@ -11,6 +11,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
+from . import retraits
 from . import serveur_acestep
 from .outils import ecrire_creation, lancer_moteur, nouveau_dossier, stream_command
 from .voix import chemin_voix
@@ -54,7 +55,7 @@ def missing_components():
 
 def download():
     if not Path(cfg.CHATTERBOX_PYTHON).exists():
-        yield f"❌ Python de Chatterbox introuvable : {cfg.CHATTERBOX_PYTHON}. Relance INSTALLER.bat."
+        yield f"❌ Python de Chatterbox introuvable : {cfg.CHATTERBOX_PYTHON}. {retraits.conseil('chatterbox')}"
         return
     yield from stream_command(
         [cfg.CHATTERBOX_PYTHON, str(script()), "--telecharger"], cfg.APP_DIR,
@@ -73,8 +74,7 @@ def synthese(voix, texte, langue_label, exaggeration, cfg_weight, temperature, g
         raise gr.Error(f"Texte trop long ({len(texte)} caractères) : {TEXTE_MAX} au maximum. Découpe-le en plusieurs fois.")
     if not Path(cfg.CHATTERBOX_PYTHON).exists():
         raise gr.Error(
-            f"Chatterbox n'est pas installé ({cfg.CHATTERBOX_PYTHON} introuvable). "
-            "Relance INSTALLER.bat : seules les étapes manquantes seront faites."
+            f"Chatterbox n'est pas installé ({cfg.CHATTERBOX_PYTHON} introuvable). {retraits.conseil('chatterbox')}"
         )
 
     workdir = nouveau_dossier(cfg.TTS_DIR)

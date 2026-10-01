@@ -14,6 +14,7 @@ import librosa
 import soundfile as sf
 
 from . import config as cfg
+from . import retraits
 from . import serveur_acestep
 from .outils import lancer_moteur, stream_command
 from .voix import analyser, list_voices, nettoyer_nom
@@ -49,13 +50,12 @@ def missing_components():
 
 def _installe():
     if not Path(cfg.RVC_PYTHON).exists():
-        raise gr.Error(f"RVC n'est pas installé ({cfg.RVC_PYTHON} introuvable). Relance INSTALLER.bat : "
-                       "seules les étapes manquantes seront faites.")
+        raise gr.Error(f"RVC n'est pas installé ({cfg.RVC_PYTHON} introuvable). {retraits.conseil('rvc')}")
 
 
 def download():
     if not Path(cfg.RVC_PYTHON).exists():
-        yield f"❌ Python de RVC introuvable : {cfg.RVC_PYTHON}. Relance INSTALLER.bat."
+        yield f"❌ Python de RVC introuvable : {cfg.RVC_PYTHON}. {retraits.conseil('rvc')}"
         return
     yield from stream_command([cfg.RVC_PYTHON, str(script()), "telecharger"], cfg.RVC_DIR,
                               f"Téléchargement des modèles de base de RVC (~1,8 Go) vers {ckpt_dir()} …")

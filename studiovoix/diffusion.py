@@ -12,6 +12,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
+from . import retraits
 from . import serveur_acestep
 from .outils import lancer_moteur, stream_command
 
@@ -78,11 +79,14 @@ def _env():
 def _installe():
     if not Path(cfg.DIFFUSION_PYTHON).exists():
         raise gr.Error(f"Le moteur de diffusion n'est pas installé ({cfg.DIFFUSION_PYTHON} introuvable). "
-                       "Relance INSTALLER.bat : seules les étapes manquantes seront faites.")
+                       f"{retraits.conseil('diffusion')}")
 
 
 def _verifier(*noms):
     _installe()
+    retires = [MODELES[n][1] for n in noms if not _present(n) and retraits.retire(f"diffusion:{n}")]
+    if retires:
+        raise gr.Error(", ".join(retires) + " : " + retraits.CONSEIL_REINSTALLER)
     manquants = [MODELES[n][1] for n in noms if not _present(n)]
     if manquants:
         raise gr.Error("Modèle(s) à télécharger dans l'onglet « Modèles » : " + ", ".join(manquants)
@@ -190,12 +194,14 @@ def enregistrer_jeton(jeton):
 def download(noms=None):
     noms = list(noms or MODELES)
     if not Path(cfg.DIFFUSION_PYTHON).exists():
-        yield f"❌ Python du moteur de diffusion introuvable : {cfg.DIFFUSION_PYTHON}. Relance INSTALLER.bat."
+        yield f"❌ Python du moteur de diffusion introuvable : {cfg.DIFFUSION_PYTHON}. {retraits.conseil('diffusion')}"
         return
     if "bruitages" in noms and not jeton_present():
         yield (f"❌ Stable Audio Open demande d'accepter sa licence sur {LICENCE_BRUITAGES} puis d'enregistrer "
                f"un jeton Hugging Face (créé sur {JETONS}) dans le champ ci-dessus.")
         return
+    for n in noms:  # télécharger un modèle retiré, c'est le réinstaller : l'installateur ne le saute plus
+        retraits.enlever(f"diffusion:{n}")
     yield from stream_command([cfg.DIFFUSION_PYTHON, str(script()), "telecharger", *noms, "detourage"],
                               cfg.DIFFUSION_DIR, f"Téléchargement : {', '.join(MODELES[n][1] for n in noms)} …",
                               _env())

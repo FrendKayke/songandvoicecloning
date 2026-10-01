@@ -76,6 +76,22 @@ function Test-Done([string]$marker, [string]$signature = '') {
     Write-Host 'Mise à jour : cette étape a changé depuis la dernière installation, elle est refaite.' -ForegroundColor Yellow
     return $false
 }
+# Moteurs et modèles retirés pour gagner de la place (Outils → Modèles → Espace disque) : leurs étapes sont sautées,
+# sinon l'installateur les réinstallerait aussitôt. Une clé par ligne : chatterbox, nettoyage, rvc, diffusion,
+# diffusion:<modèle> (qwen, bruitages, zimage, forme3d, texture3d).
+function Get-Retires {
+    $f = Join-Path $Eng 'moteurs-retires.txt'
+    if (-not (Test-Path $f)) { return @() }
+    return @(Get-Content $f -Encoding UTF8 | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+function Test-Retire([string]$cle) {
+    $r = Get-Retires
+    return ($r -contains $cle) -or ($cle.StartsWith('diffusion:') -and ($r -contains 'diffusion'))
+}
+function Write-Retire {
+    Write-Host 'Retiré pour gagner de la place (Outils → Modèles → Espace disque pour le réinstaller).' -ForegroundColor DarkGray
+}
+
 function Done([string]$marker, [string]$signature = '') {
     New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
     [IO.File]::WriteAllText($marker, $signature)
@@ -194,11 +210,15 @@ try {
     Step 2 'Code d''ACE-Step, de Seed-VC, de Chatterbox, de RVC (Applio) et de Hunyuan3D-2'
     Get-Repo 'https://github.com/ace-step/ACE-Step-1.5/archive/refs/heads/main.zip' $Ace
     Get-Repo 'https://github.com/Plachtaa/seed-vc/archive/refs/heads/main.zip' $Sv
-    New-Item -ItemType Directory -Force -Path $Cb | Out-Null
-    Get-Repo "https://github.com/resemble-ai/chatterbox/archive/$CbCommit.zip" $CbSrc
+    if (-not (Test-Retire 'chatterbox')) {
+        New-Item -ItemType Directory -Force -Path $Cb | Out-Null
+        Get-Repo "https://github.com/resemble-ai/chatterbox/archive/$CbCommit.zip" $CbSrc
+    }
     Get-Repo "https://github.com/IAHispano/Applio/archive/$RvcCommit.zip" $Rvc
-    New-Item -ItemType Directory -Force -Path $Dif | Out-Null
-    Get-Repo "https://github.com/Tencent-Hunyuan/Hunyuan3D-2/archive/$HyCommit.zip" $HySrc
+    if (-not (Test-Retire 'diffusion')) {
+        New-Item -ItemType Directory -Force -Path $Dif | Out-Null
+        Get-Repo "https://github.com/Tencent-Hunyuan/Hunyuan3D-2/archive/$HyCommit.zip" $HySrc
+    }
 
     # --- 3. Environnement ACE-Step (Python 3.12 + PyTorch CUDA 12.8, via sa propre config) ---
     Step 3 'Environnement ACE-Step (le plus long : PyTorch ~3 Go)'
@@ -255,7 +275,7 @@ try {
     Step 8 'Environnement Chatterbox, synthèse vocale (Python 3.11, PyTorch ~2,5 Go)'
     $m = Join-Path $Cb '.env-ok'
     $sig = Get-Signature @('torch==2.6.0 torchaudio==2.6.0 cu124', $CbCommit, (Join-Path $Listes 'chatterbox.txt'))
-    if (-not (Test-Done $m $sig)) {
+    if (Test-Retire 'chatterbox') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         $venv = Join-Path $Cb '.venv'
         Remove-Venv $venv
         Run $Uv @('venv', '--python', '3.11', $venv)
@@ -273,7 +293,7 @@ try {
     # --- 9. Modèles Chatterbox (~3,2 Go, chargés une fois sur le processeur pour vérification) ---
     Step 9 'Modèles Chatterbox Multilingual V3 (~3,2 Go)'
     $m = Join-Path $Cb '.modeles-ok'
-    if (-not (Test-Path $m)) {
+    if (Test-Retire 'chatterbox') { Write-Retire } elseif (-not (Test-Path $m)) {
         Run $CbPy @((Join-Path $App 'moteurs\chatterbox_tts.py'), '--telecharger')
         Done $m
     } else { Write-Host 'Déjà fait.' }
@@ -282,7 +302,7 @@ try {
     Step 10 'Environnement du nettoyage de voix (Python 3.11)'
     $m = Join-Path $Nt '.env-ok'
     $sig = Get-Signature @('torch==2.6.0 torchaudio==2.6.0 torchvision==0.21.0 cu124 voicefixer==0.1.3', (Join-Path $Listes 'nettoyage.txt'))
-    if (-not (Test-Done $m $sig)) {
+    if (Test-Retire 'nettoyage') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         New-Item -ItemType Directory -Force -Path $Nt | Out-Null
         $venv = Join-Path $Nt '.venv'
         Remove-Venv $venv
@@ -303,7 +323,7 @@ try {
     # --- 11. Modèles du nettoyage (~0,8 Go), rangés dans StudioVoix\nettoyage ---
     Step 11 'Modèles du nettoyage de voix (~0,8 Go)'
     $m = Join-Path $Nt '.modeles-ok'
-    if (-not (Test-Path $m)) {
+    if (Test-Retire 'nettoyage') { Write-Retire } elseif (-not (Test-Path $m)) {
         # Lancé depuis $Nt : ClearerVoice y range ses modèles (checkpoints\), VoiceFixer aussi (voicefixer\)
         Run $NtPy @((Join-Path $App 'moteurs\nettoyage_voix.py'), '--telecharger') $Nt
         Done $m
@@ -313,7 +333,7 @@ try {
     Step 12 'Environnement RVC, entraînement de ta voix (Python 3.12, PyTorch ~2,8 Go)'
     $m = Join-Path $Rvc '.env-ok'
     $sig = Get-Signature @($RvcCommit, 'cu128 unsafe-best-match')
-    if (-not (Test-Done $m $sig)) {
+    if (Test-Retire 'rvc') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         $venv = Join-Path $Rvc '.venv'
         Remove-Venv $venv
         Run $Uv @('venv', '--python', '3.12', $venv)
@@ -328,7 +348,7 @@ try {
     # --- 13. Modèles de base de RVC (~1,8 Go : pré-entraînés, RMVPE, ContentVec) ---
     Step 13 'Modèles de base de RVC (~1,8 Go)'
     $m = Join-Path $Rvc '.modeles-ok'
-    if (-not (Test-Path $m)) {
+    if (Test-Retire 'rvc') { Write-Retire } elseif (-not (Test-Path $m)) {
         # Lancé depuis le dossier d'Applio : ses modèles vont dans rvc\models, ses entraînements dans logs
         Run $RvcPy @((Join-Path $App 'moteurs\rvc_voix.py'), 'telecharger') $Rvc
         Done $m
@@ -339,7 +359,7 @@ try {
     $m = Join-Path $Dif '.env-ok'
     $sig = Get-Signature @('torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 cu126', $HyCommit, $KijaiCommit,
         (Join-Path $Listes 'diffusion.txt'))
-    if (-not (Test-Done $m $sig)) {
+    if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         $venv = Join-Path $Dif '.venv'
         Remove-Venv $venv
         Run $Uv @('venv', '--python', '3.12', $venv)
@@ -365,7 +385,9 @@ try {
     # --- 16. Jeton Hugging Face (facultatif : seulement pour Stable Audio Open, sous licence à accepter) ---
     Step 16 'Jeton Hugging Face pour Stable Audio Open (bruitages) — facultatif'
     $jeton = Join-Path $env:HF_HOME 'token'
-    if (Test-Path $jeton) {
+    if (Test-Retire 'diffusion:bruitages') {
+        Write-Retire
+    } elseif (Test-Path $jeton) {
         Write-Host 'Déjà fait (jeton présent).'
     } else {
         Write-Host 'Stable Audio Open (bruitages) demande d''accepter sa licence sur Hugging Face :' -ForegroundColor Yellow
@@ -385,9 +407,9 @@ try {
     $m = Join-Path $Dif '.modeles-ok'
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
     # le téléchargement reprend seulement ce qui manque.
-    $ModelesDif = @('qwen', 'forme3d', 'texture3d', 'zimage', 'detourage')
+    $ModelesDif = @(@('qwen', 'forme3d', 'texture3d', 'zimage', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
     $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' '))
-    if (-not (Test-Done $m $sig)) {
+    if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif
         # Stable Diffusion XL a été remplacé par Z-Image-Turbo (bien meilleur) : on libère ses 7 Go s'il est là
         $sdxl = Join-Path $env:HF_HOME 'hub\models--stabilityai--stable-diffusion-xl-base-1.0'
@@ -395,7 +417,7 @@ try {
             Write-Host 'Suppression de Stable Diffusion XL, remplacé par Z-Image-Turbo (7 Go libérés).'
             Remove-Item $sdxl -Recurse -Force -ErrorAction SilentlyContinue
         }
-        if (Test-Path $jeton) {
+        if ((Test-Path $jeton) -and -not (Test-Retire 'diffusion:bruitages')) {
             Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'bruitages') $Dif
         } else { Write-Host 'Stable Audio Open non téléchargé (pas de jeton) : onglet Modèles → Télécharger, une fois le jeton enregistré.' -ForegroundColor Yellow }
         Done $m $sig

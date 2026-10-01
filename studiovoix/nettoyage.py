@@ -12,6 +12,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
+from . import retraits
 from . import serveur_acestep
 from .outils import lancer_moteur, nouveau_dossier, stream_command
 
@@ -44,13 +45,13 @@ def _verifier_installation():
     if not Path(cfg.NETTOYAGE_PYTHON).exists():
         raise gr.Error(
             f"Le nettoyage de voix n'est pas installé ({cfg.NETTOYAGE_PYTHON} introuvable). "
-            "Relance INSTALLER.bat : seules les étapes manquantes seront faites."
+            f"{retraits.conseil('nettoyage')}"
         )
 
 
 def download():
     if not Path(cfg.NETTOYAGE_PYTHON).exists():
-        yield f"❌ Python du nettoyage introuvable : {cfg.NETTOYAGE_PYTHON}. Relance INSTALLER.bat."
+        yield f"❌ Python du nettoyage introuvable : {cfg.NETTOYAGE_PYTHON}. {retraits.conseil('nettoyage')}"
         return
     cfg.NETTOYAGE_DIR.mkdir(parents=True, exist_ok=True)
     yield from stream_command(

@@ -23,19 +23,20 @@ import gradio as gr
 import numpy as np
 import soundfile as sf
 
-from . import acestep, chatterbox, demucs, diffusion, nettoyage, rvc, seedvc, serveur_acestep
+from . import acestep, chatterbox, demucs, diffusion, nettoyage, retraits, rvc, seedvc, serveur_acestep
 from . import config as cfg
 from .voix import list_voices
 
-# (nom, chemin du Python) lus au moment de l'appel (les tests redirigent cfg)
+# (nom, chemin du Python lu au moment de l'appel — les tests redirigent cfg —, clé de retrait ou None)
 ENVIRONNEMENTS = [
-    ("ACE-Step", lambda: cfg.ACESTEP_PYTHON),
-    ("Seed-VC + Demucs", lambda: cfg.SEEDVC_PYTHON),
-    ("Chatterbox", lambda: cfg.CHATTERBOX_PYTHON),
-    ("Nettoyage", lambda: cfg.NETTOYAGE_PYTHON),
-    ("RVC (Applio)", lambda: cfg.RVC_PYTHON),
-    ("Diffusion", lambda: cfg.DIFFUSION_PYTHON),
+    ("ACE-Step", lambda: cfg.ACESTEP_PYTHON, None),
+    ("Seed-VC + Demucs", lambda: cfg.SEEDVC_PYTHON, None),
+    ("Chatterbox", lambda: cfg.CHATTERBOX_PYTHON, "chatterbox"),
+    ("Nettoyage", lambda: cfg.NETTOYAGE_PYTHON, "nettoyage"),
+    ("RVC (Applio)", lambda: cfg.RVC_PYTHON, "rvc"),
+    ("Diffusion", lambda: cfg.DIFFUSION_PYTHON, "diffusion"),
 ]
+RETIRE = "retiré pour gagner de la place (Outils → Espace disque)"
 SONDE = ("import sys, torch; ok = torch.cuda.is_available(); "
          "print('SONDE', sys.version.split()[0], torch.__version__, ok, torch.cuda.get_device_name(0) if ok else '-')")
 NIVEAU_LEGER = next(iter(nettoyage.NIVEAUX))
@@ -129,7 +130,10 @@ def rapide():
     _systeme(r)
     yield r.texte(), None
     r.section("Environnements Python")
-    for nom, python in ENVIRONNEMENTS:
+    for nom, python, cle in ENVIRONNEMENTS:
+        if cle and retraits.retire(cle):
+            r.ligne(None, nom, RETIRE)
+            continue
         ok, detail = sonde(python())
         r.ligne(ok, nom, detail)
         yield r.texte(), None
@@ -220,10 +224,12 @@ def _etapes(d, voix):
             raise gr.Error(f"forme créée ({res.get('faces')} faces) mais texture non peinte")
         return f"{res.get('faces')} faces, texture peinte, version web écrite"
 
-    return [("ACE-Step (génération musicale)", ace), ("Demucs (séparation)", dem), ("Seed-VC (conversion)", svc),
-            ("Chatterbox (synthèse vocale)", tts), ("Nettoyage de voix (léger)", net), ("Qwen3-VL (description)", qwen),
-            ("Z-Image-Turbo (image)", zimage), ("Stable Audio Open (bruitage)", audio),
-            ("Hunyuan3D-2 (forme + texture)", forme)]
+    return [("ACE-Step (génération musicale)", ace, None), ("Demucs (séparation)", dem, None),
+            ("Seed-VC (conversion)", svc, None), ("Chatterbox (synthèse vocale)", tts, "chatterbox"),
+            ("Nettoyage de voix (léger)", net, "nettoyage"), ("Qwen3-VL (description)", qwen, "diffusion:qwen"),
+            ("Z-Image-Turbo (image)", zimage, "diffusion:zimage"),
+            ("Stable Audio Open (bruitage)", audio, "diffusion:bruitages"),
+            ("Hunyuan3D-2 (forme + texture)", forme, "diffusion:texture3d")]
 
 
 def complet():
@@ -236,7 +242,11 @@ def complet():
     r.section("Essais (une génération courte par moteur)")
     yield r.texte() + "\n\n⏳ Essais en cours : compte 10 à 20 minutes…", None
     with _galerie_redirigee(d):
-        for nom, fonction in _etapes(d, voix):
+        for nom, fonction, cle in _etapes(d, voix):
+            if cle and (retraits.retire(cle) or (cle == "diffusion:texture3d" and retraits.retire("diffusion:forme3d"))):
+                r.ligne(None, nom, RETIRE)
+                yield r.texte() + "\n\n⏳ Essais en cours…", None
+                continue
             t0 = time.time()
             try:
                 detail = fonction()
