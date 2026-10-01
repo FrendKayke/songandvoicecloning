@@ -4,7 +4,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from . import (acestep, bruitages, cartes, chatterbox, demucs, diffusion, export, galerie, jeu, modele3d, nettoyage, rvc,
+from . import (acestep, bruitages, cartes, chatterbox, demucs, diagnostic, diffusion, export, galerie, jeu, modele3d, nettoyage, rvc,
                seedvc, serveur_acestep)
 from . import config as cfg
 from .modeles import models_status_md
@@ -504,6 +504,18 @@ def build_ui():
                     btn_gpu_stop = gr.Button("⏹️ Arrêter ACE-Step maintenant")
                     btn_gpu_maj = gr.Button("🔄 État du serveur")
                 gpu_msg = gr.Markdown()
+            with gr.Accordion("🩺 Diagnostic (si quelque chose ne marche pas)", open=False):
+                gr.Markdown(
+                    "**Diagnostic rapide** (moins d'une minute) : carte graphique, espace disque, chaque moteur "
+                    "(PyTorch, CUDA), modèles manquants. **Essai complet** (10 à 20 minutes) : une génération courte "
+                    "par moteur, avec sa durée et la mémoire graphique utilisée. Les fichiers d'essai vont dans "
+                    "`data\\diagnostic`, pas dans la galerie. Envoie le fichier `rapport.txt` pour un dépannage."
+                )
+                with gr.Row():
+                    btn_diag = gr.Button("🩺 Diagnostic rapide")
+                    btn_essai = gr.Button("🧪 Essai complet des moteurs")
+                diag_rapport = gr.Markdown()
+                diag_fichier = gr.File(label="Rapport à envoyer", interactive=False)
             log = gr.Textbox(label="Journal de téléchargement", lines=14, max_lines=14, autoscroll=True, interactive=False)
             with gr.Row():
                 b_ace = gr.Button("⬇️ Télécharger ACE-Step", variant="primary")
@@ -558,6 +570,8 @@ def build_ui():
         )
         btn_refresh.click(models_status_md, None, status)
         gpu_auto.change(serveur_acestep.regler_liberation, gpu_auto, gpu_msg)
+        btn_diag.click(diagnostic.rapide, None, [diag_rapport, diag_fichier])
+        btn_essai.click(diagnostic.complet, None, [diag_rapport, diag_fichier])
         btn_gpu_stop.click(serveur_acestep.arreter_depuis_interface, None, gpu_etat)
         btn_gpu_maj.click(serveur_acestep.etat, None, gpu_etat)
         for b, fn in ((b_ace, acestep.download), (b_sv, seedvc.download), (b_dm, demucs.download),

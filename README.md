@@ -39,6 +39,7 @@ Modules de `studiovoix/` :
 | `diffusion.py` | client du moteur de diffusion (Qwen3-VL, Stable Audio Open, Z-Image-Turbo, Hunyuan3D-2 ; lance `moteurs/diffusion.py`), jeton Hugging Face |
 | `bruitages.py` | bruitages : description ou image → prompt anglais → variantes |
 | `cartes.py` | illustrations de cartes : style mémorisé par projet, formats de carte, variantes, WebP |
+| `diagnostic.py` | diagnostic rapide et essai réel de chaque moteur, rapport à envoyer |
 | `serveur_acestep.py` | serveur ACE-Step géré par l'application (démarrage, arrêt pour libérer la carte graphique) |
 | `modele3d.py` | modèles 3D : image d'objet → forme puis texture (Hunyuan3D-2), GLB et OBJ |
 | `voix.py` | bibliothèque de voix (import, contrôle de qualité, renommage, suppression) |
@@ -217,6 +218,7 @@ Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de
 ## Limites à connaître
 
 - **Installation** : en cas d'erreur, l'installateur s'arrête avec un message en rouge. Relance-le après correction : les étapes réussies sont sautées.
+- **Quelque chose ne marche pas ?** Onglet « Modèles » → « 🩺 Diagnostic » : le diagnostic rapide (moins d'une minute) vérifie la carte graphique, l'espace disque, chaque moteur et les modèles ; l'essai complet (10 à 20 minutes) fait une génération courte avec chaque moteur et note sa durée et la mémoire graphique utilisée. Envoie le fichier `rapport.txt` proposé : il dit précisément ce qui ne va pas.
 - **Pilote NVIDIA** : ACE-Step utilise CUDA 12.8, qui demande un pilote récent (570.65 ou plus). L'installateur le vérifie.
 - **Fidélité de la voix** : la conversion sans entraînement (Seed-VC) donne une ressemblance correcte mais pas parfaite, surtout sur les notes aiguës. Pour mieux faire, entraîne un modèle RVC sur 10 à 30 minutes de tes enregistrements (onglet « Entraîner ma voix »). La qualité de ton micro et de ta pièce compte encore plus que la durée.
 - **Artefacts** : la séparation sur de la musique générée laisse parfois de légers résidus.
