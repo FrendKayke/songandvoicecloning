@@ -151,3 +151,24 @@ def test_moteurs_retires_sautes_puis_reinstalles(inst):
     (inst.eng / "moteurs-retires.txt").unlink()
     assert inst.lancer() == 0, inst.sortie
     assert any("chatterbox.txt" in a for a in inst.installs()) and any("diffusion.txt" in a for a in inst.installs())
+
+
+def test_ace_step_en_python_311_avec_repli(inst):
+    """ACE-Step en 3.11 (moteur rapide de son modèle de langage sous Windows) ; ancienne installation en 3.12
+    reconstruite une fois ; repli en 3.12 si l'installation en 3.11 échoue."""
+    ace = inst.eng / "ace-step"
+    (ace / ".venv").mkdir(parents=True)  # ancienne installation : environnement 3.12, ancien marqueur vide
+    (ace / ".venv" / "ancien").write_text("x")
+    (ace / ".env-ok").write_text("")
+    assert inst.lancer() == 0, inst.sortie
+    syncs = [a for a in inst.appels if a.startswith("uv.exe sync")]
+    assert syncs == [f"uv.exe sync --python 3.11 [cwd={ace}]"]
+    assert (ace / ".python-version").read_text().strip() == "3.11" and not (ace / ".venv" / "ancien").exists()
+    assert re.fullmatch(r"[0-9a-f]{64}", (ace / ".env-py311-ok").read_text())
+    assert inst.lancer() == 0 and not [a for a in inst.appels if a.startswith("uv.exe sync")]  # fait une fois
+    # échec en 3.11 (roue flash-attention injoignable…) : repli en 3.12, l'installation continue
+    (ace / ".env-py311-ok").unlink()
+    assert inst.lancer(echec="sync --python 3.11") == 0, inst.sortie
+    assert [a.split(" [")[0] for a in inst.appels if a.startswith("uv.exe sync")] == [
+        "uv.exe sync --python 3.11", "uv.exe sync --python 3.12"]
+    assert (ace / ".python-version").read_text().strip() == "3.12" and "plus lent" in inst.sortie

@@ -17,6 +17,30 @@ SEEDVC_NEEDED = {
 }
 
 
+REFERENCE_MAX = 15.0  # secondes de voix de référence données à Seed-VC
+
+
+def reference_courte(voice_ref: Path, workdir: Path, duree=REFERENCE_MAX) -> Path:
+    """Les `duree` secondes les plus sonores (donc les plus chantées) de la voix de référence.
+    Seed-VC traite source et référence dans une fenêtre de 30 s (inference.py : max_context_window, référence coupée
+    à 25 s) : avec 25 s de référence, il ne reste que ~5 s de chant par passe, soit ~25 passes pour une chanson de
+    2 minutes, chacune avec un raccord ; avec 15 s, ~15 s par passe : environ 3 fois moins de calcul."""
+    import numpy as np
+    import soundfile as sf
+
+    y, sr = sf.read(str(voice_ref), always_2d=True)
+    if len(y) <= int((duree + 1) * sr):
+        return Path(voice_ref)
+    mono = y.mean(axis=1)
+    energie = np.concatenate([[0.0], np.cumsum(mono.astype(np.float64) ** 2)])
+    n = int(duree * sr)
+    pas = max(1, sr // 10)
+    debut = max(range(0, len(mono) - n + 1, pas), key=lambda i: energie[i + n] - energie[i])
+    sortie = Path(workdir) / "reference_voix.wav"
+    sf.write(str(sortie), y[debut:debut + n], sr)
+    return sortie
+
+
 def convert_voice(vocals: Path, voice_ref: Path, semitones: int, steps: int, workdir: Path):
     if not cfg.SEEDVC_DIR.exists():
         raise gr.Error(f"Dossier Seed-VC introuvable : {cfg.SEEDVC_DIR} (variable SEEDVC_DIR).")
@@ -24,6 +48,7 @@ def convert_voice(vocals: Path, voice_ref: Path, semitones: int, steps: int, wor
         raise gr.Error(f"Python de Seed-VC introuvable : {cfg.SEEDVC_PYTHON} (variable SEEDVC_PYTHON).")
     out = workdir / "seedvc"
     out.mkdir(exist_ok=True)
+    voice_ref = reference_courte(voice_ref, workdir)
     cmd = [
         cfg.SEEDVC_PYTHON, "inference.py",
         "--source", str(vocals),

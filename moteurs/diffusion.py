@@ -114,6 +114,11 @@ def _device():
     import torch
 
     if torch.cuda.is_available():
+        # TF32 pour ce qui reste en fp32 (VAE de Wan, Hunyuan3D…) et choix automatique des algorithmes de
+        # convolution : même résultat visuel, carte mieux employée
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
         return "cuda"
     print("Attention : pas de carte graphique CUDA détectée, calcul sur le processeur (très lent).", flush=True)
     return "cpu"
@@ -488,6 +493,10 @@ def video(chemin_tache):
         pipe.enable_model_cpu_offload()
     else:
         pipe = pipe.to(device)
+    # Les plongements de la phase 1 sont sur le processeur : WanPipeline ne les change que de type (pas d'appareil)
+    # et le transformeur fait `.type_as(encoder_hidden_states)`, qui ramène aussi le calcul du pas de temps sur le
+    # processeur → « Expected all tensors to be on the same device, cuda:0 and cpu » (constaté sur la RTX 4070).
+    prompt, negatif = prompt.to(pipe._execution_device), negatif.to(pipe._execution_device)
 
     def suivi(_pipe, i, _t, kwargs):
         print(f"PROGRESSION {i + 3}/{total} étape {i + 1}/{etapes}", flush=True)
@@ -810,9 +819,18 @@ def forme3d(chemin_tache):
     from hy3dgen.texgen import Hunyuan3DPaintPipeline
 
     peintre = Hunyuan3DPaintPipeline.from_pretrained(HUNYUAN, subfolder=HUNYUAN_TEXTURE)
-    peintre.enable_model_cpu_offload()  # mode basse mémoire de gradio_app.py (--low_vram_mode)
     print(f"PROGRESSION 6/{total} peinture de la texture", flush=True)
-    texture_mesh = _memoire(peintre)(mesh, im)
+    # Tout sur la carte d'abord : ses deux pipelines y sont déjà, en fp16, dès le chargement (~6 Go de poids, ~8 à
+    # 10 Go en pointe estimés, ACE-Step étant arrêté) ; le mode basse mémoire de gradio_app.py (--low_vram_mode,
+    # enable_model_cpu_offload) les fait aller et venir et laisse la carte attendre. En cas de manque de mémoire,
+    # on y revient.
+    try:
+        texture_mesh = peintre(mesh.copy(), im)
+    except torch.cuda.OutOfMemoryError:
+        print("Mémoire graphique juste : peinture en mode basse mémoire.", flush=True)
+        torch.cuda.empty_cache()
+        peintre.enable_model_cpu_offload()
+        texture_mesh = _memoire(peintre)(mesh, im)
     modele = dossier / "modele.glb"
     texture_mesh.export(str(modele), include_normals=True)
     resultat["texture"] = str(modele)

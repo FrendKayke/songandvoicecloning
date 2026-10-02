@@ -126,3 +126,20 @@ def test_mesure_de_la_carte_graphique(monkeypatch):
     assert "Cuda" in etats[-1]
     monkeypatch.setattr(diagnostic.shutil, "which", lambda nom: None)
     assert "nvidia-smi introuvable" in next(diagnostic.surveiller_gpu())
+
+
+def test_moteur_du_modele_de_langage_ace_step(env):
+    from studiovoix import serveur_acestep
+
+    assert diagnostic.moteur_lm_ace()[0] is None
+    venv = cfg.ACESTEP_DIR / ".venv"
+    venv.mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = D:\\StudioVoix\\python\\cpython-3.12\nversion_info = 3.12.10\n")
+    ok, detail = diagnostic.moteur_lm_ace()
+    assert ok is False and "3.12.10" in detail and "METTRE_A_JOUR" in detail
+    (venv / "pyvenv.cfg").write_text("version_info = 3.11.13\n")
+    assert diagnostic.moteur_lm_ace() == (True, "Python 3.11.13 : moteur rapide (nano-vLLM) disponible")
+    serveur_acestep.journal().write_text("[API Server] Warning: vLLM backend is unavailable on Windows because Triton "
+                                         "is not installed")
+    ok, detail = diagnostic.moteur_lm_ace()
+    assert ok is False and "Triton absent" in detail

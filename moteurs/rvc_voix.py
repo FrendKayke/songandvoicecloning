@@ -117,7 +117,9 @@ def entrainer(chemin_tache):
 
     # run_train_script : nom, sauvegarde tous les N, époques, G, D, gpu, lot, sr, dernière seule, poids à chaque
     # sauvegarde, cache GPU, nettoyage, vocodeur, checkpointing. Sans nettoyage : un entraînement interrompu reprend.
-    _lancer(["rvc/train/train.py", nom, max(1, min(10, epoques)), epoques, pg, pd, "0", lot, sr, True, False, False,
+    # Cache GPU (sys.argv[11] de train.py, cache_data_in_gpu) : dès la 2e époque, les lots sont servis depuis la
+    # mémoire graphique, sans relecture du disque ni copie vers la carte (~50 Mo par minute d'enregistrement).
+    _lancer(["rvc/train/train.py", nom, max(1, min(10, epoques)), epoques, pg, pd, "0", lot, sr, True, False, True,
              False, VOCODEUR, False], "L'entraînement", suivi)
     print(f"PROGRESSION {total}/{total} index", flush=True)
     _lancer(["rvc/train/process/extract_index.py", exp, "Auto"], "La création de l'index")

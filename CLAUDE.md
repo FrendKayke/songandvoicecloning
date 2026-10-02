@@ -66,7 +66,7 @@ Ils sont gérés par **uv** (Pythons « managed », jamais le Python système, q
 
 | Environnement | Python | Contenu | Emplacement |
 |---|---|---|---|
-| ACE-Step | 3.11/3.12 (choisi par son `pyproject`) | `uv sync` officiel, torch cu128 | `<lecteur>:\StudioVoix\ace-step\.venv` |
+| ACE-Step | **3.11** (`.python-version` écrit par l'étape 3 ; repli 3.12 si l'installation échoue) | `uv sync --python 3.11` officiel, torch cu128 | `<lecteur>:\StudioVoix\ace-step\.venv` |
 | Seed-VC + Demucs | 3.10 | torch 2.4.0 cu124 + dépendances minimales | `<lecteur>:\StudioVoix\seed-vc\.venv` |
 | Chatterbox | 3.11 | torch 2.6.0 cu124 + dépendances épinglées + Chatterbox (`--no-deps`, source au commit `$CbCommit`) | `<lecteur>:\StudioVoix\chatterbox\.venv` |
 | Nettoyage de voix | 3.11 | torch 2.6.0 + torchvision 0.21.0 cu124 (repris du cache uv de Chatterbox), `clearvoice==0.1.2`, `voicefixer==0.1.3` en `--no-deps` | `<lecteur>:\StudioVoix\nettoyage\.venv` |
@@ -77,6 +77,14 @@ Ils sont gérés par **uv** (Pythons « managed », jamais le Python système, q
 L'application n'importe jamais les moteurs : elle les appelle en **sous-processus** (Seed-VC, Demucs, Chatterbox, nettoyage, RVC, diffusion) ou en **HTTP** (ACE-Step). Garde ce découplage pour tout nouveau moteur (par exemple un moteur de synthèse vocale) : un environnement dédié, installé par `installer.ps1`, appelé en sous-processus ou en HTTP.
 
 ## Contraintes apprises en déboguant (à respecter)
+- **Carte graphique employée à fond** (audit du 02/10/2026, sources lues aux versions épinglées) :
+  - **ACE-Step en Python 3.11** : sous Windows, son `pyproject` (nano-vllm) n'installe `triton-windows` et la roue flash-attention (sdbds, cp311) qu'en 3.11 ; en 3.12 (choisi auparavant par `uv sync`), le modèle de langage (« réflexion », activée par défaut) retombe sur la boucle PyTorch (`llm_backend_compat.get_vllm_preflight_warning`, « vLLM backend is unavailable on Windows because Triton is not installed »). Étape 3 : `.python-version` + `uv sync --python 3.11`, nouveau marqueur `.env-py311-ok` (reconstruit une fois les installations 3.12), repli 3.12 en cas d'échec (testé avec le faux `uv`). `diagnostic.moteur_lm_ace()` le signale (version de `pyvenv.cfg`, message du journal). Laissés : `ACESTEP_OFFLOAD_TO_CPU` (gain de 1 à 3 s, mais ACE-Step resterait à ~8 Go pendant Seed-VC), `ACESTEP_COMPILE_MODEL` (inductor sans triton) ;
+  - **Seed-VC** : `reference_courte` garde les 15 s les plus sonores de la voix (fenêtre de 30 s d'`inference.py` : avec 25 s de référence, ~5 s de chant par passe, ~25 passes pour 2 min ; avec 15 s, ~3 fois moins) ;
+  - **Chatterbox** : `prepare_conditionals` une fois, puis `generate(audio_prompt_path=None)` (refait à chaque morceau sinon) ;
+  - **RVC** : `cache_data_in_gpu` (sys.argv[11] de `train.py`) à True ;
+  - **Diffusion** : TF32 + `cudnn.benchmark` (`_device`) ; texte encodé une fois pour toutes les variantes (Z-Image, klein) ; texture Hunyuan3D sans déchargement, repli `enable_model_cpu_offload()` sur `OutOfMemoryError` ; tuiles Real-ESRGAN de 1024 px. `dequantize()` du GGUF (diffusers 0.39) possible pour klein (~8 Go en bf16) mais écarté : gain modeste, risque de manque de mémoire avec 4 références ;
+  - **Wan** : les plongements de la phase 1 (sur le processeur) doivent être mis sur `pipe._execution_device` : `WanPipeline` ne change que leur type, et `transformer_wan` fait `.type_as(encoder_hidden_states)` → « cuda:0 and cpu » (constaté sur la RTX 4070, invisible sur CPU) ;
+  - sans changement : Demucs (`-d cuda` par défaut), nettoyage (déjà sur CUDA). Reste le plus coûteux : un processus et un chargement des poids par génération (architecture), et la « CUDA Sysmem Fallback Policy » de NVIDIA (débordement silencieux en mémoire vive).
 - **Chemins courts** : les moteurs vont dans `<lecteur de l'appli>:\StudioVoix`, pas dans le dossier de l'appli (`D:\Projets 3d\Voix et chanson` contient des espaces et le cache Hugging Face produit des chemins proches de la limite de 260 caractères).
 - **Tout reste sur le même disque** : `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, `TORCH_HOME` et `HF_HOME` pointent dans `StudioVoix`. `lancer.bat` et `installer.ps1` doivent rester cohérents entre eux.
 - **PyTorch 2.4.0 sous Windows** : `fbgemm.dll` réclame `libomp140.x86_64.dll`. Le correctif (repris de ComfyUI) copie `libiomp5md.dll` sous ce nom dans `torch\lib` si `import torch` échoue.

@@ -211,6 +211,34 @@ def _modeles(r):
             "enregistré" if diffusion.jeton_present() else "absent : bruitages indisponibles")
 
 
+def moteur_lm_ace():
+    """(ok, détail) : moteur du modèle de langage d'ACE-Step. Sous Windows, le moteur rapide (nano-vLLM, avec
+    triton-windows et flash-attention) n'existe qu'en Python 3.11 ; sinon ACE-Step retombe sur PyTorch et l'écrit
+    dans son journal (« vLLM backend is unavailable… », acestep/llm_backend_compat.py)."""
+    import re
+
+    version = None
+    try:
+        cfg_venv = (cfg.ACESTEP_DIR / ".venv" / "pyvenv.cfg").read_text(encoding="utf-8", errors="replace")
+        m = re.search(r"^version(?:_info)?\s*=\s*([\d.]+)", cfg_venv, re.M)
+        version = m.group(1) if m else None
+    except OSError:
+        pass
+    try:
+        journal = serveur_acestep.journal().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        journal = ""
+    py = f"Python {version}" if version else "Python inconnu"
+    if "vLLM backend is unavailable" in journal:
+        return False, (f"{py} : moteur lent (PyTorch), Triton absent. Lance METTRE_A_JOUR.bat : ACE-Step est "
+                       "réinstallé en Python 3.11, avec le moteur rapide.")
+    if version and version.startswith("3.11"):
+        return True, f"{py} : moteur rapide (nano-vLLM) disponible"
+    if version:
+        return False, f"{py} : moteur lent (PyTorch). Lance METTRE_A_JOUR.bat (passage en Python 3.11)."
+    return None, "environnement ACE-Step introuvable"
+
+
 def rapide():
     """Générateur : (rapport en Markdown, fichier du rapport ou None)."""
     r = Rapport("Diagnostic rapide de Studio Voix")
@@ -227,6 +255,8 @@ def rapide():
     _modeles(r)
     r.section("Serveur ACE-Step")
     r.ligne(None, "État", serveur_acestep.etat())
+    ok, detail = moteur_lm_ace()
+    r.ligne(ok, "Modèle de langage (réflexion)", detail)
     fichier = r.enregistrer(cfg.DATA_DIR / "diagnostic" / f"{datetime.now():%Y%m%d_%H%M%S}_rapide")
     yield r.texte() + f"\n\nRapport enregistré : `{fichier}`", fichier
 

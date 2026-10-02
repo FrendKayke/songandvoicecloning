@@ -114,13 +114,16 @@ def synthese(chemin_tache):
     print(f"Chargement du modèle ({device})…", flush=True)
     try:
         modele = _charger_modele(device)
+        # La voix de référence est analysée une seule fois (encodeur de voix, jetons S3, mel) : avec
+        # audio_prompt_path, generate() refaisait prepare_conditionals() à chaque morceau (mtl_tts.py)
+        modele.prepare_conditionals(t["voix"], exaggeration=float(t.get("exaggeration", 0.5)))
         segments = []
         for i, bout in enumerate(morceaux, 1):
             print(f"PROGRESSION {i}/{len(morceaux)}", flush=True)
             wav = modele.generate(
                 bout,
                 language_id=t["langue"],
-                audio_prompt_path=t["voix"],
+                audio_prompt_path=None,
                 exaggeration=float(t.get("exaggeration", 0.5)),
                 cfg_weight=float(t.get("cfg_weight", 0.5)),
                 temperature=float(t.get("temperature", 0.8)),

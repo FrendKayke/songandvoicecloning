@@ -221,10 +221,29 @@ try {
         Get-Repo "https://github.com/Tencent-Hunyuan/Hunyuan3D-2/archive/$HyCommit.zip" $HySrc
     }
 
-    # --- 3. Environnement ACE-Step (Python 3.12 + PyTorch CUDA 12.8, via sa propre config) ---
+    # --- 3. Environnement ACE-Step (PyTorch CUDA 12.8, via sa propre config) ---
+    # Python 3.11 : sous Windows, le pyproject d'ACE-Step n'installe le moteur rapide de son modèle de langage
+    # (nano-vLLM : triton-windows et flash-attention, roues cp311) qu'en 3.11 ; en 3.12, choisi auparavant par uv,
+    # le modèle de langage tourne sur la boucle PyTorch, bien plus lente, et la carte graphique attend.
+    # Si l'installation en 3.11 échoue, repli en 3.12 (la musique marche, plus lentement).
+    # Nouveau marqueur (.env-py311-ok) : les installations existantes, en 3.12, sont reconstruites une fois.
     Step 3 'Environnement ACE-Step (le plus long : PyTorch ~3 Go)'
-    $m = Join-Path $Ace '.env-ok'
-    if (-not (Test-Path $m)) { Run $Uv @('sync') $Ace; Done $m } else { Write-Host 'Déjà fait.' }
+    $m = Join-Path $Ace '.env-py311-ok'
+    $sig = Get-Signature @('python 3.11, repli 3.12 ; uv sync')
+    if (-not (Test-Done $m $sig)) {
+        $versionPy = Join-Path $Ace '.python-version'   # lu aussi par « uv run » au lancement du serveur
+        Remove-Venv (Join-Path $Ace '.venv')
+        try {
+            [IO.File]::WriteAllText($versionPy, "3.11`n")
+            Run $Uv @('sync', '--python', '3.11') $Ace
+        } catch {
+            Write-Host "ACE-Step en Python 3.11 impossible ($($_.Exception.Message)) : installation en 3.12, le modèle de langage sera plus lent." -ForegroundColor Yellow
+            Remove-Venv (Join-Path $Ace '.venv')
+            [IO.File]::WriteAllText($versionPy, "3.12`n")
+            Run $Uv @('sync', '--python', '3.12') $Ace
+        }
+        Done $m $sig
+    } else { Write-Host 'Déjà fait.' }
 
     # --- 4. Modèles ACE-Step (~10 Go) ---
     Step 4 'Modèles ACE-Step (~10 Go)'
