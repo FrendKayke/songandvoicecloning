@@ -70,6 +70,12 @@ def choisir(dossier, fichier):
             + (f" (pack du projet {projet})." if projet else ". Donne un projet au bruitage pour l'ajouter à un pack."))
 
 
+def prompt_pret(texte, image_path, prompt, progress=gr.Progress()):
+    """« Générer » sans avoir préparé le prompt (constaté : erreur « Il manque le prompt ») : le prompt anglais est
+    préparé d'abord depuis la description, puis affiché ; un prompt déjà là (préparé ou retouché) est gardé."""
+    return (prompt or "").strip() or preparer(texte, image_path, progress=progress)
+
+
 def generer(prompt, nom, duree, variantes, graine, etapes, image_path=None, description=None, projet=None,
             progress=gr.Progress()):
     """Génère les variantes. Renvoie (message, choix des variantes, première variante, dossier)."""

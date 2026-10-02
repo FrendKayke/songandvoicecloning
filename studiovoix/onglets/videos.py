@@ -48,7 +48,8 @@ def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     c.vid_exemples.change(lambda v: v or "", c.vid_exemples, c.vid_texte)
     c.btn_vid_prep.click(videos.preparer, c.vid_texte, c.vid_prompt)
-    c.btn_vid.click(videos.generer,
+    # prompt vide : préparé d'abord depuis la description, puis la vidéo (seulement si la préparation a réussi)
+    c.btn_vid.click(videos.prompt_pret, [c.vid_texte, c.vid_prompt], c.vid_prompt).success(videos.generer,
                     [c.vid_prompt, c.vid_image, c.vid_format, c.vid_duree, c.vid_etapes, c.vid_graine, c.vid_nom,
                      c.vid_texte],
                     [c.vid_statut, c.vid_video, c.vid_dossier])

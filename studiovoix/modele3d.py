@@ -56,6 +56,12 @@ def preparer_prompt(texte, progress=gr.Progress()):
     return diffusion.decrire("objet", texte, progress=progress)
 
 
+def prompt_pret(texte, prompt, progress=gr.Progress()):
+    """« Générer » sans avoir préparé le prompt (constaté : erreur « Il manque le prompt ») : le prompt anglais est
+    préparé d'abord depuis la description, puis affiché ; un prompt déjà là (préparé ou retouché) est gardé."""
+    return (prompt or "").strip() or preparer_prompt(texte, progress=progress)
+
+
 def generer_image(prompt, graine, progress=gr.Progress()):
     """Prompt anglais → image de l'objet (Z-Image-Turbo, 1024×1024, fond blanc) dans data/3d/images/.
     Renvoie (image, graine de l'image, message)."""

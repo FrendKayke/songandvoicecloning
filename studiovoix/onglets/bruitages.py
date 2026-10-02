@@ -55,7 +55,8 @@ def brancher(c, demo, o):
     # Bruitages
     c.sfx_exemples.change(lambda v: v or "", c.sfx_exemples, c.sfx_prompt)
     c.btn_sfx_prep.click(bruitages.preparer, [c.sfx_texte, c.sfx_image], c.sfx_prompt)
-    c.btn_sfx.click(bruitages.generer,
+    c.btn_sfx.click(bruitages.prompt_pret, [c.sfx_texte, c.sfx_image, c.sfx_prompt], c.sfx_prompt).success(
+        bruitages.generer,
                   [c.sfx_prompt, c.sfx_nom, c.sfx_duree, c.sfx_variantes, c.sfx_graine, c.sfx_etapes, c.sfx_image, c.sfx_texte,
                    c.sfx_projet],
                   [c.sfx_statut, c.sfx_liste, c.sfx_audio, c.sfx_dossier])

@@ -68,7 +68,10 @@ def traiter(image, action_label, echelle_label, rapide, visages, force, fond_lab
         reglages.update(echelle=echelle, rapide=bool(rapide), visages=bool(visages), force=float(force))
         res = diffusion.ameliorer(originale, sortie, echelle, rapide, visages, force, progress=progress)
         visages_msg = (f", {res['visages']} visage(s) restauré(s)" if visages else "")
-        msg = f"✅ Photo améliorée : {res['largeur']}×{res['hauteur']}{visages_msg}."
+        obtenue = res.get("echelle_obtenue", echelle)
+        limite = (f" (agrandie ×{obtenue:.2f}".replace(".", ",") + f" au lieu de ×{echelle} : 8192 pixels de côté au "
+                  "plus)" if obtenue < echelle else "")
+        msg = f"✅ Photo améliorée : {res['largeur']}×{res['hauteur']}{limite}{visages_msg}."
         fichiers = [str(sortie)]
     else:
         fond = FONDS.get(fond_label)

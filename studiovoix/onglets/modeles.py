@@ -32,6 +32,11 @@ def construire():
             btn_gpu_stop = gr.Button("⏹️ Arrêter ACE-Step maintenant")
             btn_gpu_maj = gr.Button("🔄 État du serveur")
         gpu_msg = gr.Markdown()
+        with gr.Row():
+            btn_gpu_mesure = gr.Button("📈 Mesurer la carte graphique pendant 1 minute")
+            gr.Markdown("Lance une génération dans un autre onglet, puis clique ici : l'utilisation réelle de la "
+                        "carte s'affiche en direct (mesures de nvidia-smi).")
+        gpu_mesure = gr.Markdown()
     with gr.Accordion("🩺 Diagnostic (si quelque chose ne marche pas)", open=False):
         gr.Markdown(
             "**Diagnostic rapide** (moins d'une minute) : carte graphique, espace disque, chaque moteur "
@@ -86,6 +91,7 @@ def brancher(c, demo, o):
     c.btn_essai.click(diagnostic.complet, None, [c.diag_rapport, c.diag_fichier])
     c.btn_gpu_stop.click(serveur_acestep.arreter_depuis_interface, None, c.gpu_etat)
     c.btn_gpu_maj.click(serveur_acestep.etat, None, c.gpu_etat)
+    c.btn_gpu_mesure.click(diagnostic.surveiller_gpu, None, c.gpu_mesure)
     for b, fn in ((c.b_ace, acestep.download), (c.b_sv, seedvc.download), (c.b_dm, demucs.download),
                   (c.b_cb, chatterbox.download), (c.b_nt, nettoyage.download), (c.b_rvc, rvc.download),
                   (c.b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "zimage", "personnages", "photo_detourage", "photo_qualite"])),

@@ -64,6 +64,12 @@ def preparer(description, progress=gr.Progress()):
     return diffusion.decrire("video", description, progress=progress)
 
 
+def prompt_pret(description, prompt, progress=gr.Progress()):
+    """« Générer » sans avoir préparé le prompt (constaté : erreur « Il manque le prompt ») : le prompt anglais est
+    préparé d'abord depuis la description, puis affiché ; un prompt déjà là (préparé ou retouché) est gardé."""
+    return (prompt or "").strip() or preparer(description, progress=progress)
+
+
 def generer(prompt, image, format_label, duree_label, etapes, graine, nom="", description_fr=None,
             progress=gr.Progress()):
     """Génère la vidéo. Renvoie (message, vidéo, dossier)."""

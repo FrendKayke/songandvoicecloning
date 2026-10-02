@@ -35,7 +35,17 @@ def construire():
                                        allow_custom_value=True)
         with gr.Column():
             btn_ill_prep = gr.Button("🧠 Préparer le prompt (traduction et précision)")
-            ill_prompt = gr.Textbox(label="Scène envoyée à Z-Image (anglais, modifiable)", lines=4)
+            ill_prompt = gr.Textbox(label="Scène envoyée au générateur d'images (anglais, modifiable)", lines=4)
+    with gr.Accordion("📷 Photo modèle (facultative) : une personne, un objet ou une pose à reprendre", open=False):
+        gr.Markdown("Envoie une photo : la personne ou l'objet qu'elle montre devient le sujet de la carte, redessiné "
+                    "dans le style du projet (même visage, mêmes traits), ou bien la carte reprend sa pose et son "
+                    "cadrage. Décris quand même la scène ci-dessus (décor, action). La carte est alors peinte par "
+                    "FLUX.2 klein 4B. Avec un personnage choisi plus bas, la photo ne sert qu'à la pose. "
+                    "N'utilise que des photos que tu as le droit d'utiliser (toi, tes objets, des modèles d'accord).")
+        with gr.Row():
+            ill_photo = gr.Image(type="filepath", label="Photo modèle", height=300)
+            ill_usage_photo = gr.Radio(list(cartes.USAGES_PHOTO), value=cartes.USAGE_PHOTO_DEFAUT,
+                                       label="Ce que la carte reprend de la photo")
     with gr.Row():
         ill_nom = gr.Textbox(label="Nom de la carte", value="carte")
         ill_variantes = gr.Radio([1, 2, 3, 4], value=2, label="Variantes")
@@ -112,9 +122,9 @@ def brancher(c, demo, o):
         lambda p: gr.update(choices=personnages.liste(p)), c.ill_projet, c.perso_nom)
     c.ill_exemples.change(lambda v: v or "", c.ill_exemples, c.ill_texte)
     c.btn_ill_prep.click(cartes.preparer, c.ill_texte, c.ill_prompt)
-    c.btn_ill.click(cartes.generer,
+    c.btn_ill.click(cartes.prompt_pret, [c.ill_texte, c.ill_prompt], c.ill_prompt).success(cartes.generer,
                   [c.ill_projet, c.ill_nom, c.ill_prompt, c.ill_styles, c.ill_consignes, c.ill_format, c.ill_variantes, c.ill_graine,
-                   c.ill_webp, c.ill_texte, c.ill_personnage],
+                   c.ill_webp, c.ill_texte, c.ill_personnage, c.ill_photo, c.ill_usage_photo],
                   [c.ill_statut, c.ill_galerie, c.ill_dossier, c.ill_projet])
     c.btn_ill_dossier.click(lambda d: open_folder(d) if d else None, c.ill_dossier)
     c.ill_galerie.select(cartes.choisir, c.ill_dossier, [c.ill_choix_msg, c.cc_illustration]).then(

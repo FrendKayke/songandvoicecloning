@@ -72,6 +72,7 @@ def brancher(c, demo, o):
                   c.m3_img_graine_ok, c.m3_projet],
                  [c.m3_statut, c.m3_vue, c.m3_detouree, c.m3_fichiers, c.m3_dossier])
     c.btn_m3_prep.click(modele3d.preparer_prompt, c.m3_texte, c.m3_prompt)
-    c.btn_m3_image.click(modele3d.generer_image, [c.m3_prompt, c.m3_img_graine], [c.m3_image, c.m3_img_graine_ok, c.m3_img_msg])
+    c.btn_m3_image.click(modele3d.prompt_pret, [c.m3_texte, c.m3_prompt], c.m3_prompt).success(
+        modele3d.generer_image, [c.m3_prompt, c.m3_img_graine], [c.m3_image, c.m3_img_graine_ok, c.m3_img_msg])
     c.m3_image.upload(lambda: None, None, c.m3_img_graine_ok)  # image importée : la o.chanson.graine de l'image générée ne vaut plus
     c.btn_m3_dossier.click(lambda d: open_folder(d) if d else None, c.m3_dossier)

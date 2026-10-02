@@ -14,6 +14,7 @@ import os
 import platform
 import shutil
 import subprocess
+import threading
 import time
 import traceback
 from datetime import datetime
@@ -57,6 +58,92 @@ def carte_graphique():
         return f"{nom}, pilote {pilote}, mémoire {int(utilisee) / 1024:.1f} / {int(totale) / 1024:.1f} Go"
     except (OSError, IndexError, ValueError, subprocess.SubprocessError):
         return None
+
+
+def _mesure_gpu():
+    """(utilisation %, mémoire utilisée en Go, puissance en W ou None) d'après nvidia-smi, ou None."""
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,power.draw",
+                            "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10)
+        util, memoire, puissance = [x.strip() for x in r.stdout.splitlines()[0].split(",")]
+        try:
+            watts = float(puissance)
+        except ValueError:  # « [N/A] » sur certaines cartes
+            watts = None
+        return float(util), float(memoire) / 1024, watts
+    except (OSError, IndexError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+class SuiviGPU:
+    """Pendant une étape, relève chaque seconde l'utilisation de la carte graphique (nvidia-smi) : le Gestionnaire
+    des tâches de Windows affiche par défaut le graphe « 3D », qui reste presque à zéro pendant un calcul CUDA ;
+    ces mesures disent si la carte travaille vraiment (et où l'attente se fait : chargement, processeur…)."""
+
+    def __init__(self, periode=1.0):
+        self.periode, self.mesures = periode, []
+        self._fin = threading.Event()
+        self._fil = None
+
+    def __enter__(self):
+        if shutil.which("nvidia-smi"):
+            self._fil = threading.Thread(target=self._boucle, daemon=True)
+            self._fil.start()
+        return self
+
+    def _boucle(self):
+        while not self._fin.wait(self.periode):
+            m = _mesure_gpu()
+            if m:
+                self.mesures.append(m)
+
+    def __exit__(self, *exc):
+        self._fin.set()
+        if self._fil:
+            self._fil.join(timeout=15)
+        return False
+
+    def resume(self):
+        """« GPU 85 % en moyenne (pointe 100 %, occupé > 50 % : 90 % du temps), mémoire jusqu'à 10.2 Go, 190 W
+        au plus », ou "" sans mesure."""
+        if not self.mesures:
+            return ""
+        utils = [u for u, _, _ in self.mesures]
+        occupe = sum(u > 50 for u in utils) / len(utils)
+        watts = [w for _, _, w in self.mesures if w is not None]
+        return (f"GPU {sum(utils) / len(utils):.0f} % en moyenne (pointe {max(utils):.0f} %, occupé à plus de 50 % "
+                f"{occupe:.0%} du temps), mémoire jusqu'à {max(m for _, m, _ in self.mesures):.1f} Go"
+                + (f", {max(watts):.0f} W au plus" if watts else ""))
+
+
+def surveiller_gpu(duree=60, periode=2.0, attendre=time.sleep):
+    """Générateur (bouton de l'onglet Modèles) : utilisation de la carte graphique en direct pendant `duree` s,
+    pendant qu'une génération tourne dans un autre onglet."""
+    if not shutil.which("nvidia-smi"):
+        yield "❌ nvidia-smi introuvable : le pilote NVIDIA n'est pas installé ou pas dans le PATH."
+        return
+    suivi = SuiviGPU()
+    debut = time.monotonic()
+    while time.monotonic() - debut < duree:
+        m = _mesure_gpu()
+        if m:
+            suivi.mesures.append(m)
+            util, memoire, watts = m
+            barre = "█" * round(util / 5) + "░" * (20 - round(util / 5))
+            yield (f"**Maintenant** : `{barre}` {util:.0f} % · mémoire {memoire:.1f} Go"
+                   + (f" · {watts:.0f} W" if watts is not None else "")
+                   + f"\n\n**Depuis le début** ({len(suivi.mesures)} mesures) : {suivi.resume()}"
+                   + f"\n\n⏳ Encore {duree - (time.monotonic() - debut):.0f} s…")
+        attendre(periode)
+    yield (f"**Bilan sur {duree} s** : {suivi.resume() or 'aucune mesure'}\n\n" + CONSEIL_GPU)
+
+
+CONSEIL_GPU = (
+    "*À savoir :* le Gestionnaire des tâches de Windows affiche par défaut le graphe « 3D », qui reste presque à "
+    "zéro pendant un calcul d'intelligence artificielle (CUDA) : dans Performances → GPU, clique sur le titre d'un "
+    "graphe et choisis « Cuda » (ou « Compute_0 »). Une utilisation qui retombe régulièrement est normale pendant "
+    "les chargements et les transferts : avec 12 Go, les gros modèles (encodeurs de texte de 8 à 11 Go) passent "
+    "tour à tour sur la carte. Pendant la génération proprement dite, elle doit dépasser 90 %.")
 
 
 def sonde(python):
@@ -275,8 +362,10 @@ def complet():
                 yield r.texte() + "\n\n⏳ Essais en cours…", None
                 continue
             t0 = time.time()
+            suivi = SuiviGPU()
             try:
-                detail = fonction()
+                with suivi:
+                    detail = fonction()
                 ok = True
             except gr.Error as e:
                 ok, detail = False, str(getattr(e, "message", e))[:800]
@@ -284,8 +373,9 @@ def complet():
                 ok = False
                 detail = f"{type(e).__name__} : {e}\n```\n{''.join(traceback.format_exc().splitlines(True)[-6:])}```"
             gpu = carte_graphique()
-            r.ligne(ok, nom, f"{detail} — {time.time() - t0:.0f} s" + (f" — après : {gpu.split('mémoire ')[-1]}"
-                                                                         if gpu else ""))
+            r.ligne(ok, nom, f"{detail} — {time.time() - t0:.0f} s" + (f" — pendant : {suivi.resume()}"
+                                                                         if suivi.resume() else "")
+                    + (f" — après : {gpu.split('mémoire ')[-1]}" if gpu else ""))
             yield r.texte() + "\n\n⏳ Essais en cours…", None
     fichier = r.enregistrer(d)
     yield (r.texte() + f"\n\nRapport et fichiers produits dans `{d}` : envoie `rapport.txt` pour un dépannage.",

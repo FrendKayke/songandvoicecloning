@@ -151,6 +151,7 @@ def details(chemin, version=1):
     if infos["type"] == "carte":
         lignes.append(f"Projet **{infos.get('projet')}**, carte **{infos.get('nom')}**, {infos.get('largeur')}×"
                       f"{infos.get('hauteur')}" + (f", personnage **{infos['personnage']}**" if infos.get("personnage") else "")
+                      + (", d'après une photo modèle" if infos.get("photo_modele") else "")
                       + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
     if infos["type"] == "photo":
         r = infos.get("reglages") or {}
@@ -275,7 +276,9 @@ def recreer(chemin, version=1, progress=gr.Progress()):
         _, _, dossier, _ = cartes.generer(infos.get("projet"), infos.get("nom"), infos.get("description"),
                                           infos.get("styles"), infos.get("consignes"), infos.get("format"), 1, graine,
                                           infos.get("webp", True), infos.get("description_fr"),
-                                          personnage=infos.get("personnage"), progress=progress)
+                                          personnage=infos.get("personnage"),
+                                          photo=str(Path(chemin) / infos["photo_modele"]) if infos.get("photo_modele") else None,
+                                          usage_photo=infos.get("usage_photo") or "sujet", progress=progress)
         return f"✅ Illustration recréée avec la graine {graine}.", dossier
     if infos["type"] == "video":
         from . import videos

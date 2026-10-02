@@ -594,3 +594,82 @@ def test_reprises_apres_coupure_reseau():
     with pytest.raises(requests.exceptions.ChunkedEncodingError):  # coupures sans fin : abandon après 6 essais
         moteur._avec_reprises(coupure, "x", pause=pauses.append)
     assert pauses == [5, 10, 5, 10, 20, 40, 60]
+
+
+def test_photo_modele_pour_les_cartes(faux_diffusion):
+    from PIL import Image
+
+    from studiovoix import cartes, galerie, personnages
+
+    photo = cfg.DATA_DIR.parent / "moi.jpg"
+    Image.new("RGB", (300, 400), (90, 60, 40)).save(photo)
+    with pytest.raises(gr.Error, match="introuvable"):
+        cartes.generer("Mon Jeu", "x", "a scene", [], "", None, 1, 0, photo=str(photo) + "x", progress=no_progress)
+    # sujet de la photo → FLUX.2 klein avec la photo (copiée dans la création) comme seule référence
+    msg, _, dossier, _ = cartes.generer("Mon Jeu", "Paladin", "a paladin on a castle wall", ["oil painting"], "", None,
+                                        1, 5, photo=str(photo), progress=no_progress)
+    j = _journal()[-1]
+    assert j["action"] == "personnage" and [Path(r).name for r in j["tache"]["references"]] == ["photo_modele.jpg"]
+    assert Path(j["tache"]["references"][0]).parent == Path(dossier)
+    assert cartes.PHOTO_SUJET in j["tache"]["prompt"] and "d'après le sujet de la photo modèle" in msg
+    infos = galerie.lire(dossier)
+    assert infos["photo_modele"] == "photo_modele.jpg" and infos["usage_photo"] == "sujet"
+    assert "d'après une photo modèle" in galerie.details(dossier)[0]
+    # recréation : même photo (la copie), même usage
+    galerie.recreer(dossier, progress=no_progress)
+    j = _journal()[-1]
+    assert j["action"] == "personnage" and cartes.PHOTO_SUJET in j["tache"]["prompt"]
+    # composition, et avec un personnage : la photo s'ajoute après ses références et ne sert qu'à la pose
+    cartes.generer("Mon Jeu", "x", "a scene", [], "", None, 1, 0, photo=str(photo),
+                   usage_photo="Garder la composition de la photo (pose, cadrage)", progress=no_progress)
+    assert cartes.PHOTO_COMPOSITION in _journal()[-1]["tache"]["prompt"]
+    refs = [cfg.DATA_DIR.parent / f"r{i}.png" for i in range(4)]
+    for r in refs:
+        Image.new("RGB", (64, 64)).save(r)
+    personnages.ajouter("Mon Jeu", "Héros", [str(r) for r in refs])
+    cartes.generer("Mon Jeu", "x", "a scene", [], "", None, 1, 0, personnage="Héros", photo=str(photo),
+                   progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert [Path(r).name for r in t["references"]] == ["ref_1.png", "ref_2.png", "ref_3.png", "photo_modele.jpg"]
+    assert cartes.MEME_PERSONNAGE in t["prompt"] and cartes.PHOTO_COMPOSITION in t["prompt"]
+    assert cartes.PHOTO_SUJET not in t["prompt"]
+    # sans photo ni personnage : Z-Image-Turbo, comme avant
+    cartes.generer("Mon Jeu", "x", "a scene", [], "", None, 1, 0, progress=no_progress)
+    assert _journal()[-1]["action"] == "image"
+
+
+def test_prompt_prepare_automatiquement(faux_diffusion):
+    """« Générer » sans « Préparer le prompt » (constaté : « Il manque le prompt ») : le prompt est préparé d'abord ;
+    un prompt déjà là n'est jamais remplacé."""
+    from studiovoix import bruitages, cartes, modele3d, videos
+
+    n = len(_journal()) if (cfg.DATA_DIR.parent / "journal.jsonl").exists() else 0
+    assert videos.prompt_pret("un dragon s'envole", " ", progress=no_progress) == "a red potion bottle"
+    assert _journal()[-1]["tache"] == {"mode": "video", "texte": "un dragon s'envole"}
+    assert cartes.prompt_pret("un chevalier", "", progress=no_progress) == "a red potion bottle"
+    assert _journal()[-1]["tache"]["mode"] == "carte"
+    assert bruitages.prompt_pret("une porte qui grince", None, None, progress=no_progress).startswith("wooden door")
+    assert modele3d.prompt_pret("une potion", "", progress=no_progress) == "a red potion bottle"
+    nb = len(_journal())
+    assert nb == n + 4
+    # prompt déjà préparé ou retouché : gardé tel quel, sans appel au moteur
+    assert videos.prompt_pret("autre chose", " my own prompt ", progress=no_progress) == "my own prompt"
+    assert cartes.prompt_pret("", "kept", progress=no_progress) == "kept"
+    assert len(_journal()) == nb
+    with pytest.raises(gr.Error, match="Décris la vidéo"):
+        videos.prompt_pret("", "", progress=no_progress)
+
+
+def test_grande_photo_agrandie_dans_la_limite(faux_diffusion, monkeypatch):
+    from PIL import Image
+
+    from studiovoix import photos
+
+    source = cfg.DATA_DIR.parent / "appareil.jpg"
+    Image.new("RGB", (60, 90), (1, 2, 3)).save(source)
+    # le moteur a limité l'agrandissement (photo de 24 Mpx : ×2 donnerait 6912×10368) : le message le dit
+    monkeypatch.setattr(diffusion, "ameliorer", lambda *a, **k: {"sortie": a[1], "largeur": 5461, "hauteur": 8192,
+                                                                "visages": 0, "echelle_obtenue": 1.58})
+    msg = photos.traiter(str(source), photos.ACTION_DEFAUT, "×2", False, False, 0.7, photos.FOND_DEFAUT, None,
+                         progress=no_progress)[0]
+    assert "5461×8192 (agrandie ×1,58 au lieu de ×2 : 8192 pixels de côté au plus)" in msg

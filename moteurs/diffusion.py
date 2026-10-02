@@ -291,10 +291,21 @@ def image(chemin_tache):
         pipe.enable_model_cpu_offload()  # encodeur de texte (8 Go) puis transformeur (7 Go) passent tour à tour
     else:
         pipe = pipe.to(device)
-    options = {"prompt": t["prompt"]}
     if sans_encodeur:  # test sans les 8 Go de l'encodeur : plongements de la bonne dimension
         options = {"prompt_embeds": [torch.randn(24, pipe.transformer.config.cap_feat_dim, dtype=dtype)]}
+    else:
+        options = {"prompt_embeds": _encoder_une_fois(pipe, t["prompt"], do_classifier_free_guidance=False)}
     _generer(pipe, t, dict(options, guidance_scale=0.0), etapes=9)
+
+
+def _encoder_une_fois(pipe, prompt, **options):
+    """Le texte est encodé une seule fois pour toutes les variantes. Sinon, sur 12 Go (déchargement vers la mémoire
+    vive), chaque variante recharge l'encodeur (8 Go) puis le transformeur sur la carte : la carte attend les
+    transferts au lieu de calculer."""
+    import torch
+
+    with torch.no_grad():
+        return pipe.encode_prompt(prompt=prompt, device=pipe._execution_device, **options)[0]
 
 
 def _generer(pipe, t, options, etapes):
@@ -360,9 +371,10 @@ def personnage(chemin_tache):
         pipe.enable_model_cpu_offload()  # encodeur de texte (8 Go) puis transformeur (4 Go) passent tour à tour
     else:
         pipe = pipe.to(device)
-    options = {"prompt": t["prompt"]}
     if sans_encodeur:  # 3 couches cachées de l'encodeur mises bout à bout
         options = {"prompt_embeds": torch.randn(1, 24, pipe.transformer.config.joint_attention_dim, dtype=dtype)}
+    else:
+        options = {"prompt_embeds": _encoder_une_fois(pipe, t["prompt"])}
     print(f"{len(references)} image(s) de référence du personnage.", flush=True)
     _generer(pipe, t, dict(options, image=references, guidance_scale=1.0), etapes=4)
 
@@ -676,6 +688,9 @@ def _restaurer_visages(bgr, dossier, device, force=0.7, cote_min=48):
     return bgr, len(visages)
 
 
+COTE_MAX = 8192  # côté le plus long d'une photo améliorée (fichier et affichage raisonnables)
+
+
 def ameliorer(chemin_tache):
     """Tâche : {entree, sortie, echelle: 1 | 2 | 4, rapide: bool, visages: bool, force: 0–1}.
     Real-ESRGAN x4plus (x2plus pour ×2 ; general-x4v3, 5 Mo, en mode rapide) par tuiles, puis réduction à la
@@ -691,10 +706,10 @@ def ameliorer(chemin_tache):
     echelle = int(t.get("echelle", 2))
     device = _device()
     image, alpha = _ouvrir_photo(t["entree"])
-    largeur, hauteur = image.width * echelle, image.height * echelle
-    if max(largeur, hauteur) > 8192:
-        _erreur(f"image trop grande pour ×{echelle} ({largeur}×{hauteur} ; 8192 pixels de côté au plus) : "
-                "choisis un agrandissement plus petit.")
+    # Grande photo (24 Mpx d'un appareil récent : ×2 donnerait 6912×10368, constaté) : agrandissement réduit pour
+    # rester sous COTE_MAX de côté au lieu d'un refus ; le message le signale (« echelle_obtenue »).
+    facteur = min(float(echelle), COTE_MAX / max(image.width, image.height))
+    largeur, hauteur = round(image.width * facteur), round(image.height * facteur)
     nom = ("realesr-general-x4v3.pth" if t.get("rapide")
            else "RealESRGAN_x2plus.pth" if echelle == 2 else "RealESRGAN_x4plus.pth")
     etapes = 3 if t.get("visages") else 2
@@ -703,7 +718,9 @@ def ameliorer(chemin_tache):
     if device == "cuda" and modele.supports_half:
         modele.half()
     print(f"PROGRESSION 2/{etapes} agrandissement ({image.width}×{image.height} → {largeur}×{hauteur})", flush=True)
-    sortie = _memoire(_par_tuiles)(modele, np.asarray(image, np.float32) / 255.0)
+    # Tuiles de 1024 px sur la carte (512 → 4 fois plus de passes, carte sous-employée ; ~2 Go en fp16 pour
+    # x4plus), 512 sur le processeur
+    sortie = _memoire(_par_tuiles)(modele, np.asarray(image, np.float32) / 255.0, 1024 if device == "cuda" else 512)
     _liberer(modele)
     sortie = (np.clip(sortie, 0, 1) * 255).round().astype(np.uint8)
     if sortie.shape[1] != largeur or sortie.shape[0] != hauteur:
@@ -720,7 +737,7 @@ def ameliorer(chemin_tache):
     Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True)
     resultat.save(t["sortie"])
     _resultat({"sortie": t["sortie"], "largeur": largeur, "hauteur": hauteur, "visages": nb_visages,
-               "modele": nom})
+               "modele": nom, "echelle_obtenue": round(facteur, 2)})
     print(f"TERMINE {t['sortie']}", flush=True)
 
 

@@ -103,3 +103,26 @@ def test_essai_sans_voix(env, monkeypatch):
         raise AssertionError("une erreur était attendue")
     except gr.Error as e:
         assert "aucune voix" in str(getattr(e, "message", e))
+
+
+def test_mesure_de_la_carte_graphique(monkeypatch):
+    mesures = iter([(10.0, 2.0, 60.0), (95.0, 9.5, 190.0), (100.0, 10.2, None), (98.0, 10.0, 185.0)] * 50)
+    monkeypatch.setattr(diagnostic.shutil, "which", lambda nom: "nvidia-smi")
+    monkeypatch.setattr(diagnostic, "_mesure_gpu", lambda: next(mesures))
+    suivi = diagnostic.SuiviGPU(periode=0.01)
+    with suivi:
+        import time
+        time.sleep(0.2)
+    assert len(suivi.mesures) >= 4
+    suivi.mesures = suivi.mesures[:4]
+    assert suivi.resume() == ("GPU 76 % en moyenne (pointe 100 %, occupé à plus de 50 % 75% du temps), mémoire "
+                              "jusqu'à 10.2 Go, 190 W au plus")
+    assert diagnostic.SuiviGPU().resume() == ""
+    # en direct : une ligne par mesure, puis le bilan et le conseil (graphe « Cuda » du Gestionnaire des tâches)
+    horloge = iter(range(0, 1000, 2))
+    monkeypatch.setattr(diagnostic.time, "monotonic", lambda: next(horloge))
+    etats = list(diagnostic.surveiller_gpu(duree=6, attendre=lambda s: None))
+    assert "**Maintenant**" in etats[0] and "%" in etats[0] and "Bilan sur 6 s" in etats[-1]
+    assert "Cuda" in etats[-1]
+    monkeypatch.setattr(diagnostic.shutil, "which", lambda nom: None)
+    assert "nvidia-smi introuvable" in next(diagnostic.surveiller_gpu())
