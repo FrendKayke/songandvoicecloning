@@ -875,6 +875,49 @@ def _sha256(chemin):
     return h.hexdigest()
 
 
+REPRISES = 6  # essais par dépôt ou fichier en cas de coupure réseau
+
+
+def _erreur_reseau(e):
+    """Vrai pour une coupure ou un délai réseau, ou une erreur 5xx du serveur ; jamais pour un refus d'accès (401,
+    dépôt soumis à licence) ni une erreur de nos fichiers."""
+    import http.client
+    import urllib.error
+
+    import requests
+    import urllib3
+
+    while e is not None:
+        reponse = getattr(e, "response", None)
+        statut = getattr(reponse, "status_code", None) or getattr(e, "code", None)
+        if isinstance(statut, int):
+            return statut >= 500
+        if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError,
+                          requests.exceptions.Timeout, urllib3.exceptions.HTTPError, http.client.HTTPException,
+                          urllib.error.URLError, ConnectionError, TimeoutError)):
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
+
+def _avec_reprises(action, quoi, essais=REPRISES, pause=None):
+    """Relance action() après une coupure réseau : huggingface_hub reprend un fichier partiel (.incomplete) là où
+    il s'était arrêté (constaté chez l'utilisateur : coupure au milieu du VAE de Wan, 2,8 Go)."""
+    import time
+
+    pause = pause or time.sleep
+    for n in range(1, essais + 1):
+        try:
+            return action()
+        except Exception as e:  # noqa: BLE001 - seules les erreurs réseau sont rattrapées, les autres repartent
+            if n == essais or not _erreur_reseau(e):
+                raise
+            attente = min(60, 5 * 2 ** (n - 1))
+            print(f"Connexion interrompue pendant le téléchargement de {quoi} ({type(e).__name__}) : reprise dans "
+                  f"{attente} s, là où il s'était arrêté (essai {n + 1}/{essais}).", flush=True)
+            pause(attente)
+
+
 def _telecharger_fichiers(noms):
     """Poids des photos (GitHub) dans _dossier_photos(), via un fichier .part : un téléchargement interrompu ne
     laisse jamais un fichier tronqué sous le vrai nom ; empreinte SHA-256 vérifiée."""
@@ -890,8 +933,12 @@ def _telecharger_fichiers(noms):
             continue
         print(f"Téléchargement de {nom}…", flush=True)
         partiel = cible.with_name(nom + ".part")
-        with urllib.request.urlopen(url, timeout=60) as r, open(partiel, "wb") as f:
-            shutil.copyfileobj(r, f, 1 << 20)
+
+        def recuperer():
+            with urllib.request.urlopen(url, timeout=60) as r, open(partiel, "wb") as f:
+                shutil.copyfileobj(r, f, 1 << 20)
+
+        _avec_reprises(recuperer, nom)
         if _sha256(partiel) != empreinte:
             partiel.unlink()
             _erreur(f"{nom} : fichier téléchargé corrompu (empreinte SHA-256 différente). Relance le téléchargement.")
@@ -930,7 +977,7 @@ def telecharger(noms):
             continue
         _tester_liens(repo)
         try:
-            snapshot_download(repo, allow_patterns=motifs, revision=REVISIONS.get(repo))
+            _avec_reprises(lambda: snapshot_download(repo, allow_patterns=motifs, revision=REVISIONS.get(repo)), repo)
         except Exception as e:
             if nom == "bruitages" and any(k in str(e) for k in ("401", "403", "gated", "Access")):
                 _erreur("accès refusé à Stable Audio Open : accepte la licence sur "

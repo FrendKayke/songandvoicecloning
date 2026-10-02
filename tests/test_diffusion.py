@@ -550,3 +550,47 @@ def test_essai_des_liens_avant_telechargement(tmp_path, monkeypatch):
     assert moteur._tester_liens("ZhengPeng7/BiRefNet_HR-matting") is False
     dossier = str((tmp_path / "models--ZhengPeng7--BiRefNet_HR-matting").resolve())
     assert fd._are_symlinks_supported_in_dir[dossier] is False  # les fils de snapshot_download liront « non »
+
+
+def test_reprises_apres_coupure_reseau():
+    """Coupure constatée chez l'utilisateur (VAE de Wan) : ChunkedEncodingError causée par une ProtocolError ;
+    le téléchargement est relancé (huggingface_hub reprend le fichier partiel), jamais un refus d'accès."""
+    import requests
+    import urllib3
+
+    def coupure():
+        try:
+            raise urllib3.exceptions.ProtocolError("Connection broken: IncompleteRead")
+        except urllib3.exceptions.ProtocolError as e:
+            raise requests.exceptions.ChunkedEncodingError(e) from e
+
+    def http(statut):
+        reponse = requests.models.Response()
+        reponse.status_code = statut
+        return requests.exceptions.HTTPError(response=reponse)
+
+    for exc in (requests.exceptions.ConnectionError(), TimeoutError(), http(503)):
+        assert moteur._erreur_reseau(exc)
+    for exc in (http(401), http(404), ValueError("fichier corrompu"), KeyError("x")):
+        assert not moteur._erreur_reseau(exc)
+    try:
+        coupure()
+    except Exception as e:  # noqa: BLE001
+        assert moteur._erreur_reseau(e)
+
+    essais, pauses = [], []
+
+    def deux_coupures():
+        essais.append(1)
+        if len(essais) <= 2:
+            coupure()
+        return "fini"
+
+    assert moteur._avec_reprises(deux_coupures, "vae", pause=pauses.append) == "fini"
+    assert len(essais) == 3 and pauses == [5, 10]
+    with pytest.raises(requests.exceptions.HTTPError):  # refus d'accès : pas de nouvel essai
+        moteur._avec_reprises(lambda: (_ for _ in ()).throw(http(401)), "x", pause=pauses.append)
+    assert pauses == [5, 10]
+    with pytest.raises(requests.exceptions.ChunkedEncodingError):  # coupures sans fin : abandon après 6 essais
+        moteur._avec_reprises(coupure, "x", pause=pauses.append)
+    assert pauses == [5, 10, 5, 10, 20, 40, 60]
