@@ -32,6 +32,12 @@ GENRES = [
     ("Metal", "heavy metal"),
     ("Punk", "punk rock"),
     ("Folk", "folk"),
+    # Musique ancienne : description positive seulement (une négation ajoute l'instrument chez ACE-Step) ;
+    # « medieval » seul est trop vague et retombait sur une production pop (basse et batterie, constaté)
+    ("Médiéval / musique ancienne", "medieval folk music, early music, acoustic period instruments, lute, "
+                                    "hurdy-gurdy, recorder flute, frame drum"),
+    ("Chanson de taverne", "medieval tavern drinking song, rowdy folk sing-along, acoustic, hand claps"),
+    ("Celtique", "celtic folk, bodhran, tin whistle, fiddle"),
     ("Country", "country"),
     ("Classique / orchestral", "classical, orchestral"),
     ("Musique de film", "cinematic film score"),
@@ -65,6 +71,7 @@ STYLES = [
     ("Son de console de jeu (8-bit)", "NES sound chip, square wave, bitcrushed"),
     ("Son années 80 synthétique", "80s synth-pop sound"),
     ("Chambre (intime)", "bedroom pop, intimate"),
+    ("Médiéval (instruments d'époque)", "medieval renaissance style, period acoustic instruments, unplugged ensemble"),
 ]
 
 INSTRUMENTS = [
@@ -97,6 +104,15 @@ INSTRUMENTS = [
     ("Banjo", "banjo"),
     ("Harmonica", "harmonica"),
     ("Chœurs", "choir"),
+    ("Luth", "lute"),
+    ("Vielle à roue", "hurdy-gurdy"),
+    ("Cornemuse", "bagpipes"),
+    ("Flûte à bec", "recorder flute"),
+    ("Chalemie", "shawm"),
+    ("Tambour sur cadre / tambourin", "frame drum, tambourine"),
+    ("Mandoline", "mandolin"),
+    ("Violon folk", "folk fiddle"),
+    ("Harpe celtique", "celtic harp"),
 ]
 
 AMBIANCES = [
@@ -118,6 +134,7 @@ AMBIANCES = [
     ("Agressive", "aggressive"),
     ("Lumineuse / optimiste", "bright, uplifting"),
     ("Humoristique", "playful, humorous"),
+    ("Taverne festive", "rowdy tavern atmosphere, sing-along, hand claps, foot stomping"),
 ]
 
 CONSIGNES = [
@@ -141,6 +158,49 @@ CONSIGNES = [
 ]
 
 LISTES = {"genre": GENRES, "style": STYLES, "instruments": INSTRUMENTS, "ambiance": AMBIANCES, "extra": CONSIGNES}
+
+
+def _normal(texte_):
+    """minuscules, sans accents ni ponctuation, espaces simples : « Médiévale ! » → « medievale »."""
+    import re
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", texte_ or "").encode("ascii", "ignore").decode().lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", t).split())
+
+
+# Saisies libres françaises courantes → termes anglais (ACE-Step comprend mal le français dans la description)
+SYNONYMES = [
+    (r"^(medi[ea]v|moyen ?age|musique (ancienne|medievale))", "medieval folk music, early music, acoustic period "
+                                                               "instruments"),
+    (r"^(taverne|chanson a boire)", "medieval tavern drinking song, rowdy folk sing-along"),
+    (r"^celt", "celtic folk"),
+    (r"^renaissance", "renaissance era early music"),
+    (r"^(baroque)", "baroque"),
+]
+
+
+def musique(selection) -> str:
+    """Comme texte(), pour la description d'ACE-Step : une saisie libre qui est un libellé du catalogue (accents et
+    majuscules ignorés) ou un synonyme français courant est remplacée par ses termes anglais."""
+    import re
+
+    if selection is None:
+        return ""
+    valeurs = [selection] if isinstance(selection, str) else list(selection)
+    libelles = {_normal(lib): termes for liste in LISTES.values() for lib, termes in liste}
+    anglais = {termes for liste in LISTES.values() for _, termes in liste}
+    sortie = []
+    for v in valeurs:
+        v = (v or "").strip()
+        if not v:
+            continue
+        if v not in anglais:
+            n = _normal(v)
+            v = libelles.get(n) or next((en for motif, en in SYNONYMES if re.search(motif, n)), v)
+        if v not in sortie:
+            sortie.append(v)
+    return ", ".join(sortie)
 
 
 def texte(selection) -> str:

@@ -12,20 +12,79 @@ import requests
 from . import config as cfg
 from . import serveur_acestep
 from .outils import has_weights, stream_command
-from .styles import texte
+from .styles import musique
 
 ACESTEP_COMPONENTS = ["acestep-v15-turbo", "vae", "Qwen3-Embedding-0.6B", "acestep-5Hz-lm-1.7B"]
 
 
 def build_prompt(genre, style, instruments, ambiance, voix_base, extra):
     """Description (« caption ») envoyée à ACE-Step. Chaque champ est un texte ou une sélection de liste."""
-    parts = [texte(genre), texte(style), texte(instruments), texte(ambiance)]
+    parts = [musique(genre), musique(style), musique(instruments), musique(ambiance)]
     if voix_base == "Voix masculine":
         parts.append("male vocals")
     elif voix_base == "Voix féminine":
         parts.append("female vocals")
-    parts.append(texte(extra))
-    return ", ".join(p.strip() for p in parts if p and p.strip())
+    parts.append(musique(extra))
+    termes = []  # un même terme demandé dans plusieurs champs (genre et ambiance « médiéval »…) n'est écrit qu'une fois
+    for t in ", ".join(p.strip() for p in parts if p and p.strip()).split(","):
+        if t.strip() and t.strip().lower() not in (x.lower() for x in termes):
+            termes.append(t.strip())
+    return ", ".join(termes)
+
+
+# Titres de section écrits en français (ou sans crochets) → balises d'ACE-Step : sans crochets, « Couplet 2 » était
+# chanté comme une parole et « Refrain » ne disait pas de reprendre le refrain (constaté)
+SECTIONS = [
+    (r"(couplet|verse|strophe)", "Verse"),
+    (r"(pre ?refrain|pre ?chorus)", "Pre-Chorus"),
+    (r"(refrain|chorus)", "Chorus"),
+    (r"(pont|bridge)", "Bridge"),
+    (r"(intro|introduction)", "Intro"),
+    (r"(outro|fin|final|conclusion)", "Outro"),
+    (r"(solo|instrumental|interlude)", "Instrumental"),
+]
+
+
+def baliser_paroles(paroles):
+    """« Couplet 2 », « Refrain : », « [Pont] »… seuls sur leur ligne → [Verse 2], [Chorus], [Bridge]. Une section
+    laissée vide (« Refrain » sans texte) reprend le texte de la dernière section du même nom."""
+    import re
+
+    from .styles import _normal
+
+    lignes, sections, courante, vues = [], {}, None, set()
+    for brute in (paroles or "").splitlines():
+        n = _normal(brute.strip().strip("[]()").rstrip(":"))
+        balise = None
+        for motif, nom in SECTIONS:
+            m = re.fullmatch(motif + r"(?: (\d+))?", n)
+            if m and len(brute.strip()) <= 40:
+                balise = nom + (f" {m.group(m.lastindex)}" if m.group(m.lastindex) and m.lastindex > 1 else "")
+                break
+        if balise:
+            _reprendre(lignes, sections, courante, vues)
+            courante, vues = balise.split(" ")[0], set()
+            lignes.append(f"[{balise}]")
+            sections.setdefault(courante, None)
+            continue
+        lignes.append(brute)
+        if courante and brute.strip():
+            vues.add(len(lignes) - 1)
+    _reprendre(lignes, sections, courante, vues)
+    return "\n".join(lignes)
+
+
+def _reprendre(lignes, sections, courante, vues):
+    """Fin d'une section : retient son texte, ou recopie celui de la précédente du même nom si elle est vide."""
+    if not courante:
+        return
+    if vues:
+        sections[courante] = [lignes[i] for i in sorted(vues)]
+    elif sections.get(courante):
+        fin = len(lignes)
+        while fin and not lignes[fin - 1].strip():  # le texte repris se place juste après la balise
+            fin -= 1
+        lignes[fin:fin] = sections[courante]
 
 
 def _unwrap(resp_json):

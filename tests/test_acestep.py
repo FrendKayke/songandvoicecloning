@@ -6,7 +6,8 @@ from studiovoix import acestep
 
 
 def test_build_prompt():
-    assert acestep.build_prompt("pop", " 80s ", "", "triste", "Voix féminine", "") == "pop, 80s, triste, female vocals"
+    # « triste » tapé à la main est le libellé de la liste des ambiances : traduit
+    assert acestep.build_prompt("pop", " 80s ", "", "triste", "Voix féminine", "") == "pop, 80s, sad, female vocals"
     assert acestep.build_prompt("rock", "", "", "", "Voix masculine", "x") == "rock, male vocals, x"
     assert acestep.build_prompt("rock", "", "", "", "Automatique", None) == "rock"
 
@@ -89,3 +90,32 @@ def test_nouvel_essai_garde_la_graine(fake_acestep, env):
     srv = fake_acestep(fail_with_thinking=True)
     acestep.generer({"prompt": "x", "thinking": True}, [env / "a.wav"], no_progress, graine=77)
     assert [p["seed"] for p in srv.payloads] == ["77", "77"]
+
+
+def test_termes_francais_traduits_pour_ace_step():
+    """« Medieval, medievaux, medievale » tapés librement donnaient une production pop (basse, batterie)."""
+    from studiovoix import styles
+
+    p = acestep.build_prompt(["Medieval"], ["medievale"], ["Luth", "vielle a roue", "bagpipes"], ["Médiéval"],
+                             "Automatique", ["raspy vocals"])
+    assert "medieval folk music, early music" in p and "lute" in p and "hurdy-gurdy" in p and "bagpipes" in p
+    assert "medievale" not in p and "Medieval," not in p
+    assert p.count("medieval folk music, early music, acoustic period instruments") == 1  # pas de doublon dans un champ
+    # un libellé du catalogue tapé à la main (accents, majuscules) → ses termes anglais ; le reste passe tel quel
+    assert styles.musique(["CHANSON DE TAVERNE", "synthwave"]).startswith("medieval tavern drinking song")
+    assert styles.musique("dark ambient drone") == "dark ambient drone"
+    assert styles.texte(["médiéval"]) == "médiéval"  # texte() reste neutre (illustrations)
+
+
+def test_titres_de_section_en_balises():
+    paroles = ("On croyait que ce s'rait banal,\n\nRefrain\nBuvons tous ensemble,\nLe roi n'en saura rien !\n\n"
+               "Couplet 2\nY avait un vieux à la flûte,\n\nRefrain\n\nCouplet 3 :\nDes Templiers en goguette,\n"
+               "[Pont]\nLa la la\n[Verse 4]\nDéjà balisé")
+    b = acestep.baliser_paroles(paroles)
+    assert b.splitlines() == [
+        "On croyait que ce s'rait banal,", "", "[Chorus]", "Buvons tous ensemble,", "Le roi n'en saura rien !", "",
+        "[Verse 2]", "Y avait un vieux à la flûte,", "", "[Chorus]", "Buvons tous ensemble,",
+        "Le roi n'en saura rien !", "", "[Verse 3]", "Des Templiers en goguette,", "[Bridge]", "La la la",
+        "[Verse 4]", "Déjà balisé"]
+    # une vraie phrase qui commence par un mot de section n'est pas touchée
+    assert acestep.baliser_paroles("Refrain de ma vie, tu chantes encore") == "Refrain de ma vie, tu chantes encore"

@@ -71,7 +71,7 @@ def creer_chanson(
         lyrics = INSTRUMENTAL
         voix_base = "Automatique"  # pas de voix : aucune consigne de voix dans le prompt
     else:
-        lyrics = (paroles or "").strip()
+        lyrics = acestep.baliser_paroles((paroles or "").strip()).strip()
         if not lyrics:
             if mode == MODE_VOIX_ACE:
                 raise gr.Error("Écris des paroles, ou choisis le mode « Instrumental ».")

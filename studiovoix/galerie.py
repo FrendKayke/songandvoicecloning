@@ -311,7 +311,8 @@ def refaire_passage(chemin, version, debut, fin, description, paroles, force_lab
     debut, fin = float(debut or 0), float(fin or 0)
     if not (0 <= debut < fin <= duree + 0.01) or fin - debut < 1:
         raise gr.Error(f"Choisis un passage d'au moins 1 s entre 0 et {duree:.1f} s (début < fin).")
-    paroles = INSTRUMENTAL if infos["type"] == "jeu" else ((paroles or "").strip() or infos.get("paroles") or INSTRUMENTAL)
+    paroles = INSTRUMENTAL if infos["type"] == "jeu" else (acestep.baliser_paroles((paroles or "").strip()).strip()
+                                                           or infos.get("paroles") or INSTRUMENTAL)
     params = {
         "task_type": "repaint", "prompt": (description or "").strip() or infos.get("description", ""),
         "lyrics": paroles, "vocal_language": cfg.LANGUES.get(infos.get("langue"), "en"),
