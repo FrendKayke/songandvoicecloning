@@ -83,7 +83,7 @@ def nettoyer(audio_path, niveau_label, progress=gr.Progress()):
     lancer_moteur(
         [cfg.NETTOYAGE_PYTHON, str(script()), str(tache)], cfg.NETTOYAGE_DIR, None, "Nettoyage",
         lambda i, n: progress(0.1 + 0.85 * (i - 1) / n, desc=f"Nettoyage de la voix : étape {i}/{n}…"),
-        attendu=sortie,
+        attendu=sortie, resident="Nettoyage",
     )
     msg = ("✅ Voix nettoyée. Écoute-la et compare avec l'original, puis choisis laquelle enregistrer."
            + ("" if niveau == "leger" else " Si l'articulation te semble moins nette, essaie le niveau « Léger »."))

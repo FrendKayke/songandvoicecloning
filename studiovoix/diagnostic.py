@@ -229,6 +229,9 @@ def moteur_lm_ace():
     except OSError:
         journal = ""
     py = f"Python {version}" if version else "Python inconnu"
+    charge = re.findall(r"LLM model loaded: (\S+)", journal)  # startup_llm_init.py d'ACE-Step
+    if charge:
+        py += f", modèle de langage {charge[-1]}"
     if "vLLM backend is unavailable" in journal:
         return False, (f"{py} : moteur lent (PyTorch), Triton absent. Lance METTRE_A_JOUR.bat : ACE-Step est "
                        "réinstallé en Python 3.11, avec le moteur rapide.")

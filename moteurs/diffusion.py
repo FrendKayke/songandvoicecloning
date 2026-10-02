@@ -17,6 +17,9 @@ Quatre modèles qui partagent la même pile (diffusers, transformers) :
     python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | personnages
                                                    | video | photo_detourage | photo_qualite | detourage
 
+    python diffusion.py --resident <secondes>      reste ouvert et reçoit ses tâches sur l'entrée standard
+                                                   (moteurs/resident.py) : les modèles chargés sont gardés (_garder)
+
 Sortie : « PROGRESSION i/n … », « RESULTAT <json> », « ERREUR : message » et « TERMINE <fichier> ».
 API vérifiées dans les dépôts : diffusers 0.39 (StableAudioPipeline.__call__, ZImagePipeline, Flux2KleinPipeline),
 Qwen3-VL (carte du modèle), Hunyuan3D-2 commit f8db630 (hy3dgen.shapegen.pipelines,
@@ -149,20 +152,110 @@ def _memoire(action):
     return enveloppe
 
 
+# --- Modèles gardés en mémoire -----------------------------------------------------------------------------
+# En mode résident (moteurs/resident.py), le script reste ouvert entre deux tâches : un modèle déjà chargé est
+# repris tel quel au lieu d'être relu sur le disque. Un seul modèle à la fois occupe la carte graphique : avant
+# d'en servir un, les autres repassent en mémoire vive (vers_cpu) ; au-delà du budget de mémoire vive, les plus
+# anciens sont libérés. Les pipelines en enable_model_cpu_offload sont déjà en mémoire vive entre deux appels.
+_CHARGES = {}  # clé → [objet, Go de mémoire vive, vers_cpu, vers_gpu] ; ordre = du moins au plus récent
+
+
+def _budget_go():
+    """Mémoire vive que les modèles gardés peuvent occuper : STUDIOVOIX_MEMOIRE_MODELES (Go), sinon la mémoire
+    de la machine moins 12 Go (système, application, navigateur) ; 20 Go sur un PC de 32 Go."""
+    try:
+        return float(os.environ["STUDIOVOIX_MEMOIRE_MODELES"])
+    except (KeyError, ValueError):
+        pass
+    try:
+        import psutil
+
+        return max(4.0, psutil.virtual_memory().total / 1e9 - 12)
+    except Exception:  # noqa: BLE001
+        return 16.0
+
+
+def _vider_cache_cuda():
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
+def _ranger(sauf=None):
+    """Les modèles gardés (sauf `sauf`) quittent la carte graphique."""
+    for cle, (objet, _, vers_cpu, _) in list(_CHARGES.items()):
+        if cle != sauf and vers_cpu:
+            vers_cpu(objet)
+    _vider_cache_cuda()
+
+
+def _faire_place(go, sauf=None):
+    """Libère les modèles gardés, du plus ancien au plus récent (`sauf` en dernier), jusqu'à ce que `go` Go de
+    plus tiennent dans le budget."""
+    ordre = [c for c in _CHARGES if c != sauf] + ([sauf] if sauf in _CHARGES else [])
+    for cle in ordre:
+        if sum(e[1] for e in _CHARGES.values()) + go <= _budget_go():
+            break
+        print(f"Mémoire vive : libération d'un modèle gardé ({cle[0]}).", flush=True)
+        del _CHARGES[cle]
+    _vider_cache_cuda()
+
+
+def _garder(cle, fabrique, go, vers_cpu=None, vers_gpu=None):
+    """L'objet de `cle` (tuple : nom du modèle puis ce qui le distingue), créé par fabrique() s'il n'est pas déjà
+    en mémoire. go : mémoire vive qu'il occupe (estimation). vers_cpu(objet) / vers_gpu(objet) : le sortir de la
+    carte graphique quand un autre modèle travaille, l'y remettre quand il resert (None : rien à faire)."""
+    if cle in _CHARGES:
+        entree = _CHARGES.pop(cle)
+        _CHARGES[cle] = entree
+        _ranger(sauf=cle)
+        if entree[3]:
+            entree[3](entree[0])
+        print(f"{cle[0]} déjà en mémoire : pas de rechargement.", flush=True)
+        return entree[0]
+    _ranger()
+    _faire_place(go)
+    objet = fabrique()
+    _CHARGES[cle] = [objet, go, vers_cpu, vers_gpu]
+    return objet
+
+
+def _oublier(cle):
+    """Retire un modèle gardé (état modifié, par exemple déchargement activé après un manque de mémoire)."""
+    _CHARGES.pop(cle, None)
+    _vider_cache_cuda()
+
+
 def _lire(chemin):
     return json.loads(Path(chemin).read_text(encoding="utf-8"))
 
 
+_HORS_LIGNE_IMPOSE = os.environ.get("HF_HUB_OFFLINE", "").lower() in ("1", "true", "yes", "on")
+
+
 def _hors_ligne_si_present(*repos):
-    """Modèles déjà téléchargés (tous les dépôts nommés) : on évite toute requête réseau (et la question du jeton)."""
-    from huggingface_hub import scan_cache_dir
+    """Modèles déjà téléchargés (tous les dépôts nommés) : aucune requête réseau (ni la question du jeton), sinon
+    chaque chargement interroge Hugging Face pour chaque fichier (et attend la fin du délai si la connexion est
+    coupée). huggingface_hub lit HF_HUB_OFFLINE une seule fois, à son import (constants.py), et transformers en
+    garde une copie (utils/hub.py) : changer la variable d'environnement après coup n'avait aucun effet. On règle
+    donc leurs valeurs directement, tâche par tâche (en mode résident, la tâche suivante peut viser un modèle
+    absent)."""
+    from huggingface_hub import constants, scan_cache_dir
 
     try:
         presents = {r.repo_id for r in scan_cache_dir().repos if r.revisions}
-        if set(repos) <= presents:
-            os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    except Exception:
-        pass
+        hors_ligne = _HORS_LIGNE_IMPOSE or set(repos) <= presents
+    except Exception:  # noqa: BLE001 - cache illisible : on garde le réglage actuel
+        return
+    constants.HF_HUB_OFFLINE = hors_ligne
+    hub = sys.modules.get("transformers.utils.hub")
+    if hub is not None and hasattr(hub, "_is_offline_mode"):
+        hub._is_offline_mode = hors_ligne
 
 
 # --- Qwen3-VL : description d'image, reformulation de texte ------------------------------------------
@@ -211,9 +304,14 @@ def decrire(chemin_tache):
     device = _device()
     _hors_ligne_si_present(QWEN)
     print("PROGRESSION 1/2 chargement de Qwen3-VL", flush=True)
-    modele = Qwen3VLForConditionalGeneration.from_pretrained(
-        QWEN, dtype=torch.bfloat16 if device == "cuda" else torch.float32, device_map=device)
-    processeur = AutoProcessor.from_pretrained(QWEN)
+
+    def charger():  # sans device_map : un modèle « dispatché » par accelerate ne se déplace plus avec .to()
+        m = Qwen3VLForConditionalGeneration.from_pretrained(
+            QWEN, dtype=torch.bfloat16 if device == "cuda" else torch.float32).to(device)
+        return m, AutoProcessor.from_pretrained(QWEN)
+
+    modele, processeur = _garder(("Qwen3-VL", device), charger, 9, vers_cpu=lambda o: o[0].to("cpu"),
+                                 vers_gpu=lambda o: o[0].to(device))
     contenu = []
     if t.get("image"):
         contenu.append({"type": "image", "image": Image.open(t["image"]).convert("RGB")})
@@ -251,16 +349,21 @@ def bruitage(chemin_tache):
     duree = min(47.0, max(1.0, float(t.get("duree", 5))))
     variantes = max(1, min(3, int(t.get("variantes", 1))))
     print("PROGRESSION 1/2 chargement de Stable Audio Open", flush=True)
-    _hors_ligne_si_present(STABLE_AUDIO)
-    try:
-        pipe = StableAudioPipeline.from_pretrained(
-            t.get("depot", STABLE_AUDIO), torch_dtype=torch.float16 if device == "cuda" else torch.float32)
-    except Exception as e:  # accès refusé : licence non acceptée ou jeton absent
-        if "401" in str(e) or "403" in str(e) or "gated" in str(e).lower() or "Access" in str(e):
-            _erreur("Stable Audio Open n'est pas téléchargé : accepte sa licence sur Hugging Face et enregistre "
-                    "ton jeton (onglet Modèles → Télécharger les bruitages).", 4)
-        raise
-    pipe = pipe.to(device)
+    depot = t.get("depot", STABLE_AUDIO)
+    _hors_ligne_si_present(depot)
+
+    def charger():
+        try:
+            return StableAudioPipeline.from_pretrained(
+                depot, torch_dtype=torch.float16 if device == "cuda" else torch.float32).to(device)
+        except Exception as e:  # accès refusé : licence non acceptée ou jeton absent
+            if "401" in str(e) or "403" in str(e) or "gated" in str(e).lower() or "Access" in str(e):
+                _erreur("Stable Audio Open n'est pas téléchargé : accepte sa licence sur Hugging Face et enregistre "
+                        "ton jeton (onglet Modèles → Télécharger les bruitages).", 4)
+            raise
+
+    pipe = _garder(("Stable Audio Open", depot, device), charger, 3.5, vers_cpu=lambda p_: p_.to("cpu"),
+                   vers_gpu=lambda p_: p_.to(device))
     graines = [int(t.get("graine") or 0) or int(torch.randint(1, 2**31 - 1, (1,)))]
     graines += [int(x) for x in torch.randint(1, 2**31 - 1, (variantes - 1,))]
     generateurs = [torch.Generator(device).manual_seed(g) for g in graines]
@@ -295,22 +398,51 @@ def image(chemin_tache):
     _hors_ligne_si_present(depot, ZIMAGE_GGUF[0])
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
     print("PROGRESSION 1/2 chargement de Z-Image-Turbo", flush=True)
-    gguf = t.get("gguf") or hf_hub_download(*ZIMAGE_GGUF)
-    transformeur = ZImageTransformer2DModel.from_single_file(
-        gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot, subfolder="transformer",
-        torch_dtype=dtype)
     sans_encodeur = bool(t.get("sans_encodeur"))
-    pipe = ZImagePipeline.from_pretrained(depot, transformer=transformeur, torch_dtype=dtype,
-                                          **({"text_encoder": None, "tokenizer": None} if sans_encodeur else {}))
-    if device == "cuda":
-        pipe.enable_model_cpu_offload()  # encodeur de texte (8 Go) puis transformeur (7 Go) passent tour à tour
-    else:
-        pipe = pipe.to(device)
+
+    def charger():
+        gguf = t.get("gguf") or hf_hub_download(*ZIMAGE_GGUF)
+        transformeur = ZImageTransformer2DModel.from_single_file(
+            gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot,
+            subfolder="transformer", torch_dtype=dtype)
+        pipe = ZImagePipeline.from_pretrained(depot, transformer=transformeur, torch_dtype=dtype,
+                                              **({"text_encoder": None, "tokenizer": None} if sans_encodeur else {}))
+        return pipe if device == "cuda" else pipe.to(device)  # sur la carte : placement à la main (_sur_carte)
+
+    pipe = _garder(("Z-Image-Turbo", depot, t.get("gguf"), sans_encodeur, device), charger, 16,
+                   vers_cpu=lambda p_: _sur_carte(p_))
     if sans_encodeur:  # test sans les 8 Go de l'encodeur : plongements de la bonne dimension
         options = {"prompt_embeds": [torch.randn(24, pipe.transformer.config.cap_feat_dim, dtype=dtype)]}
     else:
+        if device == "cuda":
+            _sur_carte(pipe, "vae", "text_encoder")
         options = {"prompt_embeds": _encoder_une_fois(pipe, t["prompt"], do_classifier_free_guidance=False)}
+    if device == "cuda":
+        _sur_carte(pipe, "vae", "transformer")
+        options["prompt_embeds"] = [e.to(device) for e in options["prompt_embeds"]]
     _generer(pipe, t, dict(options, guidance_scale=0.0), etapes=9)
+
+
+def _sur_carte(pipe, *noms):
+    """Placement à la main sur 12 Go : les composants nommés (« text_encoder », « transformer », « vae ») sur la
+    carte, les autres en mémoire vive. Avec enable_model_cpu_offload, diffusers renvoyait tout en mémoire vive à la
+    fin de CHAQUE appel (maybe_free_model_hooks) : chaque variante rechargeait le transformeur (4 à 7 Go) et la
+    carte attendait. Ici : encodeur seul le temps de lire le texte, puis transformeur et VAE pour toutes les
+    variantes, et ils y restent pour la tâche suivante (moteur résident). Le VAE vient en premier dans la signature
+    des pipelines : c'est lui qui donne pipe._execution_device."""
+    import torch
+
+    for nom in ("text_encoder", "transformer", "vae"):
+        m = getattr(pipe, nom, None)
+        if m is not None and nom not in noms and m.device.type != "cpu":
+            m.to("cpu")
+    _vider_cache_cuda()
+    for nom in noms:
+        m = getattr(pipe, nom, None)
+        if m is not None and m.device.type != "cuda":
+            m.to("cuda")
+    if noms and torch.cuda.is_available():
+        torch.cuda.synchronize()
 
 
 def _encoder_une_fois(pipe, prompt, **options):
@@ -364,32 +496,39 @@ def personnage(chemin_tache):
     _hors_ligne_si_present(depot, KLEIN_GGUF[0], depot_encodeur)
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
     print("PROGRESSION 1/2 chargement de FLUX.2 klein", flush=True)
-    gguf = t.get("gguf") or hf_hub_download(*KLEIN_GGUF)
-    # config= obligatoire : sans lui, diffusers reconnaît « flux-2-dev » et lit la configuration de FLUX.2-dev
-    # (dépôt soumis à licence non commerciale)
-    transformeur = Flux2Transformer2DModel.from_single_file(
-        gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot, subfolder="transformer",
-        torch_dtype=dtype)
     sans_encodeur = bool(t.get("sans_encodeur"))
-    encodeur = tokeniseur = None
-    if not sans_encodeur:
-        from transformers import AutoTokenizer, Qwen3ForCausalLM
 
-        encodeur = Qwen3ForCausalLM.from_pretrained(depot_encodeur, subfolder="text_encoder", torch_dtype=dtype)
-        tokeniseur = AutoTokenizer.from_pretrained(depot_encodeur, subfolder="tokenizer")
-    # pipeline assemblée composant par composant : from_pretrained voudrait aussi les 16 Go de poids officiels
-    pipe = Flux2KleinPipeline(
-        scheduler=FlowMatchEulerDiscreteScheduler.from_pretrained(depot, subfolder="scheduler"),
-        vae=AutoencoderKLFlux2.from_pretrained(depot, subfolder="vae", torch_dtype=dtype),
-        text_encoder=encodeur, tokenizer=tokeniseur, transformer=transformeur, is_distilled=True)
-    if device == "cuda":
-        pipe.enable_model_cpu_offload()  # encodeur de texte (8 Go) puis transformeur (4 Go) passent tour à tour
-    else:
-        pipe = pipe.to(device)
+    def charger():
+        gguf = t.get("gguf") or hf_hub_download(*KLEIN_GGUF)
+        # config= obligatoire : sans lui, diffusers reconnaît « flux-2-dev » et lit la configuration de FLUX.2-dev
+        # (dépôt soumis à licence non commerciale)
+        transformeur = Flux2Transformer2DModel.from_single_file(
+            gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot,
+            subfolder="transformer", torch_dtype=dtype)
+        encodeur = tokeniseur = None
+        if not sans_encodeur:
+            from transformers import AutoTokenizer, Qwen3ForCausalLM
+
+            encodeur = Qwen3ForCausalLM.from_pretrained(depot_encodeur, subfolder="text_encoder", torch_dtype=dtype)
+            tokeniseur = AutoTokenizer.from_pretrained(depot_encodeur, subfolder="tokenizer")
+        # pipeline assemblée composant par composant : from_pretrained voudrait aussi les 16 Go de poids officiels
+        pipe = Flux2KleinPipeline(
+            scheduler=FlowMatchEulerDiscreteScheduler.from_pretrained(depot, subfolder="scheduler"),
+            vae=AutoencoderKLFlux2.from_pretrained(depot, subfolder="vae", torch_dtype=dtype),
+            text_encoder=encodeur, tokenizer=tokeniseur, transformer=transformeur, is_distilled=True)
+        return pipe if device == "cuda" else pipe.to(device)  # sur la carte : placement à la main (_sur_carte)
+
+    pipe = _garder(("FLUX.2 klein", depot, depot_encodeur, t.get("gguf"), sans_encodeur, device), charger, 13,
+                   vers_cpu=lambda p_: _sur_carte(p_))
     if sans_encodeur:  # 3 couches cachées de l'encodeur mises bout à bout
         options = {"prompt_embeds": torch.randn(1, 24, pipe.transformer.config.joint_attention_dim, dtype=dtype)}
     else:
+        if device == "cuda":
+            _sur_carte(pipe, "vae", "text_encoder")  # encodeur : 8 Go, seul sur la carte
         options = {"prompt_embeds": _encoder_une_fois(pipe, t["prompt"])}
+    if device == "cuda":
+        _sur_carte(pipe, "vae", "transformer")  # transformeur (4,3 Go) et VAE : sur la carte pour toutes les variantes
+        options["prompt_embeds"] = options["prompt_embeds"].to(device)
     print(f"{len(references)} image(s) de référence du personnage.", flush=True)
     _generer(pipe, t, dict(options, image=references, guidance_scale=1.0), etapes=4)
 
@@ -465,18 +604,27 @@ def video(chemin_tache):
     dtype = torch.bfloat16
     etapes = int(t.get("etapes", 30))
     total = etapes + 3
+    cle = ("Wan 2.2", depot, t.get("gguf"), device)
     print(f"PROGRESSION 1/{total} lecture du texte (encodeur umT5)", flush=True)
+    _ranger()
+    _faire_place(11.5, sauf=cle)  # l'encodeur umT5 (11,4 Go) passe en mémoire vive le temps de la lecture
     prompt, negatif = _memoire(_encoder_texte_video)(t, device, dtype)
     print(f"PROGRESSION 2/{total} chargement de Wan 2.2", flush=True)
-    gguf = t.get("gguf") or hf_hub_download(*WAN_GGUF)
-    # config= obligatoire : sans lui, diffusers reconnaît « wan-i2v-14B » (dimensions différentes)
-    transformeur = WanTransformer3DModel.from_single_file(
-        gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot, subfolder="transformer",
-        torch_dtype=dtype)
-    vae = AutoencoderKLWan.from_pretrained(depot, subfolder="vae", torch_dtype=torch.float32)
-    vae.enable_tiling()
-    ordonnanceur = UniPCMultistepScheduler.from_pretrained(depot, subfolder="scheduler")
-    composants = dict(tokenizer=None, text_encoder=None, vae=vae, scheduler=ordonnanceur, transformer=transformeur,
+
+    def charger():
+        gguf = t.get("gguf") or hf_hub_download(*WAN_GGUF)
+        # config= obligatoire : sans lui, diffusers reconnaît « wan-i2v-14B » (dimensions différentes)
+        transformeur = WanTransformer3DModel.from_single_file(
+            gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot,
+            subfolder="transformer", torch_dtype=dtype)
+        vae = AutoencoderKLWan.from_pretrained(depot, subfolder="vae", torch_dtype=torch.float32)
+        vae.enable_tiling()
+        return transformeur, vae, UniPCMultistepScheduler.from_pretrained(depot, subfolder="scheduler").config
+
+    # transformeur et VAE gardés ; pipeline refaite à chaque vidéo (texte ou image), ordonnanceur neuf (il a un état)
+    transformeur, vae, config_ordonnanceur = _garder(cle, charger, 9)
+    composants = dict(tokenizer=None, text_encoder=None, vae=vae,
+                      scheduler=UniPCMultistepScheduler.from_config(config_ordonnanceur), transformer=transformeur,
                       expand_timesteps=True)
     largeur, hauteur = int(t.get("largeur", 1280)), int(t.get("hauteur", 704))
     options = {}
@@ -558,11 +706,14 @@ def detourer(chemin_tache):
     device = _device()
     _hors_ligne_si_present(depot)
     print("PROGRESSION 1/3 chargement de BiRefNet", flush=True)
-    modele = AutoModelForImageSegmentation.from_pretrained(t.get("depot", depot), trust_remote_code=True,
-                                                           revision=t.get("revision", revision))
     dtype = torch.float16 if device == "cuda" else torch.float32
     torch.set_float32_matmul_precision("high")
-    modele.to(device=device, dtype=dtype).eval()
+    depot, revision = t.get("depot", depot), t.get("revision", revision)
+    modele = _garder(
+        ("BiRefNet", depot, revision, device),
+        lambda: AutoModelForImageSegmentation.from_pretrained(depot, trust_remote_code=True, revision=revision)
+        .to(device=device, dtype=dtype).eval(),
+        1.0, vers_cpu=lambda m: m.to("cpu"), vers_gpu=lambda m: m.to(device))
     image, _ = _ouvrir_photo(t["entree"])
     print(f"PROGRESSION 2/3 détourage ({image.width}×{image.height})", flush=True)
     preparation = transforms.Compose([transforms.Resize((cote, cote)), transforms.ToTensor(),
@@ -570,7 +721,6 @@ def detourer(chemin_tache):
     x = preparation(image).unsqueeze(0).to(device=device, dtype=dtype)
     with torch.inference_mode():
         prediction = _memoire(modele)(x)[-1].sigmoid().float().cpu()[0, 0].numpy()
-    _liberer(modele)
     masque = Image.fromarray((prediction * 255).round().astype("uint8")).resize(image.size, Image.BILINEAR)
     print("PROGRESSION 3/3 finitions des bords", flush=True)
     decoupe = decontaminate_cutout(image, masque)  # RGBA, couleurs des bords sans le fond
@@ -679,9 +829,13 @@ def _restaurer_visages(bgr, dossier, device, force=0.7, cote_min=48):
     visages = [v for v in visages if v[2] / reduction >= cote_min]
     if not visages:
         return bgr, 0
-    gfpgan = ModelLoader(device=device).load_from_file(str(dossier / "GFPGANv1.4.pth")).eval()
-    dtype = torch.bfloat16 if device == "cuda" and gfpgan.supports_bfloat16 else torch.float32
-    gfpgan.to(dtype)
+    def charger():
+        g = ModelLoader(device=device).load_from_file(str(dossier / "GFPGANv1.4.pth")).eval()
+        return g.to(torch.bfloat16 if device == "cuda" and g.supports_bfloat16 else torch.float32)
+
+    gfpgan = _garder(("GFPGAN", str(dossier), device), charger, 0.4, vers_cpu=lambda g: g.to(torch.device("cpu")),
+                     vers_gpu=lambda g: g.to(torch.device(device)))
+    dtype = next(gfpgan.model.parameters()).dtype
     gabarit = np.array(GABARIT_VISAGE, np.float32)
     ovale = _ovale_visage()
     for v in visages:
@@ -703,7 +857,6 @@ def _restaurer_visages(bgr, dossier, device, force=0.7, cote_min=48):
         # change de teinte avec GFPGAN et laissait un rectangle visible (constaté à l'essai).
         masque = cv2.warpAffine(ovale, inverse, (w, h))[..., None]
         bgr = (masque * retour + (1 - masque) * bgr).round().astype(np.uint8)
-    _liberer(gfpgan)
     return bgr, len(visages)
 
 
@@ -717,6 +870,7 @@ def ameliorer(chemin_tache):
     agrandie. La transparence éventuelle est agrandie à part. RESULTAT {sortie, largeur, hauteur, visages}."""
     import cv2
     import numpy as np
+    import torch
     from PIL import Image
     from spandrel import ModelLoader
 
@@ -733,14 +887,16 @@ def ameliorer(chemin_tache):
            else "RealESRGAN_x2plus.pth" if echelle == 2 else "RealESRGAN_x4plus.pth")
     etapes = 3 if t.get("visages") else 2
     print(f"PROGRESSION 1/{etapes} chargement de Real-ESRGAN", flush=True)
-    modele = ModelLoader(device=device).load_from_file(str(dossier / nom)).eval()
-    if device == "cuda" and modele.supports_half:
-        modele.half()
+    def charger():
+        m = ModelLoader(device=device).load_from_file(str(dossier / nom)).eval()
+        return m.half() if device == "cuda" and m.supports_half else m
+
+    modele = _garder(("Real-ESRGAN", str(dossier / nom), device), charger, 0.2,
+                     vers_cpu=lambda m: m.to(torch.device("cpu")), vers_gpu=lambda m: m.to(torch.device(device)))
     print(f"PROGRESSION 2/{etapes} agrandissement ({image.width}×{image.height} → {largeur}×{hauteur})", flush=True)
     # Tuiles de 1024 px sur la carte (512 → 4 fois plus de passes, carte sous-employée ; ~2 Go en fp16 pour
     # x4plus), 512 sur le processeur
     sortie = _memoire(_par_tuiles)(modele, np.asarray(image, np.float32) / 255.0, 1024 if device == "cuda" else 512)
-    _liberer(modele)
     sortie = (np.clip(sortie, 0, 1) * 255).round().astype(np.uint8)
     if sortie.shape[1] != largeur or sortie.shape[0] != hauteur:
         sortie = cv2.resize(sortie, (largeur, hauteur), interpolation=cv2.INTER_AREA)
@@ -783,16 +939,23 @@ def forme3d(chemin_tache):
     im = Image.open(t["image"]).convert("RGB")
     # Comme hy3dgen.rembg.BackgroundRemover, mais avec le modèle u2net (Apache 2.0) : le modèle par défaut
     # de rembg est désormais BRIA RMBG-2.0, à usage non commercial.
-    im = remove(im, session=new_session("u2net"), bgcolor=[255, 255, 255, 0])
+    im = remove(im, session=_garder(("u2net",), lambda: new_session("u2net"), 0.2), bgcolor=[255, 255, 255, 0])
     im.save(dossier / "image_detouree.png")
 
     print(f"PROGRESSION 2/{total} chargement du générateur de forme", flush=True)
     _hors_ligne_si_present(HUNYUAN)
-    pipe = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-        t.get("depot", HUNYUAN), subfolder=t.get("sous_dossier", HUNYUAN_FORME), device=device,
-        dtype=torch.float16 if device == "cuda" else torch.float32)
-    if device == "cuda":
-        pipe.enable_flashvdm(mc_algo="mc")  # plus rapide (README : --enable_flashvdm), extraction sans diso
+    depot, sous_dossier = t.get("depot", HUNYUAN), t.get("sous_dossier", HUNYUAN_FORME)
+
+    def charger():
+        p_ = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+            depot, subfolder=sous_dossier, device=device, dtype=torch.float16 if device == "cuda" else torch.float32)
+        if device == "cuda":
+            p_.enable_flashvdm(mc_algo="mc")  # plus rapide (README : --enable_flashvdm), extraction sans diso
+        return p_
+
+    # Hunyuan3DDiTFlowMatchingPipeline.to(device) déplace VAE, DiT et encodeur d'image (shapegen/pipelines.py)
+    pipe = _garder(("Hunyuan3D forme", depot, sous_dossier, device), charger, 4,
+                   vers_cpu=lambda p_: p_.to("cpu"), vers_gpu=lambda p_: p_.to(device))
     print(f"PROGRESSION 3/{total} génération de la forme", flush=True)
     sorties = _memoire(pipe)(
         image=im, num_inference_steps=int(t.get("etapes", 30)), guidance_scale=float(t.get("guidage", 7.5)),
@@ -800,7 +963,6 @@ def forme3d(chemin_tache):
         num_chunks=int(t.get("morceaux", 20000)), output_type="mesh",
     )
     mesh = export_to_trimesh(sorties)[0]
-    _liberer(pipe)
 
     print(f"PROGRESSION 4/{total} nettoyage et simplification", flush=True)
     mesh = _nettoyer(mesh, int(t.get("faces", 40000)))
@@ -818,7 +980,15 @@ def forme3d(chemin_tache):
     print(f"PROGRESSION 5/{total} chargement du peintre de texture", flush=True)
     from hy3dgen.texgen import Hunyuan3DPaintPipeline
 
-    peintre = Hunyuan3DPaintPipeline.from_pretrained(HUNYUAN, subfolder=HUNYUAN_TEXTURE)
+    cle_peintre = ("Hunyuan3D texture", HUNYUAN_TEXTURE)
+
+    def pipelines(p_):  # délumination et vues multiples : deux pipelines diffusers (texgen/utils/*_utils.py)
+        return [m.pipeline for m in p_.models.values()]
+
+    # le générateur de forme passe en mémoire vive (_garder) avant que le peintre arrive sur la carte
+    peintre = _garder(cle_peintre, lambda: Hunyuan3DPaintPipeline.from_pretrained(HUNYUAN, subfolder=HUNYUAN_TEXTURE),
+                      6, vers_cpu=lambda p_: [x.to("cpu") for x in pipelines(p_)],
+                      vers_gpu=lambda p_: [x.to("cuda") for x in pipelines(p_)])
     print(f"PROGRESSION 6/{total} peinture de la texture", flush=True)
     # Tout sur la carte d'abord : ses deux pipelines y sont déjà, en fp16, dès le chargement (~6 Go de poids, ~8 à
     # 10 Go en pointe estimés, ACE-Step étant arrêté) ; le mode basse mémoire de gradio_app.py (--low_vram_mode,
@@ -828,7 +998,7 @@ def forme3d(chemin_tache):
         texture_mesh = peintre(mesh.copy(), im)
     except torch.cuda.OutOfMemoryError:
         print("Mémoire graphique juste : peinture en mode basse mémoire.", flush=True)
-        torch.cuda.empty_cache()
+        _oublier(cle_peintre)  # déchargement activé : on ne le déplace plus à la main (et il repartira neuf)
         peintre.enable_model_cpu_offload()
         texture_mesh = _memoire(peintre)(mesh, im)
     modele = dossier / "modele.glb"
@@ -1032,12 +1202,25 @@ def telecharger(noms):
     print("Modèles prêts.", flush=True)
 
 
-if __name__ == "__main__":
-    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
-               "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger}
-    if len(sys.argv) >= 2 and sys.argv[1] == "telecharger":
-        telecharger(sys.argv[2:])
-    elif len(sys.argv) == 3 and sys.argv[1] in actions:
-        actions[sys.argv[1]](sys.argv[2])
+ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
+           "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger}
+
+
+def principal(argv):
+    if len(argv) >= 1 and argv[0] == "telecharger":
+        telecharger(argv[1:])
+    elif len(argv) == 2 and argv[0] in ACTIONS:
+        ACTIONS[argv[0]](argv[1])
     else:
-        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|video|detourer|ameliorer|forme3d|alleger <tache.json> | telecharger [modèle…]")
+        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|video|detourer|ameliorer|forme3d|alleger "
+                "<tache.json> | telecharger [modèle…] | --resident <secondes>")
+
+
+if __name__ == "__main__":
+    import resident
+
+    delai = resident.demande(sys.argv[1:])
+    if delai is None:
+        principal(sys.argv[1:])
+    else:  # l'application garde le moteur ouvert : les modèles chargés (_CHARGES) servent aux tâches suivantes
+        resident.servir(principal, delai)

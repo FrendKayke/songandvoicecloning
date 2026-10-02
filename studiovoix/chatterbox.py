@@ -102,6 +102,6 @@ def synthese(voix, texte, langue_label, exaggeration, cfg_weight, temperature, g
     lancer_moteur(
         [cfg.CHATTERBOX_PYTHON, str(script()), str(tache)], workdir, env, "Chatterbox",
         lambda i, n: progress(0.1 + 0.85 * (i - 1) / n, desc=f"Synthèse vocale : morceau {i}/{n}…"),
-        attendu=sortie,
+        attendu=sortie, resident="Chatterbox",
     )
     return str(sortie), f"Terminé. Fichier : {sortie}"

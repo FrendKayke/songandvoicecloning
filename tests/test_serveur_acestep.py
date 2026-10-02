@@ -109,3 +109,24 @@ def test_reprise_d_un_serveur_lance_autrement(serveur):
     finally:
         if externe.poll() is None:
             externe.kill()
+
+
+def test_modele_de_langage_1_7b_sur_une_carte_de_12_go(monkeypatch):
+    """ACE-Step range les cartes de 12 Go (11,99 Go annoncés par une RTX 4070) avec celles de 8 Go (modèle de langage
+    0.6B seul) : MAX_CUDA_VRAM les fait passer dans la catégorie 12–16 Go (1.7B)."""
+    monkeypatch.delenv("MAX_CUDA_VRAM", raising=False)
+    monkeypatch.delenv("ACESTEP_LM_MODEL_PATH", raising=False)
+    monkeypatch.setattr(srv, "MODELE_LM", "1.7B")
+    for memoire, attendu in ((11.99, "12.5"), (12.0, "12.5"), (16.0, None), (8.0, None), (None, None)):
+        monkeypatch.setattr(srv, "memoire_gpu_go", lambda m=memoire: m)
+        env = srv.env_serveur()
+        assert env.get("MAX_CUDA_VRAM") == attendu, memoire
+        assert env["ACESTEP_LM_MODEL_PATH"] == "acestep-5Hz-lm-1.7B"
+    monkeypatch.setattr(srv, "memoire_gpu_go", lambda: 11.99)
+    assert "0.6B" in srv.regler_modele_lm("0.6B : plus léger")
+    env = srv.env_serveur()
+    assert "MAX_CUDA_VRAM" not in env and env["ACESTEP_LM_MODEL_PATH"] == "acestep-5Hz-lm-0.6B"
+    assert srv.libelle_modele_lm().startswith("0.6B")
+    monkeypatch.setenv("MAX_CUDA_VRAM", "10")  # réglage de l'utilisateur : jamais remplacé
+    srv.regler_modele_lm(next(iter(srv.MODELES_LM)))
+    assert srv.env_serveur()["MAX_CUDA_VRAM"] == "10"

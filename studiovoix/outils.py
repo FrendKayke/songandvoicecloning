@@ -35,24 +35,43 @@ def ecrire_creation(dossier, infos):
     (Path(dossier) / "creation.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None):
+def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None, resident=None):
     """Lance un script de moteurs/ en sous-processus et suit son protocole :
     « PROGRESSION i/n … » → suivi(i, n) ; « ERREUR : message » → gr.Error(« <nom> : message »).
-    Si « attendu » (fichier de sortie) n'existe pas à la fin, c'est aussi une erreur. Renvoie les dernières lignes."""
-    env = os.environ.copy()
-    env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", **(extra_env or {})})
+    Si « attendu » (fichier de sortie) n'existe pas à la fin, c'est aussi une erreur. Renvoie les dernières lignes.
+    resident : nom du moteur résident (cmd = [python, script, *arguments]) qui garde ses modèles en mémoire entre
+    deux tâches (residents.py) ; sinon, ou si le réglage est désactivé, processus neuf, et les moteurs résidents
+    sont d'abord fermés (ils occuperaient la mémoire dont ce moteur a besoin)."""
+    from . import residents
+
     lignes = []
-    proc = subprocess.Popen(
-        cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding="utf-8", errors="replace",
-    )
-    for ligne in proc.stdout:
-        ligne = ligne.rstrip()
-        lignes = (lignes + [ligne])[-60:]
-        if ligne.startswith("PROGRESSION ") and suivi:
-            i, n = (int(x) for x in ligne.split()[1].split("/"))
-            suivi(i, n)
-    code = proc.wait()
+
+    def lire(flux):
+        nonlocal lignes
+        for ligne in flux:
+            ligne = ligne.rstrip()
+            lignes = (lignes + [ligne])[-60:]
+            if ligne.startswith("PROGRESSION ") and suivi:
+                i, n = (int(x) for x in ligne.split()[1].split("/"))
+                suivi(i, n)
+
+    if resident and residents.ACTIF:
+        flux = residents.lancer(resident, cmd[0], cmd[1], cmd[2:], cwd, extra_env)
+        try:
+            while True:
+                lire([next(flux)])
+        except StopIteration as fin:  # le générateur renvoie le code de sortie de la tâche
+            code = fin.value
+    else:
+        residents.arreter_tous()
+        env = os.environ.copy()
+        env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", **(extra_env or {})})
+        proc = subprocess.Popen(
+            cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace",
+        )
+        lire(proc.stdout)
+        code = proc.wait()
     erreur = next((l_ for l_ in reversed(lignes) if l_.startswith("ERREUR : ")), None)
     if code != 0 or (attendu is not None and not Path(attendu).exists()):
         if erreur:

@@ -135,7 +135,7 @@ def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None
     if gpu:
         serveur_acestep.liberer_gpu(progress)
     lignes = lancer_moteur([cfg.DIFFUSION_PYTHON, str(script()), action, str(fichier)], cfg.DIFFUSION_DIR, _env(),
-                           nom, suivi)
+                           nom, suivi, resident="Diffusion")
     resultat = next((l_ for l_ in reversed(lignes) if l_.startswith("RESULTAT ")), None)
     if not resultat:
         raise gr.Error(f"{nom} : pas de résultat renvoyé par le moteur.\n" + "\n".join(lignes[-10:]))

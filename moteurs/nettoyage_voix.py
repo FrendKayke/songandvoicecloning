@@ -2,6 +2,7 @@
 
     python nettoyage_voix.py <tache.json>     nettoie le fichier décrit par la tâche
     python nettoyage_voix.py --telecharger    télécharge et charge les modèles (sur CPU) puis quitte
+    python nettoyage_voix.py --resident <s>   reste ouvert (moteurs/resident.py) : les modèles chargés sont gardés
 
 Fichier de tâche (UTF-8) : {"entree", "sortie", "niveau"} avec niveau = « leger » (MossFormer2 : bruit),
 « fort » (VoiceFixer : bruit, écho, bande passante réduite, saturation) ou « maximal » (les deux).
@@ -49,19 +50,34 @@ def _reparer_mossformer2():
         (d / "last_best_checkpoint").unlink()
 
 
-def mossformer2(entree, sortie):
-    _reparer_mossformer2()
-    from clearvoice import ClearVoice
+_MODELES = {}  # nom → modèle chargé (gardé en mode résident d'un nettoyage à l'autre)
 
-    cv = ClearVoice(task="speech_enhancement", model_names=["MossFormer2_SE_48K"])
+
+def _modele(nom, fabrique):
+    if nom not in _MODELES:
+        _MODELES[nom] = fabrique()
+    return _MODELES[nom]
+
+
+def mossformer2(entree, sortie):
+    def charger():
+        _reparer_mossformer2()
+        from clearvoice import ClearVoice
+
+        return ClearVoice(task="speech_enhancement", model_names=["MossFormer2_SE_48K"])
+
+    cv = _modele("mossformer2", charger)
     cv.write(cv(input_path=str(entree), online_write=False), output_path=str(sortie))
 
 
 def voicefixer(entree, sortie):
-    _rediriger_dossier_personnel()
-    from voicefixer import VoiceFixer
+    def charger():
+        _rediriger_dossier_personnel()
+        from voicefixer import VoiceFixer
 
-    VoiceFixer().restore(input=str(entree), output=str(sortie), cuda=_gpu(), mode=0)
+        return VoiceFixer()
+
+    _modele("voicefixer", charger).restore(input=str(entree), output=str(sortie), cuda=_gpu(), mode=0)
 
 
 def telecharger():
@@ -104,10 +120,20 @@ def nettoyer(chemin_tache):
     print(f"TERMINE {sortie}", flush=True)
 
 
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        _erreur("usage : nettoyage_voix.py <tache.json> | --telecharger")
-    if sys.argv[1] == "--telecharger":
+def principal(argv):
+    if len(argv) != 1:
+        _erreur("usage : nettoyage_voix.py <tache.json> | --telecharger | --resident <secondes>")
+    if argv[0] == "--telecharger":
         telecharger()
     else:
-        nettoyer(sys.argv[1])
+        nettoyer(argv[0])
+
+
+if __name__ == "__main__":
+    import resident
+
+    delai = resident.demande(sys.argv[1:])
+    if delai is None:
+        principal(sys.argv[1:])
+    else:
+        resident.servir(principal, delai)

@@ -82,6 +82,17 @@ def _acestep_injoignable(monkeypatch):
     monkeypatch.setattr(cfg, "ACESTEP_URL", "http://127.0.0.1:9")
 
 
+@pytest.fixture(autouse=True)
+def _sans_moteur_resident(monkeypatch):
+    """Les faux moteurs des tests sont des scripts ponctuels : mode résident désactivé (test_residents.py
+    l'active), et aucun moteur résident ne survit à un test."""
+    from studiovoix import residents
+
+    monkeypatch.setattr(residents, "ACTIF", False)
+    yield
+    residents.arreter_tous()
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     """Dossiers de données et de moteurs isolés dans un dossier temporaire."""

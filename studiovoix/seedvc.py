@@ -60,6 +60,9 @@ def convert_voice(vocals: Path, voice_ref: Path, semitones: int, steps: int, wor
         "--semi-tone-shift", str(int(semitones)),
         "--fp16", "True",
     ]
+    from . import residents
+
+    residents.arreter_tous()  # la carte et la mémoire vive pour Seed-VC
     p = subprocess.run(cmd, cwd=cfg.SEEDVC_DIR, capture_output=True, text=True)
     if p.returncode != 0:
         raise gr.Error(f"Seed-VC a échoué :\n{p.stderr[-1500:]}")

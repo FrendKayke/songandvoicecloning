@@ -3,6 +3,7 @@
 L'application (qui n'a pas torch) le lance en sous-processus :
     python chatterbox_tts.py <tache.json>      synthèse décrite par le fichier de tâche
     python chatterbox_tts.py --telecharger     télécharge les modèles (chargement sur CPU) puis quitte
+    python chatterbox_tts.py --resident <s>    reste ouvert (moteurs/resident.py) : le modèle chargé est gardé
 
 Fichier de tâche (UTF-8) : {"texte", "langue", "voix", "sortie", "exaggeration", "cfg_weight",
 "temperature", "graine"}. Le script écrit sur sa sortie des lignes « PROGRESSION i/n » et, en cas
@@ -73,10 +74,17 @@ def _erreur(msg, code=2):
     sys.exit(code)
 
 
+_MODELES = {}  # appareil → modèle chargé (gardé en mode résident d'une lecture à l'autre)
+
+
 def _charger_modele(device):
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
-    return ChatterboxMultilingualTTS.from_pretrained(device=device, t3_model=T3_MODEL)
+    if device not in _MODELES:
+        _MODELES[device] = ChatterboxMultilingualTTS.from_pretrained(device=device, t3_model=T3_MODEL)
+    else:
+        print("Modèle déjà en mémoire : pas de rechargement.", flush=True)
+    return _MODELES[device]
 
 
 def telecharger():
@@ -141,10 +149,20 @@ def synthese(chemin_tache):
     print(f"TERMINE {t['sortie']}", flush=True)
 
 
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        _erreur("usage : chatterbox_tts.py <tache.json> | --telecharger")
-    if sys.argv[1] == "--telecharger":
+def principal(argv):
+    if len(argv) != 1:
+        _erreur("usage : chatterbox_tts.py <tache.json> | --telecharger | --resident <secondes>")
+    if argv[0] == "--telecharger":
         telecharger()
     else:
-        synthese(sys.argv[1])
+        synthese(argv[0])
+
+
+if __name__ == "__main__":
+    import resident
+
+    delai = resident.demande(sys.argv[1:])
+    if delai is None:
+        principal(sys.argv[1:])
+    else:
+        resident.servir(principal, delai)

@@ -12,7 +12,7 @@ Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 |---|---|
 | `studio_voix.py` | point d'entrée de l'application (lancé par `lancer.bat`) |
 | `studiovoix/` | le code de l'application, un module par rôle (voir ci-dessous) |
-| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`, `rvc_voix.py`, `diffusion.py`) |
+| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`, `rvc_voix.py`, `diffusion.py`) ; `resident.py` : leur mode « résident » |
 | `tests/` | tests automatiques sans carte graphique (moteurs simulés) |
 | `installer.ps1` / `INSTALLER.bat` | installation complète en un clic |
 | `METTRE_A_JOUR.bat` | mise à jour en un clic (dernière version sur GitHub, puis étapes nouvelles ou modifiées) |
@@ -52,7 +52,8 @@ Modules de `studiovoix/` :
 | `mixage.py` | mixage voix + instrumental |
 | `pipeline.py` | enchaînement complet des étapes |
 | `modeles.py` | état des modèles (onglet « Modèles ») |
-| `outils.py` | journal de commande en direct, ouverture de dossier |
+| `outils.py` | journal de commande en direct, ouverture de dossier, lancement des moteurs |
+| `residents.py` | moteurs gardés ouverts entre deux générations (modèles en mémoire) |
 | `interface.py` | interface Gradio : assemble les onglets |
 | `onglets/` | un fichier par onglet (composants et événements) |
 
@@ -143,14 +144,20 @@ Les onglets sont rangés en cinq groupes : **🎤 Voix** (bibliothèque de voix,
 12. Onglet **Vidéos** (groupe 🖼️ Image et vidéo) : décris la vidéo en français (ou choisis un exemple), « Préparer le prompt » la traduit et la précise (action, décor, lumière, mouvement de caméra), retouche-la si besoin. Ajoute une **image de départ** pour animer une illustration de carte ou une photo : la vidéo part de cette image (le format automatique suit sa forme : paysage, portrait ou carré). Choisis la durée (2 à 5 s, 24 images/s), le nombre d'étapes (30 conseillé ; moins = plus rapide) et clique sur « Générer la vidéo ». **C'est long** : une dizaine de minutes ou plus pour 5 s en 720p sur une RTX 4070 (estimation), davantage la première fois ; les formats « légers » (832×480) vont nettement plus vite. « Continuer » prend la dernière image comme départ du clip suivant, pour enchaîner plusieurs plans. La vidéo (MP4 H.264, lisible partout) est muette : ajoute bruitages et musique depuis leurs onglets. Tout est dans `data\videos\<date>\` et dans la Galerie (« Recréer » = même graine). Wan 2.2 est sous licence Apache 2.0 : tu peux vendre tes vidéos.
 Dans les onglets Bruitages, Illustrations, Vidéos et Modèles 3D, « Générer » prépare tout seul le prompt anglais si tu ne l'as pas fait (il s'affiche ensuite, modifiable) ; un prompt déjà préparé ou retouché est gardé tel quel.
 
-13. **Carte graphique** : tu n'as rien à fermer. La mise à jour réinstalle ACE-Step en Python 3.11 (une fois, quelques minutes) : c'est la seule version où son modèle de langage a son moteur rapide sous Windows ; le diagnostic rapide indique lequel est utilisé. Pour voir si elle travaille vraiment : Outils → Modèles → « 📈 Mesurer la carte graphique pendant 1 minute », pendant qu'une génération tourne (le Gestionnaire des tâches de Windows montre par défaut le graphe « 3D », presque à zéro pendant un calcul d'IA : choisis plutôt le graphe « Cuda »). L'essai complet du diagnostic note aussi l'utilisation de la carte pendant chaque moteur. ACE-Step occupe environ 8 Go de mémoire graphique ; l'application l'arrête d'elle-même avant les bruitages, les photos, les vidéos, la 3D, la synthèse vocale, le nettoyage et l'entraînement RVC, puis le relance à la chanson suivante (une minute de chargement en plus à ce moment-là). Le réglage est dans l'onglet « Modèles » → « Carte graphique et serveur ACE-Step », avec un bouton pour arrêter ACE-Step tout de suite.
+13. **Carte graphique** : tu n'as rien à fermer, l'application fait une génération à la fois et donne toute la carte à celle qui tourne. Réglages dans Outils → Modèles → « 🎛️ Carte graphique : performances et serveur ACE-Step » :
+    - **Modèles gardés en mémoire** (activé) : la diffusion (images, illustrations, 3D, vidéos, photos, bruitages), la synthèse vocale et le nettoyage restent ouverts entre deux générations ; la suivante démarre sans relire ses modèles sur le disque (de quelques secondes à une minute gagnées à chaque fois). Un seul moteur ouvert à la fois, fermé avant une chanson et après 15 minutes sans génération (`STUDIOVOIX_GARDER_MODELES` dans `lancer.bat` pour changer ce délai, 0 pour désactiver ; `STUDIOVOIX_MEMOIRE_MODELES` pour la mémoire vive qu'ils peuvent occuper, par défaut la mémoire du PC moins 12 Go). Le bouton « ⏏️ Fermer le moteur ouvert » rend la mémoire tout de suite (avant de lancer un jeu, par exemple).
+    - **Modèle de langage d'ACE-Step** : 1.7B par défaut. ACE-Step classe les cartes de 12 Go (une RTX 4070 annonce 11,99 Go) avec les cartes de 8 Go et leur donnait son plus petit modèle (0.6B) ; le 1.7B, celui que sa documentation conseille, donne des chansons mieux construites. Si la mémoire manque (autre programme sur la carte), repasse en 0.6B.
+    - La mise à jour réinstalle ACE-Step en Python 3.11 (une fois, quelques minutes) : c'est la seule version où son modèle de langage a son moteur rapide sous Windows ; le diagnostic rapide indique le moteur et le modèle utilisés.
+    - Pour voir si la carte travaille vraiment : « 📈 Mesurer la carte graphique pendant 1 minute », pendant qu'une génération tourne (le Gestionnaire des tâches de Windows montre par défaut le graphe « 3D », presque à zéro pendant un calcul d'IA : choisis plutôt le graphe « Cuda »). L'**essai complet** (volet « 🩺 Diagnostic et essai complet des moteurs », juste en dessous) note aussi l'utilisation de la carte pendant chaque moteur.
+    - Conseil NVIDIA : Panneau de configuration NVIDIA → Gérer les paramètres 3D → « CUDA - Sysmem Fallback Policy » → « Prefer No Sysmem Fallback » : sinon, quand les 12 Go sont pleins, le pilote déborde en silence dans la mémoire vive et tout devient très lent.
+    - ACE-Step occupe environ 8 Go de mémoire graphique ; l'application l'arrête d'elle-même avant les autres moteurs, puis le relance à la chanson suivante (une minute de chargement en plus à ce moment-là).
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.
 
 ## Comment ça marche
 
 1. **ACE-Step 1.5** génère la chanson complète, avec une voix chantée générique.
-2. **Demucs** sépare la voix de l'instrumental.
+2. **Demucs** (`htdemucs_ft`, sa meilleure séparation : quatre modèles affinés, un par piste) sépare la voix de l'instrumental.
 3. **Seed-VC** (conversion de voix chantée, sans entraînement) remplace cette voix par la tienne.
 4. L'application remixe voix et instrumental.
 
@@ -251,13 +258,13 @@ Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de
 
 - **Installation** : en cas d'erreur, l'installateur s'arrête avec un message en rouge. Relance-le après correction : les étapes réussies sont sautées.
 - **Place sur le disque** : les moteurs et modèles occupent environ 100 Go. Outils → **Espace disque** mesure la place de chacun et retire ceux que tu n'utilises pas (par exemple la texture 3D, 16 Go). Un élément retiré n'est plus réinstallé par les mises à jour ; « Réinstaller » puis METTRE_A_JOUR.bat le remet. ACE-Step, Seed-VC, tes créations et tes modèles RVC entraînés ne sont jamais supprimés.
-- **Quelque chose ne marche pas ?** Onglet « Modèles » → « 🩺 Diagnostic » : le diagnostic rapide (moins d'une minute) vérifie la carte graphique, l'espace disque, chaque moteur et les modèles ; l'essai complet (10 à 20 minutes) fait une génération courte avec chaque moteur et note sa durée et la mémoire graphique utilisée. Envoie le fichier `rapport.txt` proposé : il dit précisément ce qui ne va pas.
+- **Quelque chose ne marche pas ?** Outils → Modèles → « 🩺 Diagnostic et essai complet des moteurs » (volet ouvert) : le diagnostic rapide (moins d'une minute) vérifie la carte graphique, l'espace disque, chaque moteur et les modèles ; l'essai complet (10 à 20 minutes) fait une génération courte avec chaque moteur et note sa durée et la mémoire graphique utilisée. Envoie le fichier `rapport.txt` proposé : il dit précisément ce qui ne va pas.
 - **Pilote NVIDIA** : ACE-Step utilise CUDA 12.8, qui demande un pilote récent (570.65 ou plus). L'installateur le vérifie.
 - **Fidélité de la voix** : la conversion sans entraînement (Seed-VC) donne une ressemblance correcte mais pas parfaite, surtout sur les notes aiguës. Pour mieux faire, entraîne un modèle RVC sur 10 à 30 minutes de tes enregistrements (onglet « Entraîner ma voix »). La qualité de ton micro et de ta pièce compte encore plus que la durée.
 - **Artefacts** : la séparation sur de la musique générée laisse parfois de légers résidus.
 - **Mémoire graphique et synthèse vocale** : Chatterbox a besoin de 3 à 4 Go de mémoire graphique. ACE-Step est arrêté automatiquement avant la lecture ; si la carte manque quand même de mémoire (un jeu ou une vidéo ouverts), l'application te le dit.
 - **Nettoyage** : il ne fait pas de miracle sur une voix très saturée ou noyée dans la musique. Enregistre-toi au calme, à 15–30 cm du micro, c'est toujours le plus efficace.
-- **Mémoire graphique et diffusion** : Hunyuan3D, Z-Image, FLUX.2 klein et Stable Audio se chargent tour à tour et occupent jusqu'à 10 Go. ACE-Step est arrêté automatiquement avant ; l'application te prévient si la mémoire manque quand même.
+- **Mémoire graphique et diffusion** : Hunyuan3D, Z-Image, FLUX.2 klein, Qwen3-VL et Stable Audio passent tour à tour sur la carte (un seul à la fois, les autres attendent en mémoire vive) et occupent jusqu'à 11 Go. ACE-Step est arrêté automatiquement avant ; l'application te prévient si la mémoire manque quand même.
 - **Modèles 3D** : Hunyuan3D-2 travaille à partir d'une seule image : le dos de l'objet est inventé, les parties fines (lames, cheveux, anses) peuvent être épaissies ou coupées, et la texture est parfois floue au dos. Une image bien cadrée sur fond uni change tout. Si la carte manque de mémoire pendant la texture, décoche « Peindre la texture » : la forme seule tient dans 6 Go. Les modèles sortent normalisés (environ 1 unité de côté) : remets-les à l'échelle dans ton moteur de jeu.
 - **Filigrane** : chaque fichier produit par la synthèse vocale porte un filigrane inaudible ([Perth](https://github.com/resemble-ai/perth)) qui permet de reconnaître une voix de synthèse. Il est ajouté par Chatterbox lui-même.
 - **Référence de voix pour la synthèse** : Chatterbox n'utilise que les 10 premières secondes de l'échantillon.

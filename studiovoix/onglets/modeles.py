@@ -1,7 +1,7 @@
 """Onglet « Modèles » : état et téléchargement des modèles, carte graphique, diagnostic, jeton."""
 import gradio as gr
 
-from .. import acestep, chatterbox, demucs, diagnostic, diffusion, nettoyage, rvc, seedvc, serveur_acestep
+from .. import acestep, chatterbox, demucs, diagnostic, diffusion, nettoyage, residents, rvc, seedvc, serveur_acestep
 from .. import config as cfg
 from ..modeles import models_status_md
 from ..outils import open_folder
@@ -16,7 +16,7 @@ def construire():
     )
     status = gr.Markdown(models_status_md())
     btn_refresh = gr.Button("🔄 Actualiser l'état")
-    with gr.Accordion("🎛️ Carte graphique et serveur ACE-Step", open=False):
+    with gr.Accordion("🎛️ Carte graphique : performances et serveur ACE-Step", open=True):
         gr.Markdown(
             "Le serveur ACE-Step (génération musicale) occupe ~8 Go de mémoire graphique tant qu'il tourne. "
             "Avec la libération automatique, il est arrêté avant les bruitages, la 3D, les illustrations, la "
@@ -31,13 +31,29 @@ def construire():
         with gr.Row():
             btn_gpu_stop = gr.Button("⏹️ Arrêter ACE-Step maintenant")
             btn_gpu_maj = gr.Button("🔄 État du serveur")
+        with gr.Row():
+            ace_lm = gr.Dropdown(list(serveur_acestep.MODELES_LM), value=serveur_acestep.libelle_modele_lm(),
+                                 label="Modèle de langage d'ACE-Step (structure et cohérence des chansons)")
         gpu_msg = gr.Markdown()
+        gr.Markdown(
+            "**Modèles gardés en mémoire** : la diffusion (images, 3D, vidéos, photos, bruitages), la synthèse "
+            "vocale et le nettoyage restent ouverts entre deux générations : la suivante démarre sans relire ses "
+            "modèles sur le disque, la carte calcule au lieu d'attendre. Un seul moteur ouvert à la fois ; il "
+            f"est fermé avant une chanson (ACE-Step) et après {residents.GARDER_MIN:g} minutes sans génération."
+        )
+        with gr.Row():
+            res_actif = gr.Checkbox(value=residents.ACTIF, label="Garder les modèles en mémoire entre deux générations",
+                                    interactive=residents.GARDER_MIN > 0)
+            res_etat = gr.Markdown(residents.etat())
+        with gr.Row():
+            btn_res_fermer = gr.Button("⏏️ Fermer le moteur ouvert (rendre la mémoire)")
+            btn_res_maj = gr.Button("🔄 État des moteurs")
         with gr.Row():
             btn_gpu_mesure = gr.Button("📈 Mesurer la carte graphique pendant 1 minute")
             gr.Markdown("Lance une génération dans un autre onglet, puis clique ici : l'utilisation réelle de la "
                         "carte s'affiche en direct (mesures de nvidia-smi).")
         gpu_mesure = gr.Markdown()
-    with gr.Accordion("🩺 Diagnostic (si quelque chose ne marche pas)", open=False):
+    with gr.Accordion("🩺 Diagnostic et essai complet des moteurs", open=True):
         gr.Markdown(
             "**Diagnostic rapide** (moins d'une minute) : carte graphique, espace disque, chaque moteur "
             "(PyTorch, CUDA), modèles manquants. **Essai complet** (10 à 20 minutes) : une génération courte "
@@ -92,6 +108,10 @@ def brancher(c, demo, o):
     c.btn_gpu_stop.click(serveur_acestep.arreter_depuis_interface, None, c.gpu_etat)
     c.btn_gpu_maj.click(serveur_acestep.etat, None, c.gpu_etat)
     c.btn_gpu_mesure.click(diagnostic.surveiller_gpu, None, c.gpu_mesure)
+    c.ace_lm.change(serveur_acestep.regler_modele_lm, c.ace_lm, c.gpu_msg).then(serveur_acestep.etat, None, c.gpu_etat)
+    c.res_actif.change(residents.regler, c.res_actif, c.res_etat)
+    c.btn_res_fermer.click(residents.fermer_depuis_interface, None, c.res_etat)
+    c.btn_res_maj.click(residents.etat, None, c.res_etat)
     for b, fn in ((c.b_ace, acestep.download), (c.b_sv, seedvc.download), (c.b_dm, demucs.download),
                   (c.b_cb, chatterbox.download), (c.b_nt, nettoyage.download), (c.b_rvc, rvc.download),
                   (c.b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "zimage", "personnages", "photo_detourage", "photo_qualite"])),

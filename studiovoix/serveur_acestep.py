@@ -27,6 +27,17 @@ from . import config as cfg
 _processus = None  # serveur lancé par l'application
 LIBERATION_AUTO = os.environ.get("STUDIOVOIX_LIBERER_GPU", "1") != "0"
 
+# Modèle de langage d'ACE-Step (la « réflexion » : structure, durée, tonalité, codes audio guidant le générateur).
+# ACE-Step choisit d'après la mémoire de la carte (acestep/gpu_config.py) : jusqu'à 12 Go inclus (`<= 12`, catégorie
+# « tier4 »), seul le plus petit modèle (0.6B) est permis et le générateur quitte la carte pendant la réflexion ;
+# au-delà (« tier5 », 12–16 Go), modèle 1.7B (celui de son téléchargement par défaut, conseillé par sa
+# documentation : « turbo + 1.7B ») et générateur gardé sur la carte. Une RTX 4070 annonce 11,99 Go : elle tombait
+# dans la première catégorie. MAX_CUDA_VRAM (variable de test d'ACE-Step) annonce 12,5 Go ; supérieure à la mémoire
+# réelle, elle ne pose aucune limite (set_per_process_memory_fraction n'est appliqué qu'en dessous) et la place
+# réservée au modèle de langage reste calculée sur la mémoire réellement libre (get_lm_gpu_memory_ratio).
+MODELES_LM = {"1.7B : meilleure musique (conseillé sur 12 Go)": "1.7B", "0.6B : plus léger": "0.6B"}
+MODELE_LM = os.environ.get("STUDIOVOIX_ACE_LM", "1.7B")
+
 
 def _hote_port():
     u = urlparse(cfg.ACESTEP_URL)
@@ -65,6 +76,43 @@ def _uv():
 def commande():
     hote, port = _hote_port()
     return [_uv(), "run", "--no-sync", "acestep-api", "--host", hote, "--port", str(port)]
+
+
+def memoire_gpu_go():
+    """Mémoire totale de la carte graphique en Gio (nvidia-smi), ou None."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=15)
+        return float(r.stdout.split()[0]) / 1024 if r.returncode == 0 and r.stdout.strip() else None
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
+
+
+def env_serveur():
+    """Variables du serveur : modèle de langage choisi (voir MODELES_LM)."""
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
+    if "ACESTEP_LM_MODEL_PATH" not in os.environ:
+        env["ACESTEP_LM_MODEL_PATH"] = f"acestep-5Hz-lm-{MODELE_LM}"
+    total = memoire_gpu_go()
+    if MODELE_LM == "1.7B" and "MAX_CUDA_VRAM" not in os.environ and total and 11.0 <= total <= 12.05:
+        env["MAX_CUDA_VRAM"] = "12.5"
+    return env
+
+
+def regler_modele_lm(libelle):
+    """Change le modèle de langage : le serveur est arrêté, la prochaine chanson le relance avec ce modèle."""
+    global MODELE_LM
+    MODELE_LM = MODELES_LM.get(libelle, MODELE_LM)
+    arrete = arreter() if (_vivant() or (local() and repond(1))) else False
+    return (f"✅ Modèle de langage d'ACE-Step : {MODELE_LM}."
+            + (" Serveur arrêté : il redémarrera avec ce modèle à la prochaine chanson." if arrete else "")
+            + (" Le premier lancement télécharge ce modèle s'il manque." if MODELE_LM == "0.6B" else ""))
+
+
+def libelle_modele_lm():
+    return next((lib for lib, v in MODELES_LM.items() if v == MODELE_LM), next(iter(MODELES_LM)))
 
 
 def _vivant():
@@ -119,7 +167,7 @@ def demarrer():
         raise gr.Error(f"ACE-Step n'est pas installé ({cfg.ACESTEP_DIR} introuvable). Relance INSTALLER.bat.")
     log = open(journal(), "w", encoding="utf-8", errors="replace")
     options = {"cwd": cfg.ACESTEP_DIR, "stdout": log, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL,
-               "env": {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}}
+               "env": env_serveur()}
     if os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
@@ -134,7 +182,13 @@ def demarrer():
 
 
 def assurer(progress=None, timeout=15 * 60):
-    """Serveur prêt à répondre (démarré si besoin ; le premier démarrage charge ses modèles)."""
+    """Serveur prêt à répondre (démarré si besoin ; le premier démarrage charge ses modèles).
+    Les moteurs résidents (diffusion, Chatterbox…) sont fermés d'abord : ACE-Step (~8 Go) puis Demucs et Seed-VC
+    ont besoin de la carte et de la mémoire vive qu'ils gardent."""
+    from . import residents
+
+    if residents.arreter_tous() and progress:
+        progress(0.01, desc="Libération de la carte graphique : fermeture du moteur ouvert…")
     if repond():
         return
     demarrer()
