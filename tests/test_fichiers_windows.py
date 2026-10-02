@@ -10,14 +10,15 @@ def _crlf_partout(data: bytes) -> bool:
     return data.count(b"\n") == data.count(b"\r\n") > 0
 
 
-def test_installer_ps1_bom_crlf():
-    data = (RACINE / "installer.ps1").read_bytes()
-    assert data.startswith(b"\xef\xbb\xbf"), "installer.ps1 doit être en UTF-8 avec BOM (PowerShell 5.1)"
-    assert _crlf_partout(data), "installer.ps1 doit avoir des fins de ligne CRLF"
+@pytest.mark.parametrize("nom", ["installer.ps1", "installation/actualiser.ps1"])
+def test_ps1_bom_crlf(nom):
+    data = (RACINE / nom).read_bytes()
+    assert data.startswith(b"\xef\xbb\xbf"), f"{nom} doit être en UTF-8 avec BOM (PowerShell 5.1)"
+    assert _crlf_partout(data), f"{nom} doit avoir des fins de ligne CRLF"
     data[3:].decode("utf-8")
 
 
-@pytest.mark.parametrize("nom", ["INSTALLER.bat", "lancer.bat"])
+@pytest.mark.parametrize("nom", ["INSTALLER.bat", "lancer.bat", "METTRE_A_JOUR.bat", "ACTUALISER.bat"])
 def test_bat_ascii_crlf(nom):
     data = (RACINE / nom).read_bytes()
     data.decode("ascii")  # pas d'accents dans les .bat
