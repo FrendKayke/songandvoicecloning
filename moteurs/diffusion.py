@@ -174,10 +174,11 @@ CONSIGNES = {
                  "only:\n\n"),
     "image": ("Describe this image in English in two sentences, as a prompt for an image generator: the main "
               "object, its materials and colors. No introduction."),
-    "video": ("Rewrite the following description into an English prompt for a text-to-video generator: main subject, "
-              "its action and movement over a few seconds, setting, lighting, mood, and camera movement (static shot, "
-              "slow pan, tracking shot, zoom…). Present tense, concrete visual details, 2 to 4 sentences. Do not "
-              "mention any artist or existing work. Answer with the prompt only:\n\n"),
+    "video": ("Translate and rewrite the following description into an English prompt for a text-to-video "
+              "generator. Keep EVERY element of the description: each character and how many there are, what each "
+              "one does, the creatures, the setting and the camera movement, in the same order. Do not invent "
+              "characters or change them. Add only visual details (lighting, colors, mood). Present tense, 2 to 4 "
+              "sentences, no artist or existing work. Answer with the prompt only:\n\n"),
     "carte": ("Rewrite the following description into an English prompt for an image generator that will paint "
               "ONE illustration for a fantasy trading card: main subject, pose or action, setting, lighting, colors "
               "and mood, composition centered on the subject. Do not mention any art style, artist or existing "
@@ -186,8 +187,14 @@ CONSIGNES = {
 }
 
 
+# Modes qui reformulent un texte : leur consigne se termine par « \n\n » et le texte y est ajouté. Déduit des
+# consignes : une liste écrite à la main avait oublié « video », et Qwen inventait une scène sans rapport (constaté).
+MODES_TEXTE = {mode for mode, consigne in CONSIGNES.items() if consigne.endswith("\n\n")}
+
+
 def decrire(chemin_tache):
-    """Tâche : {mode: son|objet|bruitage|image|carte, image?: chemin, texte?: str}. Renvoie RESULTAT {"texte": …}."""
+    """Tâche : {mode: son|image (d'après une image) ou objet|bruitage|carte|video (texte reformulé), image?, texte?}.
+    Renvoie RESULTAT {"texte": …}."""
     import torch
     from PIL import Image
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
@@ -206,8 +213,11 @@ def decrire(chemin_tache):
     if t.get("image"):
         contenu.append({"type": "image", "image": Image.open(t["image"]).convert("RGB")})
     consigne = CONSIGNES[mode]
-    if mode in ("objet", "bruitage", "carte"):
-        consigne += (t.get("texte") or "").strip()
+    if mode in MODES_TEXTE:
+        texte_ = (t.get("texte") or "").strip()
+        if not texte_:
+            _erreur("description vide : écris ce que tu veux obtenir.")
+        consigne += texte_
     contenu.append({"type": "text", "text": consigne})
     entrees = processeur.apply_chat_template([{"role": "user", "content": contenu}], tokenize=True,
                                              add_generation_prompt=True, return_dict=True, return_tensors="pt")
