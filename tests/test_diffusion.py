@@ -69,6 +69,22 @@ FAUX_MOTEUR = textwrap.dedent("""
             (d / f"{base}.obj").write_text("o x"); (d / "material.mtl").write_text("newmtl material_0")
             (d / "material_0.png").write_bytes(b"png"); res["obj"] = str(d / f"{base}.obj")
         print("RESULTAT " + json.dumps(res), flush=True)
+    elif action == "detourer":
+        from PIL import Image
+        for i in (1, 2, 3): print(f"PROGRESSION {i}/3 x", flush=True)
+        im = Image.open(t["entree"]).convert("RGBA" if not t["fond"] else "RGB")
+        Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True); im.save(t["sortie"])
+        if t["masque"]: Image.new("L", im.size, 255).save(t["masque"])
+        couverture = 0.0 if im.width < 10 else 0.5  # image minuscule : « sujet non reconnu »
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "masque": t["masque"], "largeur": im.width,
+                                        "hauteur": im.height, "couverture": couverture}), flush=True)
+    elif action == "ameliorer":
+        from PIL import Image
+        for i in (1, 2, 3): print(f"PROGRESSION {i}/3 x", flush=True)
+        im = Image.open(t["entree"]); im = im.resize((im.width * t["echelle"], im.height * t["echelle"]))
+        im.save(t["sortie"])
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "largeur": im.width, "hauteur": im.height,
+                                        "visages": 1 if t["visages"] else 0, "modele": "x"}), flush=True)
     elif action == "alleger":
         print("PROGRESSION 1/1 x", flush=True)
         Path(t["sortie"]).write_bytes(b"g" * 100)
@@ -95,7 +111,8 @@ def faux_diffusion(env, monkeypatch):
     for nom in diffusion.MODELES:  # modèles « présents » dans le cache
         for f in diffusion.MODELES[nom][2]:
             depot, f = f if isinstance(f, tuple) else (diffusion.MODELES[nom][0], f)
-            p = diffusion._dossier_depot(depot) / "snapshots" / "abc" / f
+            p = (diffusion.dossier_photos() / f if depot == diffusion.LOCAL_PHOTOS
+                 else diffusion._dossier_depot(depot) / "snapshots" / "abc" / f)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(b"0")
     return env
@@ -171,7 +188,7 @@ def test_jeton_et_telechargement(faux_diffusion):
 
 
 def test_etat_des_modeles(faux_diffusion):
-    assert "| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein, Hunyuan3D-2 | ✅ présent |" in models_status_md()
+    assert "| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein, BiRefNet, Real-ESRGAN, GFPGAN, Hunyuan3D-2 | ✅ présent |" in models_status_md()
 
 
 def test_galerie_bruitage(faux_diffusion):
@@ -412,3 +429,54 @@ def test_personnages_recurrents(faux_diffusion):
     msg, gal, liste = personnages.supprimer("Mon Jeu", "héroïne")
     assert "supprimé" in msg and gal == [] and personnages.liste("Mon Jeu") == [] and liste["value"] == personnages.AUCUN
     assert len(galerie.lister("Illustrations")) == 3  # les illustrations faites avec lui restent
+
+
+def test_photos(faux_diffusion):
+    from PIL import Image
+
+    from studiovoix import galerie, photos
+
+    with pytest.raises(gr.Error, match="photo"):
+        photos.traiter(None, photos.ACTION_DEFAUT, "×2", False, True, 0.7, photos.FOND_DEFAUT, None)
+    source = cfg.DATA_DIR.parent / "vacances.jpg"
+    Image.new("RGB", (40, 30), (200, 100, 50)).save(source)
+    (cfg.DATA_DIR.parent / "notes.txt").write_text("x")
+    with pytest.raises(gr.Error, match="Format"):
+        photos.traiter(str(cfg.DATA_DIR.parent / "notes.txt"), photos.ACTION_DEFAUT, "×2", False, True, 0.7,
+                       photos.FOND_DEFAUT, None)
+    # amélioration ×4 avec visages
+    msg, (avant, apres), fichiers, dossier = photos.traiter(str(source), photos.ACTION_DEFAUT, "×4", True, True, 0.6,
+                                                           photos.FOND_DEFAUT, None, progress=no_progress)
+    t = _journal()[-1]
+    assert t["action"] == "ameliorer" and t["tache"]["echelle"] == 4 and t["tache"]["rapide"] is True
+    assert t["tache"]["force"] == 0.6 and t["cwd"] == str(cfg.DIFFUSION_DIR)
+    assert "160×120" in msg and "1 visage(s) restauré(s)" in msg
+    assert Path(avant).name == "originale.jpg" and Path(apres).name == "resultat.png" and fichiers == [apres]
+    # détourage sur une couleur au choix (le sélecteur peut renvoyer « rgba(…) »), puis personne isolée
+    msg, _, fichiers, d2 = photos.traiter(apres, "✂️ Détourer (objet, animal, personne…)", "×2", False, True, 0.7,
+                                          "Couleur au choix", "rgba(255, 0, 16, 1)", "chat", progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["modele"] == "general" and t["fond"] == "#ff0010" and "Photo détourée" in msg
+    assert [Path(f).name for f in fichiers] == ["resultat.png", "masque.png"]
+    assert Path(photos.continuer(d2)).name == "resultat.png"
+    _, _, _, d3 = photos.traiter(str(source), "🧍 Isoler une personne", "×2", False, True, 0.7,
+                                 "Fond d'origine flouté (effet portrait)", None, progress=no_progress)
+    assert _journal()[-1]["tache"]["modele"] == "personne" and _journal()[-1]["tache"]["fond"] == "flou"
+    vide = cfg.DATA_DIR.parent / "vide.png"
+    Image.new("RGB", (8, 8)).save(vide)
+    assert "Presque rien" in photos.traiter(str(vide), "🧍 Isoler une personne", "×2", False, True, 0.7,
+                                            photos.FOND_DEFAUT, None, progress=no_progress)[0]
+    assert photos.maj_action("🧍 Isoler une personne") == (gr.update(visible=False), gr.update(visible=True))
+    # galerie : image affichée, nouveau traitement avec les mêmes réglages
+    assert len(galerie.lister("Photos")) == 4
+    md, audio, *_, image = galerie.details(d2)
+    assert "🖼️ Photo" in md and "détourée (fond : Couleur au choix)" in md and image["value"].endswith("resultat.png")
+    msg, nouveau = galerie.recreer(dossier, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert nouveau != dossier and t["echelle"] == 4 and t["rapide"] is True and t["entree"].startswith(nouveau)
+    # modèles absents : message clair
+    import shutil
+    shutil.rmtree(diffusion.dossier_photos())
+    with pytest.raises(gr.Error, match="Real-ESRGAN"):
+        photos.traiter(str(source), photos.ACTION_DEFAUT, "×2", False, True, 0.7, photos.FOND_DEFAUT, None,
+                       progress=no_progress)

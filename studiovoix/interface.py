@@ -9,14 +9,14 @@ from types import SimpleNamespace
 import gradio as gr
 
 from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, illustrations,
-                      modeles, modeles_3d, synthese)
+                      modeles, modeles_3d, photos, synthese)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
 
 # apercu_description, maj_mode et synthese_puis_rvc sont réexportés pour les tests
 __all__ = ["GROUPES", "ONGLETS", "build_ui", "apercu_description", "maj_mode", "synthese_puis_rvc"]
 
-# Quatre groupes, chacun avec ses onglets : (titre du groupe, [(clé dans o, module, titre de l'onglet)])
+# Cinq groupes, chacun avec ses onglets : (titre du groupe, [(clé dans o, module, titre de l'onglet)])
 GROUPES = [
     ("🎤 Voix", [
         ("bibliotheque", bibliotheque, "Bibliothèque de voix"),
@@ -25,6 +25,9 @@ GROUPES = [
     ]),
     ("🎵 Musique", [
         ("chanson", chanson, "Créer une chanson"),
+    ]),
+    ("🖼️ Image et vidéo", [
+        ("photos", photos, "Photos"),
     ]),
     ("🎮 Jeu", [
         ("bande_son", bande_son, "Bande-son de jeu"),

@@ -7,10 +7,13 @@ Quatre modèles qui partagent la même pile (diffusers, transformers) :
   - Hunyuan3D-2 (Tencent)          : image → forme 3D (turbo) puis texture (paint turbo + delight) ;
   - Z-Image-Turbo (Apache 2.0)     : texte → image (illustrations de cartes, objet du texte → 3D) ;
   - FLUX.2 klein 4B (Apache 2.0)   : image d'un personnage à partir de 1 à 4 images de référence (même personnage
-                                     d'une carte à l'autre).
+                                     d'une carte à l'autre) ;
+  - Photos : BiRefNet (MIT) détoure ou isole une personne ; Real-ESRGAN (BSD-3) agrandit et restaure, GFPGAN 1.4
+    (Apache 2.0) restaure les visages trouvés par YuNet (OpenCV, MIT).
 
-    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | personnage | forme3d | alleger
-    python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | personnages | detourage
+    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | personnage | detourer | ameliorer | forme3d | alleger
+    python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | personnages
+                                                   | photo_detourage | photo_qualite | detourage
 
 Sortie : « PROGRESSION i/n … », « RESULTAT <json> », « ERREUR : message » et « TERMINE <fichier> ».
 API vérifiées dans les dépôts : diffusers 0.39 (StableAudioPipeline.__call__, ZImagePipeline, Flux2KleinPipeline),
@@ -37,6 +40,30 @@ ZIMAGE_GGUF = ("unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q8_0.gguf")
 KLEIN = "black-forest-labs/FLUX.2-klein-4B"
 KLEIN_GGUF = ("unsloth/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf")
 REFERENCES_MAX = 4  # limite de klein dans l'API de Black Forest Labs ; chaque référence ajoute jusqu'à 4096 jetons
+# Photos. BiRefNet (MIT) : le code du modèle est dans son dépôt (trust_remote_code) : révision épinglée.
+# HR-matting : alpha doux (cheveux), entrée 2048² ; portrait : entraîné sur des personnes, entrée 1024².
+BIREFNET = {
+    "general": ("ZhengPeng7/BiRefNet_HR-matting", "5d6b6f8adcb5b417c871b1d84ceaae9871355b7f", 2048),
+    "personne": ("ZhengPeng7/BiRefNet-portrait", "b6561965a70070d9143fd9e558f6ca3c481510db", 1024),
+}
+REVISIONS = {depot: rev for depot, rev, _ in BIREFNET.values()}
+# Agrandissement et visages : poids officiels, publiés seulement sur GitHub (nom → adresse, SHA-256), rangés dans
+# StudioVoix\diffusion\photos. spandrel (MIT) les charge ; jamais spandrel_extra_arches (architectures non
+# commerciales). facexlib n'est pas utilisé : son modèle de segmentation du visage est non commercial.
+FICHIERS_PHOTOS = {
+    "RealESRGAN_x4plus.pth": ("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+                              "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"),
+    "RealESRGAN_x2plus.pth": ("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+                              "49fafd45f8fd7aa8d31ab2a22d14d91b536c34494a5cfe31eb5d89c2fa266abb"),
+    "realesr-general-x4v3.pth": (
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+        "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292"),
+    "GFPGANv1.4.pth": ("https://github.com/TencentARC/GFPGAN/releases/download/v1.3.4/GFPGANv1.4.pth",
+                       "e2cd4703ab14f4d01fd1383a8a8b266f9a5833dacee8e6a79d3bf21a1b6be5ad"),
+    "face_detection_yunet_2023mar.onnx": (
+        "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx",
+        "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"),
+}
 HUNYUAN = "tencent/Hunyuan3D-2"
 HUNYUAN_FORME = "hunyuan3d-dit-v2-0-turbo"
 HUNYUAN_TEXTURE = "hunyuan3d-paint-v2-0-turbo"
@@ -50,6 +77,8 @@ MODELES = {
     # l'encodeur de texte et le tokeniseur viennent de Z-Image (« zimage » doit être présent aussi)
     "personnages": [(KLEIN, ["model_index.json", "scheduler/*", "vae/*", "transformer/config.json"]),
                     (KLEIN_GGUF[0], [KLEIN_GGUF[1]])],
+    "photo_detourage": [(depot, None) for depot, _, _ in BIREFNET.values()],
+    "photo_qualite": [("local:photos", list(FICHIERS_PHOTOS))],
     "forme3d": [(HUNYUAN, [f"{HUNYUAN_FORME}/*", "hunyuan3d-vae-v2-0-turbo/*"])],
     "texture3d": [(HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"])],
 }
@@ -317,6 +346,239 @@ def personnage(chemin_tache):
     _generer(pipe, t, dict(options, image=references, guidance_scale=1.0), etapes=4)
 
 
+# --- Photos : détourage (BiRefNet), agrandissement (Real-ESRGAN), visages (GFPGAN) -------------------------
+def _dossier_photos():
+    return Path(os.environ.get("STUDIOVOIX_PHOTOS") or Path.cwd() / "photos")
+
+
+def _ouvrir_photo(chemin):
+    """Image dans le bon sens (EXIF des téléphones) ; (RGB, alpha ou None)."""
+    from PIL import Image, ImageOps
+
+    with Image.open(chemin) as im:
+        im = ImageOps.exif_transpose(im)
+        alpha = im.getchannel("A") if im.mode in ("RGBA", "LA") or "transparency" in im.info else None
+        if alpha is not None and alpha.getextrema() == (255, 255):
+            alpha = None  # canal alpha entièrement opaque : inutile
+        return im.convert("RGB"), alpha
+
+
+def detourer(chemin_tache):
+    """Tâche : {entree, sortie, modele: general | personne, fond: None | "#rrggbb" | "flou", masque: chemin}.
+    BiRefNet donne un masque doux (0–255) ; les couleurs du fond mêlées aux bords (cheveux) sont retirées par
+    l'estimation du premier plan de pymatting (rembg.bg.decontaminate_cutout). Sans fond : PNG transparent.
+    fp16 sur la carte graphique (jamais bf16 : deform_conv2d de torchvision ne le gère pas). RESULTAT {sortie, ...}."""
+    import numpy as np
+    import torch
+    from PIL import Image, ImageFilter
+    from rembg.bg import decontaminate_cutout
+    from torchvision import transforms
+    from transformers import AutoModelForImageSegmentation
+
+    t = _lire(chemin_tache)
+    depot, revision, cote = BIREFNET[t.get("modele") or "general"]
+    if t.get("cote"):  # tests : modèle plus petit
+        cote = int(t["cote"])
+    device = _device()
+    _hors_ligne_si_present(depot)
+    print("PROGRESSION 1/3 chargement de BiRefNet", flush=True)
+    modele = AutoModelForImageSegmentation.from_pretrained(t.get("depot", depot), trust_remote_code=True,
+                                                           revision=t.get("revision", revision))
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    torch.set_float32_matmul_precision("high")
+    modele.to(device=device, dtype=dtype).eval()
+    image, _ = _ouvrir_photo(t["entree"])
+    print(f"PROGRESSION 2/3 détourage ({image.width}×{image.height})", flush=True)
+    preparation = transforms.Compose([transforms.Resize((cote, cote)), transforms.ToTensor(),
+                                      transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+    x = preparation(image).unsqueeze(0).to(device=device, dtype=dtype)
+    with torch.inference_mode():
+        prediction = _memoire(modele)(x)[-1].sigmoid().float().cpu()[0, 0].numpy()
+    _liberer(modele)
+    masque = Image.fromarray((prediction * 255).round().astype("uint8")).resize(image.size, Image.BILINEAR)
+    print("PROGRESSION 3/3 finitions des bords", flush=True)
+    decoupe = decontaminate_cutout(image, masque)  # RGBA, couleurs des bords sans le fond
+    fond = t.get("fond")
+    if fond == "flou":  # effet portrait : le sujet net devant son propre fond flouté
+        base = image.filter(ImageFilter.GaussianBlur(max(image.size) / 80)).convert("RGBA")
+        resultat = Image.alpha_composite(base, decoupe).convert("RGB")
+    elif fond:
+        base = Image.new("RGBA", image.size, fond)
+        resultat = Image.alpha_composite(base, decoupe).convert("RGB")
+    else:
+        resultat = decoupe
+    Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True)
+    resultat.save(t["sortie"])
+    if t.get("masque"):
+        masque.save(t["masque"])
+    couverture = float(np.asarray(masque, dtype=np.float32).mean() / 255)
+    _resultat({"sortie": t["sortie"], "masque": t.get("masque"), "largeur": image.width, "hauteur": image.height,
+               "couverture": round(couverture, 3)})
+    print(f"TERMINE {t['sortie']}", flush=True)
+
+
+def _par_tuiles(modele, image, tuile=512, marge=32):
+    """Agrandit image (H×W×3, réels 0–1) par tuiles qui se chevauchent, fondues en rampe linéaire : une photo de
+    plusieurs mégapixels ne tient pas d'un bloc dans 12 Go. spandrel ne découpe pas lui-même."""
+    import numpy as np
+    import torch
+
+    h, w, _ = image.shape
+    s = modele.scale
+    param = next(modele.model.parameters())
+
+    def passe(bloc):
+        x = torch.from_numpy(np.ascontiguousarray(bloc)).permute(2, 0, 1)[None].to(param.device, param.dtype)
+        with torch.inference_mode():
+            return modele(x)[0].permute(1, 2, 0).float().cpu().numpy()
+
+    if h <= tuile and w <= tuile:
+        return passe(image)
+
+    def positions(n):
+        if n <= tuile:
+            return [0]
+        pas = tuile - marge
+        p = list(range(0, n - tuile, pas))
+        return p + [n - tuile]
+
+    sortie = np.zeros((h * s, w * s, 3), np.float32)
+    poids = np.zeros((h * s, w * s, 1), np.float32)
+    lignes, colonnes = positions(h), positions(w)
+    total, n = len(lignes) * len(colonnes), 0
+    for y in lignes:
+        for x in colonnes:
+            bloc = passe(image[y:y + tuile, x:x + tuile])
+            bh, bw = bloc.shape[:2]
+            rampe = marge * s
+
+            def fenetre(taille, debut, fin):
+                f = np.ones(taille, np.float32)
+                if debut:
+                    f[:rampe] = np.linspace(0, 1, rampe + 2, dtype=np.float32)[1:-1]
+                if fin:
+                    f[taille - rampe:] = np.linspace(1, 0, rampe + 2, dtype=np.float32)[1:-1]
+                return f
+
+            masque = (fenetre(bh, y > 0, y + tuile < h)[:, None] * fenetre(bw, x > 0, x + tuile < w)[None, :])[..., None]
+            sortie[y * s:y * s + bh, x * s:x * s + bw] += bloc * masque
+            poids[y * s:y * s + bh, x * s:x * s + bw] += masque
+            n += 1
+            print(f"Tuile {n}/{total}", flush=True)
+    return sortie / np.maximum(poids, 1e-6)
+
+
+# Gabarit des 5 points du visage pour une image 512×512 (FFHQ, celui de GFPGAN)
+GABARIT_VISAGE = [[192.98138, 239.94708], [318.90277, 240.1936], [256.63416, 314.01935], [201.26117, 371.41043],
+                  [313.08905, 371.15118]]
+
+
+def _ovale_visage():
+    """Masque 512×512 de l'ovale du visage (gabarit FFHQ : yeux vers y = 240, bouche vers y = 371), fondu."""
+    import cv2
+    import numpy as np
+
+    m = np.zeros((512, 512), np.float32)
+    cv2.ellipse(m, (256, 285), (165, 205), 0, 0, 360, 1.0, -1)
+    return cv2.GaussianBlur(m, (0, 0), 28)
+
+
+def _restaurer_visages(bgr, dossier, device, force=0.7, cote_min=48):
+    """GFPGAN 1.4 sur chaque visage trouvé par YuNet : alignement sur le gabarit, restauration 512×512, recollage
+    fondu. On appelle le réseau directement (entrée et sortie en [-1, 1]) : le descripteur de spandrel travaille
+    en [0, 1] et changeait l'identité (essai : yeux marron devenus bleus). Renvoie (image, nombre de visages)."""
+    import cv2
+    import numpy as np
+    import torch
+    from spandrel import ModelLoader
+
+    h, w = bgr.shape[:2]
+    reduction = min(1.0, 1600 / max(h, w))  # détection sur une copie réduite des grandes images
+    petite = cv2.resize(bgr, (round(w * reduction), round(h * reduction)), interpolation=cv2.INTER_AREA)
+    detecteur = cv2.FaceDetectorYN.create(str(dossier / "face_detection_yunet_2023mar.onnx"), "",
+                                          (petite.shape[1], petite.shape[0]), 0.7, 0.3, 5000)
+    _, visages = detecteur.detect(petite)
+    if visages is None:
+        return bgr, 0
+    visages = [v for v in visages if v[2] / reduction >= cote_min]
+    if not visages:
+        return bgr, 0
+    gfpgan = ModelLoader(device=device).load_from_file(str(dossier / "GFPGANv1.4.pth")).eval()
+    dtype = torch.bfloat16 if device == "cuda" and gfpgan.supports_bfloat16 else torch.float32
+    gfpgan.to(dtype)
+    gabarit = np.array(GABARIT_VISAGE, np.float32)
+    ovale = _ovale_visage()
+    for v in visages:
+        points = v[4:14].reshape(5, 2) / reduction
+        a, _ = cv2.estimateAffinePartial2D(points, gabarit, method=cv2.LMEDS)
+        if a is None:
+            continue
+        recadre = cv2.warpAffine(bgr, a, (512, 512), borderMode=cv2.BORDER_CONSTANT, borderValue=(135, 133, 132))
+        x = torch.from_numpy(cv2.cvtColor(recadre, cv2.COLOR_BGR2RGB) / 255.0).permute(2, 0, 1)[None]
+        x = x.float().to(device=device, dtype=dtype)
+        with torch.inference_mode():
+            y = gfpgan.model(x * 2 - 1, randomize_noise=False)[0]
+        y = ((y.float().clamp(-1, 1) + 1) / 2)[0].permute(1, 2, 0).cpu().numpy()
+        y = cv2.cvtColor((y * 255).round().astype(np.uint8), cv2.COLOR_RGB2BGR)
+        restaure = cv2.addWeighted(y, force, recadre, 1 - force, 0)  # force < 1 : garde du grain d'origine
+        inverse = cv2.invertAffineTransform(a)
+        retour = cv2.warpAffine(restaure, inverse, (w, h))
+        # Seul l'ovale du visage est recollé, bords très fondus : le reste du carré 512 (fond, cheveux du haut)
+        # change de teinte avec GFPGAN et laissait un rectangle visible (constaté à l'essai).
+        masque = cv2.warpAffine(ovale, inverse, (w, h))[..., None]
+        bgr = (masque * retour + (1 - masque) * bgr).round().astype(np.uint8)
+    _liberer(gfpgan)
+    return bgr, len(visages)
+
+
+def ameliorer(chemin_tache):
+    """Tâche : {entree, sortie, echelle: 1 | 2 | 4, rapide: bool, visages: bool, force: 0–1}.
+    Real-ESRGAN x4plus (x2plus pour ×2 ; general-x4v3, 5 Mo, en mode rapide) par tuiles, puis réduction à la
+    taille voulue (×1 = restauration seule : bruit, artefacts JPEG, flou), puis GFPGAN sur les visages de l'image
+    agrandie. La transparence éventuelle est agrandie à part. RESULTAT {sortie, largeur, hauteur, visages}."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+    from spandrel import ModelLoader
+
+    t = _lire(chemin_tache)
+    dossier = _dossier_photos()
+    echelle = int(t.get("echelle", 2))
+    device = _device()
+    image, alpha = _ouvrir_photo(t["entree"])
+    largeur, hauteur = image.width * echelle, image.height * echelle
+    if max(largeur, hauteur) > 8192:
+        _erreur(f"image trop grande pour ×{echelle} ({largeur}×{hauteur} ; 8192 pixels de côté au plus) : "
+                "choisis un agrandissement plus petit.")
+    nom = ("realesr-general-x4v3.pth" if t.get("rapide")
+           else "RealESRGAN_x2plus.pth" if echelle == 2 else "RealESRGAN_x4plus.pth")
+    etapes = 3 if t.get("visages") else 2
+    print(f"PROGRESSION 1/{etapes} chargement de Real-ESRGAN", flush=True)
+    modele = ModelLoader(device=device).load_from_file(str(dossier / nom)).eval()
+    if device == "cuda" and modele.supports_half:
+        modele.half()
+    print(f"PROGRESSION 2/{etapes} agrandissement ({image.width}×{image.height} → {largeur}×{hauteur})", flush=True)
+    sortie = _memoire(_par_tuiles)(modele, np.asarray(image, np.float32) / 255.0)
+    _liberer(modele)
+    sortie = (np.clip(sortie, 0, 1) * 255).round().astype(np.uint8)
+    if sortie.shape[1] != largeur or sortie.shape[0] != hauteur:
+        sortie = cv2.resize(sortie, (largeur, hauteur), interpolation=cv2.INTER_AREA)
+    nb_visages = 0
+    if t.get("visages"):
+        print(f"PROGRESSION 3/{etapes} restauration des visages", flush=True)
+        bgr, nb_visages = _memoire(_restaurer_visages)(cv2.cvtColor(sortie, cv2.COLOR_RGB2BGR), dossier, device,
+                                                       float(t.get("force", 0.7)))
+        sortie = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    resultat = Image.fromarray(sortie)
+    if alpha is not None:
+        resultat.putalpha(alpha.resize(resultat.size, Image.LANCZOS))
+    Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True)
+    resultat.save(t["sortie"])
+    _resultat({"sortie": t["sortie"], "largeur": largeur, "hauteur": hauteur, "visages": nb_visages,
+               "modele": nom})
+    print(f"TERMINE {t['sortie']}", flush=True)
+
+
 # --- Hunyuan3D-2 : image → forme → texture -------------------------------------------------------------
 def forme3d(chemin_tache):
     """Tâche : {image, dossier, etapes, octree, faces, graine, texture: bool, formats: ["glb", "obj"]}.
@@ -458,6 +720,39 @@ def _exporter_obj(mesh, chemin):
 
 
 # --- Téléchargement des modèles --------------------------------------------------------------------------
+def _sha256(chemin):
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(chemin, "rb") as f:
+        for bloc in iter(lambda: f.read(1 << 20), b""):
+            h.update(bloc)
+    return h.hexdigest()
+
+
+def _telecharger_fichiers(noms):
+    """Poids des photos (GitHub) dans _dossier_photos(), via un fichier .part : un téléchargement interrompu ne
+    laisse jamais un fichier tronqué sous le vrai nom ; empreinte SHA-256 vérifiée."""
+    import shutil
+    import urllib.request
+
+    dossier = _dossier_photos()
+    dossier.mkdir(parents=True, exist_ok=True)
+    for nom in noms:
+        url, empreinte = FICHIERS_PHOTOS[nom]
+        cible = dossier / nom
+        if cible.exists() and _sha256(cible) == empreinte:
+            continue
+        print(f"Téléchargement de {nom}…", flush=True)
+        partiel = cible.with_name(nom + ".part")
+        with urllib.request.urlopen(url, timeout=60) as r, open(partiel, "wb") as f:
+            shutil.copyfileobj(r, f, 1 << 20)
+        if _sha256(partiel) != empreinte:
+            partiel.unlink()
+            _erreur(f"{nom} : fichier téléchargé corrompu (empreinte SHA-256 différente). Relance le téléchargement.")
+        partiel.replace(cible)
+
+
 def telecharger(noms):
     from huggingface_hub import snapshot_download
 
@@ -471,8 +766,11 @@ def telecharger(noms):
     depots = [(nom, repo, motifs) for nom in noms for repo, motifs in MODELES[nom]]
     for n, (nom, repo, motifs) in enumerate(depots, 1):
         print(f"PROGRESSION {n}/{len(depots)} téléchargement : {repo}", flush=True)
+        if repo.startswith("local:"):  # fichiers publiés hors de Hugging Face (GitHub), vérifiés par SHA-256
+            _telecharger_fichiers(motifs)
+            continue
         try:
-            snapshot_download(repo, allow_patterns=motifs)
+            snapshot_download(repo, allow_patterns=motifs, revision=REVISIONS.get(repo))
         except Exception as e:
             if nom == "bruitages" and any(k in str(e) for k in ("401", "403", "gated", "Access")):
                 _erreur("accès refusé à Stable Audio Open : accepte la licence sur "
@@ -483,11 +781,11 @@ def telecharger(noms):
 
 
 if __name__ == "__main__":
-    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "forme3d": forme3d,
-               "alleger": alleger}
+    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage,
+               "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger}
     if len(sys.argv) >= 2 and sys.argv[1] == "telecharger":
         telecharger(sys.argv[2:])
     elif len(sys.argv) == 3 and sys.argv[1] in actions:
         actions[sys.argv[1]](sys.argv[2])
     else:
-        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|forme3d|alleger <tache.json> | telecharger [modèle…]")
+        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|detourer|ameliorer|forme3d|alleger <tache.json> | telecharger [modèle…]")

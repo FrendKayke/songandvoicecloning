@@ -17,6 +17,7 @@ from . import retraits
 from . import serveur_acestep
 from .outils import lancer_moteur, stream_command
 
+LOCAL_PHOTOS = "local:photos"  # pas un dépôt Hugging Face : fichiers dans <DIFFUSION_DIR>/photos
 # nom → (dépôt Hugging Face, libellé, fichiers attendus dans le cache — un par composant essentiel ; un couple
 # (autre dépôt, fichier) désigne un fichier d'un autre dépôt)
 MODELES = {
@@ -32,6 +33,12 @@ MODELES = {
     "personnages": ("black-forest-labs/FLUX.2-klein-4B", "FLUX.2 klein 4B (personnages récurrents)",
                     ["vae/diffusion_pytorch_model.safetensors", "transformer/config.json",
                      ("unsloth/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf")]),
+    # Photos : BiRefNet (deux dépôts) ; Real-ESRGAN, GFPGAN et YuNet, publiés sur GitHub, dans StudioVoix\diffusion\photos
+    "photo_detourage": ("ZhengPeng7/BiRefNet_HR-matting", "BiRefNet (détourage des photos)",
+                        ["model.safetensors", "birefnet.py", ("ZhengPeng7/BiRefNet-portrait", "model.safetensors")]),
+    "photo_qualite": (LOCAL_PHOTOS, "Real-ESRGAN et GFPGAN (qualité des photos)",
+                      ["RealESRGAN_x4plus.pth", "RealESRGAN_x2plus.pth", "realesr-general-x4v3.pth", "GFPGANv1.4.pth",
+                       "face_detection_yunet_2023mar.onnx"]),
     "forme3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 forme (image → 3D)",
                 ["hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors"]),
     "texture3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 texture (peinture)",
@@ -50,7 +57,13 @@ def hf_home() -> Path:
     return Path(os.environ.get("HF_HOME") or (Path.home() / ".cache" / "huggingface"))
 
 
+def dossier_photos() -> Path:
+    return cfg.DIFFUSION_DIR / "photos"
+
+
 def _dossier_depot(depot) -> Path:
+    if depot == LOCAL_PHOTOS:
+        return dossier_photos()
     return hf_home() / "hub" / ("models--" + depot.replace("/", "--"))
 
 
@@ -61,7 +74,10 @@ def ckpt_dir(nom) -> Path:
 def _present(nom) -> bool:
     for f in MODELES[nom][2]:
         depot, chemin = f if isinstance(f, tuple) else (MODELES[nom][0], f)
-        if not any((_dossier_depot(depot) / "snapshots").glob(f"*/{chemin}")):
+        if depot == LOCAL_PHOTOS:
+            if not (dossier_photos() / chemin).is_file():
+                return False
+        elif not any((_dossier_depot(depot) / "snapshots").glob(f"*/{chemin}")):
             return False
     return True
 
@@ -78,6 +94,7 @@ def _env():
     env = {"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
     # rembg range son modèle de détourage dans ~/.u2net sinon (donc sur C:)
     env["U2NET_HOME"] = os.environ.get("U2NET_HOME") or str(cfg.DIFFUSION_DIR / "u2net")
+    env["STUDIOVOIX_PHOTOS"] = str(dossier_photos())
     return env
 
 
@@ -170,6 +187,26 @@ def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024
                                  "hauteur": int(hauteur), "etapes": int(etapes)},
                   Path(sorties[0]).parent, "FLUX.2 klein", progress,
                   {1: "chargement de FLUX.2 klein", 2: f"génération de {len(sorties)} image(s) du personnage"})
+
+
+def detourer(entree, sortie, modele="general", fond=None, masque=None, progress=None):
+    """BiRefNet : PNG transparent (fond None) ou sujet sur une couleur « #rrggbb » ou sur son fond flouté (« flou »).
+    modele : « general » (tout sujet, cheveux fins) ou « personne ». RESULTAT {sortie, masque, couverture…}."""
+    _verifier("photo_detourage")
+    tache = {"entree": str(entree), "sortie": str(sortie), "modele": modele, "fond": fond,
+             "masque": str(masque) if masque else None}
+    return lancer("detourer", tache, Path(sortie).parent, "Détourage", progress,
+                  {1: "chargement du modèle de détourage", 2: "détourage", 3: "finitions des bords"})
+
+
+def ameliorer(entree, sortie, echelle=2, rapide=False, visages=True, force=0.7, progress=None):
+    """Real-ESRGAN (agrandissement ×1, ×2 ou ×4 et restauration) puis GFPGAN sur les visages.
+    RESULTAT {sortie, largeur, hauteur, visages, modele}."""
+    _verifier("photo_qualite")
+    tache = {"entree": str(entree), "sortie": str(sortie), "echelle": int(echelle), "rapide": bool(rapide),
+             "visages": bool(visages), "force": float(force)}
+    return lancer("ameliorer", tache, Path(sortie).parent, "Amélioration", progress,
+                  {1: "chargement de Real-ESRGAN", 2: "agrandissement et restauration", 3: "restauration des visages"})
 
 
 def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None, web=False):

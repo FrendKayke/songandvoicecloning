@@ -39,7 +39,8 @@ GAMES_DIR = DATA_DIR / "jeux"  # bandes-son de jeu : jeux/<projet>/<situation>/<
 SFX_DIR = DATA_DIR / "bruitages"
 MODELS3D_DIR = DATA_DIR / "3d"
 CARDS_DIR = DATA_DIR / "cartes"  # illustrations : cartes/<projet>/<horodatage>/, style du projet dans cartes/<projet>/style.json
-for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR, GAMES_DIR, SFX_DIR, MODELS3D_DIR, CARDS_DIR):
+PHOTOS_DIR = DATA_DIR / "photos"  # photos améliorées ou détourées : photos/<horodatage>/
+for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR, GAMES_DIR, SFX_DIR, MODELS3D_DIR, CARDS_DIR, PHOTOS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 SR = 44100  # fréquence de sortie (le modèle chanté de Seed-VC produit du 44,1 kHz)

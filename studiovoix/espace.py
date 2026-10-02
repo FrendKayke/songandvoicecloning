@@ -23,11 +23,13 @@ LIBELLES = {
     "chatterbox": "Synthèse vocale (Chatterbox) : environnement et modèles",
     "nettoyage": "Nettoyage de voix : environnement et modèles",
     "rvc": "RVC : environnement et modèles de base (tes modèles entraînés sont gardés)",
-    "diffusion": "Moteur de diffusion entier (bruitages, illustrations, personnages, 3D) : environnement et tous ses modèles",
+    "diffusion": "Moteur de diffusion entier (bruitages, illustrations, personnages, photos, 3D) : environnement et tous ses modèles",
     "diffusion:qwen": "Qwen3-VL (préparation des prompts)",
     "diffusion:bruitages": "Stable Audio Open (bruitages)",
     "diffusion:zimage": "Z-Image-Turbo (illustrations, texte → 3D ; son encodeur de texte sert aussi à FLUX.2 klein)",
     "diffusion:personnages": "FLUX.2 klein 4B (personnages récurrents)",
+    "diffusion:photo_detourage": "BiRefNet (détourage des photos)",
+    "diffusion:photo_qualite": "Real-ESRGAN et GFPGAN (qualité des photos)",
     "diffusion:forme3d": "Hunyuan3D-2 : forme",
     "diffusion:texture3d": "Hunyuan3D-2 : texture (le plus gros)",
 }
@@ -137,9 +139,9 @@ def inventaire():
     ligne("Tes modèles RVC entraînés", taille(cfg.RVC_DIR / "logs"), "gardés")
     ligne("Cache de téléchargement (uv)", taille(cfg.ENG_DIR / "uv-cache"), "à vider sans risque")
     ligne("Fichiers d'essai du diagnostic", taille(cfg.DATA_DIR / "diagnostic"), "à vider sans risque")
-    ligne("Tes créations (voix, chansons, jeux, bruitages, 3D, illustrations)",
+    ligne("Tes créations (voix, chansons, jeux, bruitages, 3D, illustrations, photos)",
           sum(taille(d) for d in (cfg.VOICES_DIR, cfg.SONGS_DIR, cfg.TTS_DIR, cfg.CLEAN_DIR, cfg.GAMES_DIR,
-                                  cfg.SFX_DIR, cfg.MODELS3D_DIR, cfg.CARDS_DIR)), "gardées")
+                                  cfg.SFX_DIR, cfg.MODELS3D_DIR, cfg.CARDS_DIR, cfg.PHOTOS_DIR)), "gardées")
     try:
         libre = shutil.disk_usage(cfg.ENG_DIR if cfg.ENG_DIR.exists() else cfg.APP_DIR).free
         pied = f"\n\n**Total : {_go(total)}** · espace libre sur le disque : {_go(libre)}"
@@ -150,7 +152,8 @@ def inventaire():
 
 # Choix proposés dans l'interface : (libellé, clé)
 CHOIX_RETRAIT = [(LIBELLES[c], c) for c in ("diffusion:texture3d", "diffusion:zimage", "diffusion:personnages",
-                                             "diffusion:bruitages",
+                                             "diffusion:bruitages", "diffusion:photo_detourage",
+                                             "diffusion:photo_qualite",
                                              "diffusion:qwen", "diffusion:forme3d", "diffusion", "rvc", "chatterbox",
                                              "nettoyage")]
 CHOIX_VIDER = [("Cache de téléchargement (uv) — retéléchargé si besoin", "uv-cache"),

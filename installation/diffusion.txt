@@ -28,3 +28,8 @@ sentencepiece
 protobuf
 # gguf : lecture du transformeur quantifié de Z-Image-Turbo (GGUF 8 bits)
 gguf
+# Photos : spandrel (MIT, Real-ESRGAN et GFPGAN ; jamais spandrel_extra_arches, non commercial) ; timm et kornia :
+# importés par le code de BiRefNet (détourage)
+spandrel
+timm
+kornia

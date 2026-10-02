@@ -78,7 +78,7 @@ function Test-Done([string]$marker, [string]$signature = '') {
 }
 # Moteurs et modèles retirés pour gagner de la place (Outils → Modèles → Espace disque) : leurs étapes sont sautées,
 # sinon l'installateur les réinstallerait aussitôt. Une clé par ligne : chatterbox, nettoyage, rvc, diffusion,
-# diffusion:<modèle> (qwen, bruitages, zimage, personnages, forme3d, texture3d).
+# diffusion:<modèle> (qwen, bruitages, zimage, personnages, photo_detourage, photo_qualite, forme3d, texture3d).
 function Get-Retires {
     $f = Join-Path $Eng 'moteurs-retires.txt'
     if (-not (Test-Path $f)) { return @() }
@@ -402,12 +402,12 @@ try {
         } else { Write-Host 'Pas de jeton : les bruitages seront disponibles après l''avoir enregistré dans l''onglet Modèles.' -ForegroundColor Yellow }
     }
 
-    # --- 17. Modèles de diffusion (~50 Go : Qwen3-VL 4 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
-    Step 17 'Modèles de diffusion (~50 Go)'
+    # --- 17. Modèles de diffusion (~52 Go : Qwen3-VL 4 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, photos 2 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
+    Step 17 'Modèles de diffusion (~52 Go)'
     $m = Join-Path $Dif '.modeles-ok'
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
     # le téléchargement reprend seulement ce qui manque.
-    $ModelesDif = @(@('qwen', 'forme3d', 'texture3d', 'zimage', 'personnages', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
+    $ModelesDif = @(@('qwen', 'forme3d', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
     $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' '))
     if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif
