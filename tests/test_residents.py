@@ -199,3 +199,31 @@ def test_attente_de_la_tache_suivante_sans_bloquer(faux):
     for f in fils:
         f.join(timeout=60)
     assert len(resultats) == 3 and len({r["pid"] for r in resultats}) == 1 and time.time() - t0 < 60
+
+
+def test_depot_incomplet_hors_ligne_puis_en_ligne(monkeypatch, tmp_path):
+    """Dépôt présent mais incomplet (téléchargement interrompu, constaté avec Qwen3-VL-4B) : hors ligne, le fichier
+    manquant est introuvable ; l'action est refaite une fois en ligne."""
+    import huggingface_hub
+    from huggingface_hub import constants
+
+    monkeypatch.setattr(huggingface_hub, "scan_cache_dir",
+                        lambda: SimpleNamespace(repos=[SimpleNamespace(repo_id="a/b", revisions=[1])]))
+    monkeypatch.setattr(moteur, "_HORS_LIGNE_IMPOSE", False)
+    monkeypatch.setattr(constants, "HF_HUB_OFFLINE", False)
+    essais = []
+
+    def action(chemin):
+        moteur._hors_ligne_si_present("a/b")
+        essais.append(constants.HF_HUB_OFFLINE)
+        if constants.HF_HUB_OFFLINE:
+            raise OSError("Can't load image processor for 'a/b'")
+
+    monkeypatch.setitem(moteur.ACTIONS, "decrire", action)
+    moteur.principal(["decrire", "t.json"])
+    assert essais == [True, False] and moteur._EN_LIGNE_FORCE is False
+    # autre erreur, ou réseau déjà permis : pas de second essai
+    monkeypatch.setitem(moteur.ACTIONS, "decrire", lambda c: (_ for _ in ()).throw(OSError("image illisible")))
+    monkeypatch.setattr(huggingface_hub, "scan_cache_dir", lambda: SimpleNamespace(repos=[]))
+    with pytest.raises(OSError, match="illisible"):
+        moteur.principal(["decrire", "t.json"])

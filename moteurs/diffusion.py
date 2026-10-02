@@ -238,6 +238,7 @@ def _lire(chemin):
 
 
 _HORS_LIGNE_IMPOSE = os.environ.get("HF_HUB_OFFLINE", "").lower() in ("1", "true", "yes", "on")
+_EN_LIGNE_FORCE = False  # second essai d'une action après un fichier manquant hors ligne (principal)
 
 
 def _hors_ligne_si_present(*repos):
@@ -247,17 +248,23 @@ def _hors_ligne_si_present(*repos):
     garde une copie (utils/hub.py) : changer la variable d'environnement après coup n'avait aucun effet. On règle
     donc leurs valeurs directement, tâche par tâche (en mode résident, la tâche suivante peut viser un modèle
     absent)."""
-    from huggingface_hub import constants, scan_cache_dir
+    from huggingface_hub import scan_cache_dir
 
     try:
         presents = {r.repo_id for r in scan_cache_dir().repos if r.revisions}
-        hors_ligne = _HORS_LIGNE_IMPOSE or set(repos) <= presents
+        hors_ligne = _HORS_LIGNE_IMPOSE or (set(repos) <= presents and not _EN_LIGNE_FORCE)
     except Exception:  # noqa: BLE001 - cache illisible : on garde le réglage actuel
         return
-    constants.HF_HUB_OFFLINE = hors_ligne
+    _hors_ligne(hors_ligne)
+
+
+def _hors_ligne(actif):
+    from huggingface_hub import constants
+
+    constants.HF_HUB_OFFLINE = actif
     hub = sys.modules.get("transformers.utils.hub")
     if hub is not None and hasattr(hub, "_is_offline_mode"):
-        hub._is_offline_mode = hors_ligne
+        hub._is_offline_mode = actif
 
 
 # --- Qwen3-VL : description d'image, reformulation de texte ------------------------------------------
@@ -1212,7 +1219,23 @@ def principal(argv):
     if len(argv) >= 1 and argv[0] == "telecharger":
         telecharger(argv[1:])
     elif len(argv) == 2 and argv[0] in ACTIONS:
-        ACTIONS[argv[0]](argv[1])
+        try:
+            ACTIONS[argv[0]](argv[1])
+        except (OSError, ValueError) as e:
+            # Dépôt présent mais incomplet (téléchargement interrompu : constaté ici avec Qwen3-VL-4B sans son
+            # preprocessor_config.json) : hors ligne, le fichier manquant ne peut pas être récupéré. Une seconde
+            # fois en ligne, huggingface_hub complète le cache.
+            from huggingface_hub import constants
+
+            if not constants.HF_HUB_OFFLINE or _HORS_LIGNE_IMPOSE:
+                raise
+            print(f"Fichier de modèle manquant hors ligne ({type(e).__name__}) : nouvel essai en ligne.", flush=True)
+            global _EN_LIGNE_FORCE
+            _EN_LIGNE_FORCE = True
+            try:
+                ACTIONS[argv[0]](argv[1])
+            finally:
+                _EN_LIGNE_FORCE = False
     else:
         _erreur("usage : diffusion.py decrire|bruitage|image|personnage|video|detourer|ameliorer|forme3d|alleger "
                 "<tache.json> | telecharger [modèle…] | --resident <secondes>")
