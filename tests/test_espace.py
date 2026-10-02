@@ -52,6 +52,7 @@ def disque(env, monkeypatch):
     _fichier(cfg.DIFFUSION_DIR / ".venv" / "torch.dll", 3000)
     forme = _modele_hf("tencent/Hunyuan3D-2", "hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors", 400)
     _modele_hf("tencent/Hunyuan3D-2", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors", 50)
+    _modele_hf("tencent/Hunyuan3D-2", "hunyuan3d-dit-v2-0/model.fp16.safetensors", 400)  # qualité « Maximale »
     peinture = _modele_hf("tencent/Hunyuan3D-2", "hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.safetensors", 1600)
     _modele_hf("Tongyi-MAI/Z-Image-Turbo", "vae/diffusion_pytorch_model.safetensors", 300)
     _modele_hf("unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q8_0.gguf", 700, lien=False)
@@ -66,7 +67,7 @@ def test_inventaire(disque):
     assert espace.taille(cfg.CHATTERBOX_DIR) == 3000
     # forme et texture partagent un dépôt : chacune ne compte que ses sous-dossiers
     assert sum(espace.taille(c) for c in espace.chemins("diffusion:texture3d")) == 1600
-    assert sum(espace.taille(c) for c in espace.chemins("diffusion:forme3d")) == 450
+    assert sum(espace.taille(c) for c in espace.chemins("diffusion:forme3d")) == 850  # turbo + complet + VAE
     assert sum(espace.taille(c) for c in espace.chemins("diffusion:zimage")) == 1000
     # FLUX.2 klein reprend l'encodeur de Z-Image : le retirer ne touche pas au dépôt de Z-Image
     assert [c.name for c in espace.chemins("diffusion:personnages")] == [
@@ -79,7 +80,7 @@ def test_retirer_puis_reinstaller_un_modele(disque):
     assert "libérés" in msg and "Hunyuan3D-2 : texture (le plus gros) | 0 Mo | retiré |" in md
     assert not peinture.exists() and forme.exists()  # seule la texture part
     if forme.is_symlink():
-        assert forme.resolve().exists() and len(list(forme.parents[3].glob("blobs/*"))) == 2
+        assert forme.resolve().exists() and len(list(forme.parents[3].glob("blobs/*"))) == 3
     assert retraits.liste() == ["diffusion:texture3d"] and retraits.retire("diffusion:texture3d")
     assert not diffusion.present("texture3d") and diffusion.present("forme3d")
     with pytest.raises(gr.Error, match="retiré pour gagner de la place"):

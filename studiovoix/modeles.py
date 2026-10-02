@@ -28,5 +28,5 @@ def models_status_md() -> str:
         f"Tes modèles RVC entraînés : {len(rvc.modeles())} (`{cfg.RVC_DIR / 'logs'}`)  \n"
         f"Tes voix enregistrées : `{cfg.VOICES_DIR}`  \nTes chansons : `{cfg.SONGS_DIR}`  \n"
         f"Tes textes lus : `{cfg.TTS_DIR}`\n\n"
-        "*Pour Demucs, l'état indique la présence d'au moins un fichier `.th` dans ce dossier.*"
+        "*Demucs : les quatre modèles de `htdemucs_ft` (fichiers `.th`) doivent être dans ce dossier ; s'ils manquent, « Télécharger Demucs » ou la mise à jour les récupère (~320 Mo).*"
     )

@@ -202,7 +202,7 @@ def _systeme(r):
 def _modeles(r):
     r.section("Modèles")
     for nom, manquants in (("ACE-Step", acestep.missing_components()), ("Seed-VC", seedvc.missing_components()),
-                           ("Demucs", [] if demucs.is_present() else ["htdemucs"]),
+                           ("Demucs", [] if demucs.is_present() else [demucs.MODELE]),
                            ("Chatterbox", chatterbox.missing_components()),
                            ("Nettoyage", nettoyage.missing_components()), ("RVC", rvc.missing_components()),
                            ("Diffusion", diffusion.missing_components())):

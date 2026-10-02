@@ -21,8 +21,9 @@ LOCAL_PHOTOS = "local:photos"  # pas un dépôt Hugging Face : fichiers dans <DI
 # nom → (dépôt Hugging Face, libellé, fichiers attendus dans le cache — un par composant essentiel ; un couple
 # (autre dépôt, fichier) désigne un fichier d'un autre dépôt)
 MODELES = {
-    "qwen": ("Qwen/Qwen3-VL-2B-Instruct", "Qwen3-VL-2B (descriptions, traduction)",
-             ["model.safetensors"]),
+    # 4B (8,9 Go, Apache 2.0) : prompts plus fidèles que le 2B ; tient seul sur 12 Go en bf16 (le 8B, 17 Go, non)
+    "qwen": ("Qwen/Qwen3-VL-4B-Instruct", "Qwen3-VL-4B (descriptions, traduction)",
+             ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]),
     "bruitages": ("stabilityai/stable-audio-open-1.0", "Stable Audio Open 1.0 (bruitages)",
                   ["transformer/diffusion_pytorch_model.safetensors", "vae/diffusion_pytorch_model.safetensors",
                    "text_encoder/model.safetensors"]),
@@ -43,8 +44,10 @@ MODELES = {
     "photo_qualite": (LOCAL_PHOTOS, "Real-ESRGAN et GFPGAN (qualité des photos)",
                       ["RealESRGAN_x4plus.pth", "RealESRGAN_x2plus.pth", "realesr-general-x4v3.pth", "GFPGANv1.4.pth",
                        "face_detection_yunet_2023mar.onnx"]),
+    # forme : modèle turbo (5 pas) et modèle complet (qualité « Maximale », 50 pas)
     "forme3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 forme (image → 3D)",
-                ["hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors"]),
+                ["hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors",
+                 "hunyuan3d-dit-v2-0/model.fp16.safetensors"]),
     "texture3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 texture (peinture)",
                   ["hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.safetensors",
                    "hunyuan3d-delight-v2-0/unet/diffusion_pytorch_model.safetensors"]),
@@ -227,13 +230,18 @@ def ameliorer(entree, sortie, echelle=2, rapide=False, visages=True, force=0.7, 
                   {1: "chargement de Real-ESRGAN", 2: "agrandissement et restauration", 3: "restauration des visages"})
 
 
-def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None, web=False):
+def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None, web=False,
+            complet=False):
     """Image → forme.glb (+ modele.glb texturé si `texture` et carte graphique ; + OBJ si demandé).
+    complet : modèle de forme complet (hunyuan3d-dit-v2-0, non distillé : 30 à 50 pas) au lieu du turbo.
     RESULTAT {forme, faces, graine, texture: chemin ou None, obj: chemin ou None}."""
     _verifier("forme3d", *(["texture3d"] if texture else []))
-    return lancer("forme3d", {"image": str(image_path), "dossier": str(dossier), "etapes": int(etapes),
-                              "octree": int(octree), "faces": int(faces), "graine": int(graine or 0),
-                              "texture": bool(texture), "formats": list(formats), "web": bool(web)}, dossier,
+    tache = {"image": str(image_path), "dossier": str(dossier), "etapes": int(etapes), "octree": int(octree),
+             "faces": int(faces), "graine": int(graine or 0), "texture": bool(texture), "formats": list(formats),
+             "web": bool(web)}
+    if complet:
+        tache["sous_dossier"] = "hunyuan3d-dit-v2-0"
+    return lancer("forme3d", tache, dossier,
                   "Hunyuan3D", progress,
                   {1: "détourage de l'image", 2: "chargement du générateur de forme", 3: "génération de la forme",
                    4: "nettoyage et simplification", 5: "chargement du peintre de texture",

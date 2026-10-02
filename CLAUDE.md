@@ -45,7 +45,7 @@ Toute l'interface, les messages et la documentation sont **en français**.
 
 Pipeline de création d'une chanson :
 1. **ACE-Step 1.5** génère la chanson complète via son API REST locale (`/release_task`, `/query_result`, `/v1/audio`, `/health`, port 8001).
-2. **Demucs** (`htdemucs`, `--two-stems=vocals`) sépare voix et instrumental.
+2. **Demucs** (`htdemucs_ft` = 4 htdemucs affinés, un par piste, `demucs.MODELE` ; `--two-stems=vocals`) sépare voix et instrumental.
 3. **Seed-VC** (`inference.py`, `--f0-condition True`) convertit la voix chantée vers l'échantillon de l'utilisateur (zero-shot, 1 à 30 s de référence).
 4. Mixage numpy/soundfile en 44,1 kHz stéréo, sortie dans `data/songs/<horodatage>/`.
 
@@ -55,7 +55,7 @@ Client ACE-Step (`acestep.generer`) : point d'entrée unique de toutes les tâch
 
 Paroles : **`acestep.baliser_paroles`** transforme les titres de section seuls sur leur ligne (« Couplet 2 », « Refrain : », « [Pont] », « Fin »…) en balises ACE-Step (`[Verse 2]`, `[Chorus]`, `[Bridge]`, `[Outro]`) et recopie le texte de la dernière section du même nom dans une section laissée vide (« Refrain » seul) ; appliqué à la création et à « Refaire un passage ».
 
-Retrait d'instruments (`creer_chanson(retirer=["bass", "drums"])`, liste « Retirer de la musique ») : garanti par `demucs.separate_stems` (htdemucs sans `--two-stems` → `demucs4/htdemucs/<morceau>/{drums,bass,other,vocals}.wav`, noms vérifiés dans `demucs/separate.py` 4.0.1) puis `mixage.mixer` des pistes gardées ; en complément, `lm_negative_prompt` (seul le modèle de langage l'utilise, donc seulement avec `thinking`). Marche dans les trois modes ; en instrumental, la piste voix (résidus) est écartée. Le faux Demucs des tests écrit une tonalité par piste (`FREQ_PISTES`) : `energie()` vérifie par FFT quelles pistes sont dans un fichier.
+Retrait d'instruments (`creer_chanson(retirer=["bass", "drums"])`, liste « Retirer de la musique ») : garanti par `demucs.separate_stems` (htdemucs_ft sans `--two-stems` → `demucs4/htdemucs_ft/<morceau>/{drums,bass,other,vocals}.wav`, noms vérifiés dans `demucs/separate.py` 4.0.1) puis `mixage.mixer` des pistes gardées ; en complément, `lm_negative_prompt` (seul le modèle de langage l'utilise, donc seulement avec `thinking`). Marche dans les trois modes ; en instrumental, la piste voix (résidus) est écartée. Le faux Demucs des tests écrit une tonalité par piste (`FREQ_PISTES`) : `energie()` vérifie par FFT quelles pistes sont dans un fichier.
 
 Modes (`pipeline.MODES`, sélecteur en haut de l'onglet) : « Chanson avec ma voix » (pipeline complet ci-dessus), « Chanson avec la voix d'ACE-Step » et « Instrumental » (étape 1 seule, résultat = `chanson_brute.wav`). L'instrumental s'obtient avec `lyrics="[Instrumental]"` : c'est le signal reconnu par ACE-Step (`acestep/api/server_utils.py`, `is_instrumental`), `/release_task` n'a pas de paramètre dédié. `interface.maj_mode` masque les réglages inutiles au mode choisi.
 

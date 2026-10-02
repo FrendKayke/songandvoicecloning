@@ -1,7 +1,7 @@
 """Moteur « diffusion » — script exécuté DANS l'environnement diffusion (jamais importé par l'application).
 
 Quatre modèles qui partagent la même pile (diffusers, transformers) :
-  - Qwen3-VL-2B (Apache 2.0)      : décrit une image, reformule un texte français en prompt anglais ;
+  - Qwen3-VL-4B (Apache 2.0)      : décrit une image, reformule un texte français en prompt anglais ;
   - Stable Audio Open 1.0          : bruitages à partir d'une description (licence Stability Community,
                                      accès soumis à l'acceptation de la licence : jeton Hugging Face) ;
   - Hunyuan3D-2 (Tencent)          : image → forme 3D (turbo) puis texture (paint turbo + delight) ;
@@ -31,7 +31,7 @@ import os
 import sys
 from pathlib import Path
 
-QWEN = "Qwen/Qwen3-VL-2B-Instruct"
+QWEN = "Qwen/Qwen3-VL-4B-Instruct"  # 8,9 Go en bf16 : seul sur la carte, prompts plus fidèles que le 2B
 STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
 # Z-Image-Turbo (Alibaba Tongyi-MAI, Apache 2.0) : encodeur de texte (Qwen3-4B), VAE et réglages depuis le dépôt
 # officiel ; le transformeur (6 milliards de paramètres, 24,6 Go en fp32 dans le dépôt officiel) depuis sa version
@@ -99,7 +99,9 @@ MODELES = {
               (WAN_GGUF[0], [WAN_GGUF[1]])],
     "photo_detourage": [(depot, None) for depot, _, _ in BIREFNET.values()],
     "photo_qualite": [("local:photos", list(FICHIERS_PHOTOS))],
-    "forme3d": [(HUNYUAN, [f"{HUNYUAN_FORME}/*", "hunyuan3d-vae-v2-0-turbo/*"])],
+    # turbo (5 pas, par défaut) et modèle complet (qualité « Maximale ») ; flashvdm prend le VAE turbo pour les deux
+    "forme3d": [(HUNYUAN, [f"{HUNYUAN_FORME}/*", "hunyuan3d-vae-v2-0-turbo/*", "hunyuan3d-dit-v2-0/config.yaml",
+                           "hunyuan3d-dit-v2-0/model.fp16.safetensors"])],
     "texture3d": [(HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"])],
 }
 

@@ -229,9 +229,9 @@ FAKE_DEMUCS = textwrap.dedent('''
     from pathlib import Path
     import numpy as np, soundfile as sf
     args = sys.argv[1:]
-    assert args[args.index("-n") + 1] == "htdemucs", args
+    assert args[args.index("-n") + 1] == "htdemucs_ft", args
     out = Path(args[args.index("-o") + 1]); song = Path(args[-1])
-    d = out / "htdemucs" / song.stem
+    d = out / "htdemucs_ft" / song.stem
     d.mkdir(parents=True)
     if "--two-stems=vocals" in args:
         shutil.copy(song, d / "vocals.wav"); shutil.copy(song, d / "no_vocals.wav")

@@ -26,6 +26,9 @@ QUALITES = {
     "Fine (plus lente, plus de mémoire)": {"etapes": 5, "octree": 384, "faces": 100000},
     # Jeu dans le navigateur : peu de faces, et modele_web.glb (texture 1024 en JPEG) à côté du modèle complet
     "Web léger (jeu dans le navigateur)": {"etapes": 5, "octree": 192, "faces": 10000, "web": True},
+    # modèle de forme complet (non distillé) : 50 pas au lieu de 5, détails plus fins ; une à deux minutes de plus
+    "Maximale (modèle complet, 50 étapes, la plus détaillée)": {"etapes": 50, "octree": 384, "faces": 150000,
+                                                               "complet": True},
 }
 QUALITE_DEFAUT = "Normale"
 FORMATS = [("GLB (web, Blender, Unity, Godot)", "glb"), ("OBJ (+ MTL et texture PNG)", "obj")]
@@ -94,12 +97,13 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
     image = dossier / ("image" + Path(image_path).suffix.lower())
     shutil.copy(image_path, image)
     res = diffusion.forme3d(image, dossier, q["etapes"], q["octree"], q["faces"], graine, texture, formats, progress,
-                            web=q.get("web", False))
+                            web=q.get("web", False), complet=q.get("complet", False))
     fichier = res.get("texture") or res["forme"]
     nom = nettoyer_nom(nom)
     ecrire_creation(dossier, {
         "type": "3d", "nom": nom, "projet": projets.nom(projet), "image": image.name, "qualite": qualite if qualite in QUALITES else QUALITE_DEFAUT,
-        **{k: v for k, v in q.items() if k != "web"}, "web": bool(q.get("web")), "texture": bool(texture), "formats": formats, "description": (description or "").strip() or None,
+        **{k: v for k, v in q.items() if k not in ("web", "complet")}, "web": bool(q.get("web")),
+        "complet": bool(q.get("complet")), "texture": bool(texture), "formats": formats, "description": (description or "").strip() or None,
         "description_fr": (description_fr or "").strip() or None, "image_graine": image_graine,
         "faces_obtenues": res.get("faces"),
         "versions": [{"graine": res["graine"], "dossier": ".", "fichier": fichier, "forme": res["forme"],

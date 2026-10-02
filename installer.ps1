@@ -284,11 +284,14 @@ try {
     } else { Write-Host 'Déjà fait.' }
 
     # --- 7. Modèle Demucs ---
-    Step 7 'Modèle Demucs (séparation voix / musique)'
-    $m = Join-Path $Sv '.demucs-ok'
-    if (-not (Test-Path $m)) {
-        Run $SvPy @('-c', 'from demucs.pretrained import get_model; get_model(''htdemucs''); print(''htdemucs prêt'')')
-        Done $m
+    # htdemucs_ft : quatre modèles affinés (un par piste), la meilleure séparation de Demucs 4 (~320 Mo)
+    Step 7 'Modèle Demucs (séparation voix / musique, htdemucs_ft)'
+    # Nouveau marqueur : l'ancien (.demucs-ok, htdemucs) était vide, il serait adopté sans télécharger htdemucs_ft
+    $m = Join-Path $Sv '.demucs-ft-ok'
+    $sig = Get-Signature @('htdemucs_ft')
+    if (-not (Test-Done $m $sig)) {
+        Run $SvPy @('-c', 'from demucs.pretrained import get_model; get_model(''htdemucs_ft''); print(''htdemucs_ft prêt'')')
+        Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 
     # --- 8. Environnement Chatterbox (Python 3.11, PyTorch 2.6 CUDA 12.4) ---
@@ -422,13 +425,14 @@ try {
         } else { Write-Host 'Pas de jeton : les bruitages seront disponibles après l''avoir enregistré dans l''onglet Modèles.' -ForegroundColor Yellow }
     }
 
-    # --- 17. Modèles de diffusion (~72 Go : Qwen3-VL 4 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, photos 2 Go, vidéo Wan 2.2 20 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
-    Step 17 'Modèles de diffusion (~72 Go)'
+    # --- 17. Modèles de diffusion (~82 Go : Qwen3-VL-4B 9 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, photos 2 Go, vidéo Wan 2.2 20 Go, Hunyuan3D forme 10 Go et texture 16 Go, Stable Audio 5 Go) ---
+    Step 17 'Modèles de diffusion (~82 Go)'
     $m = Join-Path $Dif '.modeles-ok'
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
     # le téléchargement reprend seulement ce qui manque.
     $ModelesDif = @(@('qwen', 'forme3d', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
-    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' '))
+    # Contenu des modèles dans la signature : Qwen3-VL-4B (au lieu du 2B) et forme 3D complète ajoutés
+    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' ') + ' ; qwen 4B ; forme3d turbo + complet')
     if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif
         # Stable Diffusion XL a été remplacé par Z-Image-Turbo (bien meilleur) : on libère ses 7 Go s'il est là
@@ -436,6 +440,12 @@ try {
         if (Test-Path $sdxl) {
             Write-Host 'Suppression de Stable Diffusion XL, remplacé par Z-Image-Turbo (7 Go libérés).'
             Remove-Item $sdxl -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        # Qwen3-VL-2B a été remplacé par le 4B (prompts plus fidèles) : on libère ses 4 Go
+        $qwen2 = Join-Path $env:HF_HOME 'hub\models--Qwen--Qwen3-VL-2B-Instruct'
+        if ((Test-Path $qwen2) -and -not (Test-Retire 'diffusion:qwen')) {
+            Write-Host 'Suppression de Qwen3-VL-2B, remplacé par Qwen3-VL-4B (4 Go libérés).'
+            Remove-Item $qwen2 -Recurse -Force -ErrorAction SilentlyContinue
         }
         if ((Test-Path $jeton) -and -not (Test-Retire 'diffusion:bruitages')) {
             Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'bruitages') $Dif

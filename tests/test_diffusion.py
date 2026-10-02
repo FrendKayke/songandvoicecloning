@@ -675,3 +675,17 @@ def test_grande_photo_agrandie_dans_la_limite(faux_diffusion, monkeypatch):
     msg = photos.traiter(str(source), photos.ACTION_DEFAUT, "×2", False, False, 0.7, photos.FOND_DEFAUT, None,
                          progress=no_progress)[0]
     assert "5461×8192 (agrandie ×1,58 au lieu de ×2 : 8192 pixels de côté au plus)" in msg
+
+
+def test_modele_3d_qualite_maximale(faux_diffusion):
+    """Qualité « Maximale » : modèle de forme complet de Hunyuan3D-2 (non distillé), 50 étapes."""
+    im = faux_diffusion / "tasse.png"
+    im.write_bytes(b"png")
+    *_, dossier = modele3d.generer(str(im), "Tasse", "Maximale (modèle complet, 50 étapes, la plus détaillée)", False,
+                                   0, ["glb"], progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["sous_dossier"] == "hunyuan3d-dit-v2-0" and t["etapes"] == 50
+    infos = json.loads((Path(dossier) / "creation.json").read_text(encoding="utf-8"))
+    assert infos["complet"] is True and infos["etapes"] == 50
+    modele3d.generer(str(im), "Tasse", "Normale", False, 0, ["glb"], progress=no_progress)
+    assert "sous_dossier" not in _journal()[-1]["tache"]  # turbo par défaut

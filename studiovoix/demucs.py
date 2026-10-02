@@ -9,7 +9,12 @@ from . import config as cfg
 from .outils import stream_command
 
 
-# Pistes produites par htdemucs sans --two-stems (fichiers <sortie>/htdemucs/<morceau>/<piste>.wav)
+# htdemucs_ft : quatre htdemucs affinés, un par piste (demucs/remote/htdemucs_ft.yaml, poids 1 sur sa piste) ;
+# la meilleure séparation de Demucs 4, quatre fois plus de calcul que htdemucs (quelques dizaines de secondes par
+# chanson sur la carte graphique). Fichiers : <sortie>/htdemucs_ft/<morceau>/<piste>.wav.
+MODELE = "htdemucs_ft"
+FICHIERS = ("f7e0c4bc-ba3fe64a.th", "d12395a8-e57c48e6.th", "92cfc3b6-ef3bcb9c.th", "04573f0d-f3cf25b2.th")  # remote/files.txt
+# Pistes produites sans --two-stems
 PISTES = ("drums", "bass", "other", "vocals")
 
 
@@ -19,7 +24,10 @@ def _run(song: Path, out: Path, extra_args):
             f"Python de Seed-VC introuvable : {cfg.SEEDVC_PYTHON} (il sert aussi à Demucs). "
             "Lance INSTALLER.bat."
         )
-    cmd = [cfg.SEEDVC_PYTHON, "-m", "demucs", *extra_args, "-n", "htdemucs", "-o", str(out), str(song)]
+    from . import residents
+
+    residents.arreter_tous()  # la carte et la mémoire vive pour Demucs
+    cmd = [cfg.SEEDVC_PYTHON, "-m", "demucs", *extra_args, "-n", MODELE, "-o", str(out), str(song)]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
         raise gr.Error(f"Demucs a échoué :\n{p.stderr[-1500:]}")
@@ -53,12 +61,11 @@ def ckpt_dir() -> Path:
 
 
 def is_present() -> bool:
-    dm = ckpt_dir()
-    return dm.is_dir() and any(dm.glob("*.th"))
+    return all((ckpt_dir() / f).is_file() for f in FICHIERS)
 
 
 def download():
-    code = "from demucs.pretrained import get_model; get_model('htdemucs'); print('Modèle htdemucs prêt.')"
+    code = f"from demucs.pretrained import get_model; get_model('{MODELE}'); print('Modèle {MODELE} prêt.')"
     if not Path(cfg.SEEDVC_PYTHON).exists():
         yield f"❌ Python de Seed-VC introuvable : {cfg.SEEDVC_PYTHON}. Lance INSTALLER.bat."
         return

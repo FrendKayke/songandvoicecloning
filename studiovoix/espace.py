@@ -17,7 +17,7 @@ import gradio as gr
 from . import chatterbox, diffusion, retraits
 from . import config as cfg
 
-HUNYUAN_PARTIES = {"forme3d": ["hunyuan3d-dit-v2-0-turbo", "hunyuan3d-vae-v2-0-turbo"],
+HUNYUAN_PARTIES = {"forme3d": ["hunyuan3d-dit-v2-0-turbo", "hunyuan3d-vae-v2-0-turbo", "hunyuan3d-dit-v2-0"],
                    "texture3d": ["hunyuan3d-paint-v2-0-turbo", "hunyuan3d-delight-v2-0"]}
 LIBELLES = {
     "chatterbox": "Synthèse vocale (Chatterbox) : environnement et modèles",
