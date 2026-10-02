@@ -530,3 +530,23 @@ def test_videos(faux_diffusion):
     shutil.rmtree(diffusion.ckpt_dir("video"))
     with pytest.raises(gr.Error, match="Wan 2.2"):
         videos.generer("x", None, videos.AUTO, "2 s", 20, 0, progress=no_progress)
+
+
+def test_essai_des_liens_avant_telechargement(tmp_path, monkeypatch):
+    """Course de huggingface_hub sous Windows sans mode développeur (WinError 1314 constatée) : l'essai des liens
+    symboliques est fait avant snapshot_download, sur le dossier du dépôt, et son résultat est gardé."""
+    import os
+
+    from huggingface_hub import constants
+    from huggingface_hub import file_download as fd
+
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path))
+    monkeypatch.setattr(constants, "HF_HUB_DISABLE_SYMLINKS_WARNING", True)
+
+    def refus(*a, **k):
+        raise OSError(22, "[WinError 1314] Le client ne dispose pas d'un privilège nécessaire")
+
+    monkeypatch.setattr(os, "symlink", refus)
+    assert moteur._tester_liens("ZhengPeng7/BiRefNet_HR-matting") is False
+    dossier = str((tmp_path / "models--ZhengPeng7--BiRefNet_HR-matting").resolve())
+    assert fd._are_symlinks_supported_in_dir[dossier] is False  # les fils de snapshot_download liront « non »

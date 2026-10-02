@@ -898,6 +898,20 @@ def _telecharger_fichiers(noms):
         partiel.replace(cible)
 
 
+def _tester_liens(depot):
+    """Contourne une course de huggingface_hub (0.36) sous Windows sans mode développeur : are_symlinks_supported()
+    note « pris en charge » AVANT de faire son essai ; les fils de snapshot_download (8 en parallèle) qui arrivent
+    pendant l'essai tentent alors un vrai lien symbolique et échouent (WinError 1314, « le client ne dispose pas
+    d'un privilège nécessaire »), au lieu de copier le fichier. On fait donc l'essai ici, avant, dans le fil principal,
+    sur le dossier que la bibliothèque testera (le dossier du dépôt dans le cache, commun aux blobs et aux
+    snapshots) : le résultat, mis en mémoire, est alors juste pour tous les fils."""
+    from huggingface_hub import constants
+    from huggingface_hub.file_download import are_symlinks_supported, repo_folder_name
+
+    dossier = os.path.join(constants.HF_HUB_CACHE, repo_folder_name(repo_id=depot, repo_type="model"))
+    return are_symlinks_supported(dossier)
+
+
 def telecharger(noms):
     from huggingface_hub import snapshot_download
 
@@ -914,6 +928,7 @@ def telecharger(noms):
         if repo.startswith("local:"):  # fichiers publiés hors de Hugging Face (GitHub), vérifiés par SHA-256
             _telecharger_fichiers(motifs)
             continue
+        _tester_liens(repo)
         try:
             snapshot_download(repo, allow_patterns=motifs, revision=REVISIONS.get(repo))
         except Exception as e:
