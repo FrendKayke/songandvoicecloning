@@ -2,8 +2,8 @@
 
 La liste est dans <StudioVoix>/moteurs-retires.txt, une clé par ligne : l'installateur la lit et saute ces étapes
 (sinon il réinstallerait aussitôt ce qui vient d'être supprimé). Clés : chatterbox, nettoyage, rvc, diffusion et
-diffusion:<modèle> (qwen, bruitages, zimage, personnages, photo_detourage, photo_qualite,
-forme3d, texture3d).
+diffusion:<modèle> (qwen, bruitages, zimage, personnages, video, photo_detourage,
+photo_qualite, forme3d, texture3d).
 """
 from . import config as cfg
 

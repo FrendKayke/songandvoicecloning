@@ -33,6 +33,10 @@ MODELES = {
     "personnages": ("black-forest-labs/FLUX.2-klein-4B", "FLUX.2 klein 4B (personnages récurrents)",
                     ["vae/diffusion_pytorch_model.safetensors", "transformer/config.json",
                      ("unsloth/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf")]),
+    # Vidéo : encodeur de texte (11,4 Go) et VAE du dépôt officiel, transformeur en GGUF 8 bits
+    "video": ("Wan-AI/Wan2.2-TI2V-5B-Diffusers", "Wan 2.2 TI2V-5B (vidéo)",
+              ["text_encoder/model-00003-of-00003.safetensors", "vae/diffusion_pytorch_model.safetensors",
+               "tokenizer/tokenizer.json", ("QuantStack/Wan2.2-TI2V-5B-GGUF", "Wan2.2-TI2V-5B-Q8_0.gguf")]),
     # Photos : BiRefNet (deux dépôts) ; Real-ESRGAN, GFPGAN et YuNet, publiés sur GitHub, dans StudioVoix\diffusion\photos
     "photo_detourage": ("ZhengPeng7/BiRefNet_HR-matting", "BiRefNet (détourage des photos)",
                         ["model.safetensors", "birefnet.py", ("ZhengPeng7/BiRefNet-portrait", "model.safetensors")]),
@@ -187,6 +191,20 @@ def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024
                                  "hauteur": int(hauteur), "etapes": int(etapes)},
                   Path(sorties[0]).parent, "FLUX.2 klein", progress,
                   {1: "chargement de FLUX.2 klein", 2: f"génération de {len(sorties)} image(s) du personnage"})
+
+
+def video(prompt, sortie, image=None, largeur=1280, hauteur=704, images=121, etapes=30, graine=0, negatif=None,
+          progress=None):
+    """Wan 2.2 TI2V-5B : vidéo MP4 (24 images/s) à partir du prompt anglais, et de l'image de départ si donnée.
+    RESULTAT {sortie, graine, images, duree, largeur, hauteur, derniere_image}."""
+    _verifier("video")
+    tache = {"prompt": prompt, "negatif": negatif or None, "image": str(image) if image else None,
+             "sortie": str(sortie), "largeur": int(largeur), "hauteur": int(hauteur), "images": int(images),
+             "etapes": int(etapes), "graine": int(graine)}
+    libelles = {1: "lecture du texte (une à deux minutes)", 2: "chargement de Wan 2.2",
+                int(etapes) + 3: "enregistrement de la vidéo"}
+    libelles.update({k + 3: f"génération, étape {k + 1}/{int(etapes)}" for k in range(int(etapes))})
+    return lancer("video", tache, Path(sortie).parent, "Vidéo", progress, libelles)
 
 
 def detourer(entree, sortie, modele="general", fond=None, masque=None, progress=None):

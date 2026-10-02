@@ -8,12 +8,14 @@ Quatre modèles qui partagent la même pile (diffusers, transformers) :
   - Z-Image-Turbo (Apache 2.0)     : texte → image (illustrations de cartes, objet du texte → 3D) ;
   - FLUX.2 klein 4B (Apache 2.0)   : image d'un personnage à partir de 1 à 4 images de référence (même personnage
                                      d'une carte à l'autre) ;
+  - Wan 2.2 TI2V-5B (Apache 2.0)   : vidéo à partir d'un texte ou d'une image (720p, 24 images/s) ;
   - Photos : BiRefNet (MIT) détoure ou isole une personne ; Real-ESRGAN (BSD-3) agrandit et restaure, GFPGAN 1.4
     (Apache 2.0) restaure les visages trouvés par YuNet (OpenCV, MIT).
 
-    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | personnage | detourer | ameliorer | forme3d | alleger
+    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | personnage | video | detourer | ameliorer | forme3d
+                                                   | alleger
     python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | personnages
-                                                   | photo_detourage | photo_qualite | detourage
+                                                   | video | photo_detourage | photo_qualite | detourage
 
 Sortie : « PROGRESSION i/n … », « RESULTAT <json> », « ERREUR : message » et « TERMINE <fichier> ».
 API vérifiées dans les dépôts : diffusers 0.39 (StableAudioPipeline.__call__, ZImagePipeline, Flux2KleinPipeline),
@@ -40,6 +42,18 @@ ZIMAGE_GGUF = ("unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q8_0.gguf")
 KLEIN = "black-forest-labs/FLUX.2-klein-4B"
 KLEIN_GGUF = ("unsloth/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf")
 REFERENCES_MAX = 4  # limite de klein dans l'API de Black Forest Labs ; chaque référence ajoute jusqu'à 4096 jetons
+# Wan 2.2 TI2V-5B (Alibaba, Apache 2.0) : un seul modèle pour texte → vidéo et image → vidéo, 720p à 24 images/s.
+# Transformeur en GGUF 8 bits (5,4 Go ; 20 Go en bf16 dans le dépôt officiel), encodeur de texte umT5-xxl (11,4 Go)
+# et VAE (2,8 Go, fp32 conseillé) depuis le dépôt officiel. Le VAE de Wan 2.2 en fichier unique ne se charge pas
+# avec diffusers 0.39 (convertisseur prévu pour Wan 2.1) : il vient du dépôt.
+WAN = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
+WAN_GGUF = ("QuantStack/Wan2.2-TI2V-5B-GGUF", "Wan2.2-TI2V-5B-Q8_0.gguf")
+# Prompt négatif de la documentation de Wan, sans « style, works, paintings, images » (on anime aussi des
+# illustrations peintes)
+NEGATIF_VIDEO = ("Bright tones, overexposed, static, blurred details, subtitles, overall gray, worst quality, low quality, "
+                 "JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, "
+                 "deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, "
+                 "many people in the background, walking backwards, text, watermark")
 # Photos. BiRefNet (MIT) : le code du modèle est dans son dépôt (trust_remote_code) : révision épinglée.
 # HR-matting : alpha doux (cheveux), entrée 2048² ; portrait : entraîné sur des personnes, entrée 1024².
 BIREFNET = {
@@ -77,6 +91,9 @@ MODELES = {
     # l'encodeur de texte et le tokeniseur viennent de Z-Image (« zimage » doit être présent aussi)
     "personnages": [(KLEIN, ["model_index.json", "scheduler/*", "vae/*", "transformer/config.json"]),
                     (KLEIN_GGUF[0], [KLEIN_GGUF[1]])],
+    "video": [(WAN, ["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*", "vae/*",
+                     "transformer/config.json"]),
+              (WAN_GGUF[0], [WAN_GGUF[1]])],
     "photo_detourage": [(depot, None) for depot, _, _ in BIREFNET.values()],
     "photo_qualite": [("local:photos", list(FICHIERS_PHOTOS))],
     "forme3d": [(HUNYUAN, [f"{HUNYUAN_FORME}/*", "hunyuan3d-vae-v2-0-turbo/*"])],
@@ -157,6 +174,10 @@ CONSIGNES = {
                  "only:\n\n"),
     "image": ("Describe this image in English in two sentences, as a prompt for an image generator: the main "
               "object, its materials and colors. No introduction."),
+    "video": ("Rewrite the following description into an English prompt for a text-to-video generator: main subject, "
+              "its action and movement over a few seconds, setting, lighting, mood, and camera movement (static shot, "
+              "slow pan, tracking shot, zoom…). Present tense, concrete visual details, 2 to 4 sentences. Do not "
+              "mention any artist or existing work. Answer with the prompt only:\n\n"),
     "carte": ("Rewrite the following description into an English prompt for an image generator that will paint "
               "ONE illustration for a fantasy trading card: main subject, pose or action, setting, lighting, colors "
               "and mood, composition centered on the subject. Do not mention any art style, artist or existing "
@@ -344,6 +365,130 @@ def personnage(chemin_tache):
         options = {"prompt_embeds": torch.randn(1, 24, pipe.transformer.config.joint_attention_dim, dtype=dtype)}
     print(f"{len(references)} image(s) de référence du personnage.", flush=True)
     _generer(pipe, t, dict(options, image=references, guidance_scale=1.0), etapes=4)
+
+
+# --- Wan 2.2 : vidéo à partir d'un texte ou d'une image ----------------------------------------------------
+def _encoder_texte_video(t, device, dtype):
+    """Phase 1 : umT5-xxl (11,4 Go en bf16, trop gros pour 12 Go d'un bloc) encode le prompt et le négatif.
+    Sur la carte graphique, par groupes de 4 blocs chargés tour à tour (diffusers.hooks.apply_group_offloading) ;
+    si cela échoue, sur le processeur (comme l'option --t5_cpu de Wan). Le modèle est libéré avant la phase 2."""
+    import torch
+    from diffusers import WanPipeline
+    from transformers import AutoTokenizer, UMT5EncoderModel
+
+    depot = t.get("depot_encodeur") or t.get("depot", WAN)
+    if t.get("sans_encodeur"):  # tests : plongements aléatoires de la bonne forme (512 jetons × 4096)
+        g = torch.Generator("cpu").manual_seed(0)
+        return (torch.randn(1, 512, 4096, generator=g).to(dtype), torch.randn(1, 512, 4096, generator=g).to(dtype))
+    tokeniseur = AutoTokenizer.from_pretrained(depot, subfolder="tokenizer")
+    encodeur = UMT5EncoderModel.from_pretrained(depot, subfolder="text_encoder", torch_dtype=torch.bfloat16)
+    cible = "cpu"
+    if device == "cuda":
+        try:
+            from diffusers.hooks import apply_group_offloading
+
+            apply_group_offloading(encodeur, onload_device=torch.device("cuda"), offload_type="block_level",
+                                   num_blocks_per_group=4)
+            cible = "cuda"
+        except Exception as e:  # noqa: BLE001 - repli sur le processeur, plus lent mais sûr
+            print(f"Encodeur de texte sur le processeur ({type(e).__name__} : {e}).", flush=True)
+    pipe = WanPipeline(tokenizer=tokeniseur, text_encoder=encodeur, vae=None, scheduler=None, transformer=None,
+                       expand_timesteps=True)
+    with torch.no_grad():
+        try:
+            prompt, negatif = pipe.encode_prompt(prompt=t["prompt"], negative_prompt=t.get("negatif") or NEGATIF_VIDEO,
+                                                 do_classifier_free_guidance=True, max_sequence_length=512,
+                                                 device=cible)
+        except Exception as e:  # noqa: BLE001
+            if cible == "cpu":
+                raise
+            print(f"Encodage sur la carte graphique impossible ({type(e).__name__}) : sur le processeur.", flush=True)
+            _liberer(pipe, encodeur)
+            encodeur = UMT5EncoderModel.from_pretrained(depot, subfolder="text_encoder", torch_dtype=torch.bfloat16)
+            pipe = WanPipeline(tokenizer=tokeniseur, text_encoder=encodeur, vae=None, scheduler=None,
+                               transformer=None, expand_timesteps=True)
+            prompt, negatif = pipe.encode_prompt(prompt=t["prompt"],
+                                                 negative_prompt=t.get("negatif") or NEGATIF_VIDEO,
+                                                 do_classifier_free_guidance=True, max_sequence_length=512,
+                                                 device="cpu")
+    prompt, negatif = prompt.to("cpu", dtype), negatif.to("cpu", dtype)
+    del pipe, encodeur
+    _liberer()
+    return prompt, negatif
+
+
+def video(chemin_tache):
+    """Tâche : {prompt, negatif, image (facultative), sortie, largeur, hauteur, images, etapes, guidage, graine, fps}.
+    Sans image : texte → vidéo (WanPipeline) ; avec image : la vidéo part de cette image (WanImageToVideoPipeline,
+    sans encodeur d'image pour le 5B). images = 4k + 1 (121 = 5 s à 24 images/s) ; côtés multiples de 32.
+    Le transformeur et le VAE (en tuiles) passent tour à tour sur la carte (enable_model_cpu_offload).
+    Export H.264 (imageio-ffmpeg), lisible par les navigateurs, et dernière image en PNG.
+    RESULTAT {sortie, graine, images, duree, largeur, hauteur, derniere_image}.
+    Clés de test : depot / depot_encodeur / gguf (autres modèles), sans_encodeur (plongements aléatoires)."""
+    import torch
+    from diffusers import (AutoencoderKLWan, GGUFQuantizationConfig, UniPCMultistepScheduler, WanImageToVideoPipeline,
+                           WanPipeline, WanTransformer3DModel)
+    from diffusers.utils import export_to_video
+    from huggingface_hub import hf_hub_download
+
+    t = _lire(chemin_tache)
+    device = _device()
+    depot = t.get("depot", WAN)
+    _hors_ligne_si_present(depot, WAN_GGUF[0])
+    dtype = torch.bfloat16
+    etapes = int(t.get("etapes", 30))
+    total = etapes + 3
+    print(f"PROGRESSION 1/{total} lecture du texte (encodeur umT5)", flush=True)
+    prompt, negatif = _memoire(_encoder_texte_video)(t, device, dtype)
+    print(f"PROGRESSION 2/{total} chargement de Wan 2.2", flush=True)
+    gguf = t.get("gguf") or hf_hub_download(*WAN_GGUF)
+    # config= obligatoire : sans lui, diffusers reconnaît « wan-i2v-14B » (dimensions différentes)
+    transformeur = WanTransformer3DModel.from_single_file(
+        gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot, subfolder="transformer",
+        torch_dtype=dtype)
+    vae = AutoencoderKLWan.from_pretrained(depot, subfolder="vae", torch_dtype=torch.float32)
+    vae.enable_tiling()
+    ordonnanceur = UniPCMultistepScheduler.from_pretrained(depot, subfolder="scheduler")
+    composants = dict(tokenizer=None, text_encoder=None, vae=vae, scheduler=ordonnanceur, transformer=transformeur,
+                      expand_timesteps=True)
+    largeur, hauteur = int(t.get("largeur", 1280)), int(t.get("hauteur", 704))
+    options = {}
+    if t.get("image"):
+        from PIL import Image, ImageOps
+
+        with Image.open(t["image"]) as im:  # recadrée au format de la vidéo (sinon déformée)
+            options["image"] = ImageOps.fit(ImageOps.exif_transpose(im).convert("RGB"), (largeur, hauteur),
+                                            Image.LANCZOS)
+        pipe = WanImageToVideoPipeline(**composants, image_encoder=None, image_processor=None)
+    else:
+        pipe = WanPipeline(**composants)
+    if device == "cuda":
+        pipe.enable_model_cpu_offload()
+    else:
+        pipe = pipe.to(device)
+
+    def suivi(_pipe, i, _t, kwargs):
+        print(f"PROGRESSION {i + 3}/{total} étape {i + 1}/{etapes}", flush=True)
+        return kwargs
+
+    graine = int(t.get("graine") or 0)
+    images = _memoire(pipe)(
+        **options, prompt_embeds=prompt, negative_prompt_embeds=negatif, height=hauteur, width=largeur,
+        num_frames=int(t.get("images", 121)), num_inference_steps=etapes, guidance_scale=float(t.get("guidage", 5.0)),
+        generator=torch.Generator("cpu").manual_seed(graine), callback_on_step_end=suivi,
+    ).frames[0]
+    print(f"PROGRESSION {total}/{total} enregistrement de la vidéo", flush=True)
+    Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True)
+    fps = int(t.get("fps", 24))
+    export_to_video(list(images), t["sortie"], fps=fps, quality=8)
+    # Dernière image en PNG : point de départ d'un clip suivant (enchaîner plusieurs vidéos)
+    from PIL import Image
+
+    derniere = str(Path(t["sortie"]).with_name("derniere_image.png"))
+    Image.fromarray((images[-1] * 255).round().clip(0, 255).astype("uint8")).save(derniere)
+    _resultat({"sortie": t["sortie"], "graine": graine, "images": len(images), "duree": round(len(images) / fps, 2),
+               "largeur": largeur, "hauteur": hauteur, "derniere_image": derniere})
+    print(f"TERMINE {t['sortie']}", flush=True)
 
 
 # --- Photos : détourage (BiRefNet), agrandissement (Real-ESRGAN), visages (GFPGAN) -------------------------
@@ -781,11 +926,11 @@ def telecharger(noms):
 
 
 if __name__ == "__main__":
-    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage,
+    actions = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
                "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger}
     if len(sys.argv) >= 2 and sys.argv[1] == "telecharger":
         telecharger(sys.argv[2:])
     elif len(sys.argv) == 3 and sys.argv[1] in actions:
         actions[sys.argv[1]](sys.argv[2])
     else:
-        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|detourer|ameliorer|forme3d|alleger <tache.json> | telecharger [modèle…]")
+        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|video|detourer|ameliorer|forme3d|alleger <tache.json> | telecharger [modèle…]")

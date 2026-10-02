@@ -1,7 +1,7 @@
 ﻿# Studio Voix — installation complète, sans droits administrateur.
 # Installe : uv (gestionnaire Python), Python 3.10 / 3.11 / 3.12, ACE-Step 1.5, Seed-VC, Demucs,
 # Chatterbox (synthèse vocale), le nettoyage de voix (MossFormer2, VoiceFixer), RVC (Applio : entraînement
-# d'un modèle de ta voix), le moteur de diffusion (Qwen3-VL, Stable Audio Open, Hunyuan3D-2, Z-Image, FLUX.2 klein : bruitages,
+# d'un modèle de ta voix), le moteur de diffusion (Qwen3-VL, Stable Audio Open, Hunyuan3D-2, Z-Image, FLUX.2 klein, Wan 2.2 : bruitages,
 # modèles 3D), tous leurs modèles, et l'environnement de l'application.
 # Relançable : chaque étape terminée est sautée.
 
@@ -78,7 +78,8 @@ function Test-Done([string]$marker, [string]$signature = '') {
 }
 # Moteurs et modèles retirés pour gagner de la place (Outils → Modèles → Espace disque) : leurs étapes sont sautées,
 # sinon l'installateur les réinstallerait aussitôt. Une clé par ligne : chatterbox, nettoyage, rvc, diffusion,
-# diffusion:<modèle> (qwen, bruitages, zimage, personnages, photo_detourage, photo_qualite, forme3d, texture3d).
+# diffusion:<modèle> (qwen, bruitages, zimage, personnages, photo_detourage, photo_qualite, video,
+# forme3d, texture3d).
 function Get-Retires {
     $f = Join-Path $Eng 'moteurs-retires.txt'
     if (-not (Test-Path $f)) { return @() }
@@ -402,12 +403,12 @@ try {
         } else { Write-Host 'Pas de jeton : les bruitages seront disponibles après l''avoir enregistré dans l''onglet Modèles.' -ForegroundColor Yellow }
     }
 
-    # --- 17. Modèles de diffusion (~52 Go : Qwen3-VL 4 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, photos 2 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
-    Step 17 'Modèles de diffusion (~52 Go)'
+    # --- 17. Modèles de diffusion (~72 Go : Qwen3-VL 4 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, photos 2 Go, vidéo Wan 2.2 20 Go, Hunyuan3D forme 5 Go et texture 16 Go, Stable Audio 5 Go) ---
+    Step 17 'Modèles de diffusion (~72 Go)'
     $m = Join-Path $Dif '.modeles-ok'
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
     # le téléchargement reprend seulement ce qui manque.
-    $ModelesDif = @(@('qwen', 'forme3d', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
+    $ModelesDif = @(@('qwen', 'forme3d', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
     $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' '))
     if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif

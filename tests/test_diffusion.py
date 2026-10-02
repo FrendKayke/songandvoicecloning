@@ -69,6 +69,16 @@ FAUX_MOTEUR = textwrap.dedent("""
             (d / f"{base}.obj").write_text("o x"); (d / "material.mtl").write_text("newmtl material_0")
             (d / "material_0.png").write_bytes(b"png"); res["obj"] = str(d / f"{base}.obj")
         print("RESULTAT " + json.dumps(res), flush=True)
+    elif action == "video":
+        from PIL import Image
+        n = t["etapes"] + 3
+        for i in range(1, n + 1): print(f"PROGRESSION {i}/{n} x", flush=True)
+        Path(t["sortie"]).write_bytes(b"mp4")
+        derniere = str(Path(t["sortie"]).with_name("derniere_image.png"))
+        Image.new("RGB", (t["largeur"] // 16, t["hauteur"] // 16), (9, 9, 9)).save(derniere)
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "graine": t["graine"], "images": t["images"],
+                                        "duree": round(t["images"] / 24, 2), "largeur": t["largeur"],
+                                        "hauteur": t["hauteur"], "derniere_image": derniere}), flush=True)
     elif action == "detourer":
         from PIL import Image
         for i in (1, 2, 3): print(f"PROGRESSION {i}/3 x", flush=True)
@@ -123,7 +133,7 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 
@@ -188,7 +198,7 @@ def test_jeton_et_telechargement(faux_diffusion):
 
 
 def test_etat_des_modeles(faux_diffusion):
-    assert "| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein, BiRefNet, Real-ESRGAN, GFPGAN, Hunyuan3D-2 | ✅ présent |" in models_status_md()
+    assert "| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein, Wan 2.2, BiRefNet, Real-ESRGAN, GFPGAN, Hunyuan3D-2 | ✅ présent |" in models_status_md()
 
 
 def test_galerie_bruitage(faux_diffusion):
@@ -254,7 +264,7 @@ def test_galerie_modele_3d(faux_diffusion):
     modele3d.generer(str(im), "Tasse", "Normale", True, 7, ["glb"], progress=no_progress)
     (lib, dossier), = galerie.lister("Modèles 3D")
     assert "🧊 Modèle 3D · Tasse — depuis une image" in lib
-    md, audio, versions, desc, paroles, fin, modele, _ = galerie.details(dossier)
+    md, audio, versions, desc, paroles, fin, modele, _, _ = galerie.details(dossier)
     assert "qualité Normale, 1234 faces, texturé" in md and audio is None and not versions["visible"]
     assert modele["value"] == str(Path(dossier) / "modele.glb") and modele["visible"]
     msg, nouveau = galerie.recreer(dossier, 1, progress=no_progress)
@@ -323,7 +333,7 @@ def test_illustrations_de_cartes(faux_diffusion):
     # galerie : image affichée, recréation avec la graine d'une variante
     (lib, chemin), = galerie.lister("Illustrations")
     assert chemin == dossier and "🃏 Illustration · Mon Jeu — Chevalier — un chevalier" in lib
-    md, audio, versions, *_, modele, image = galerie.details(chemin, 2)
+    md, audio, versions, *_, modele, image, video = galerie.details(chemin, 2)
     assert "Projet **Mon Jeu**, carte **Chevalier**, 832×1248" in md and audio is None
     assert image["value"].endswith("variante_2.png") and image["visible"] and not modele["visible"]
     graine_v2 = t["graines"][1]
@@ -469,7 +479,7 @@ def test_photos(faux_diffusion):
     assert photos.maj_action("🧍 Isoler une personne") == (gr.update(visible=False), gr.update(visible=True))
     # galerie : image affichée, nouveau traitement avec les mêmes réglages
     assert len(galerie.lister("Photos")) == 4
-    md, audio, *_, image = galerie.details(d2)
+    md, audio, *_, image, _ = galerie.details(d2)
     assert "🖼️ Photo" in md and "détourée (fond : Couleur au choix)" in md and image["value"].endswith("resultat.png")
     msg, nouveau = galerie.recreer(dossier, progress=no_progress)
     t = _journal()[-1]["tache"]
@@ -480,3 +490,43 @@ def test_photos(faux_diffusion):
     with pytest.raises(gr.Error, match="Real-ESRGAN"):
         photos.traiter(str(source), photos.ACTION_DEFAUT, "×2", False, True, 0.7, photos.FOND_DEFAUT, None,
                        progress=no_progress)
+
+
+def test_videos(faux_diffusion):
+    from PIL import Image
+
+    from studiovoix import galerie, videos
+
+    assert videos.preparer("un dragon s'envole", progress=no_progress) == "a red potion bottle"
+    assert _journal()[-1]["tache"] == {"mode": "video", "texte": "un dragon s'envole"}
+    with pytest.raises(gr.Error, match="prompt"):
+        videos.generer(" ", None, videos.AUTO, "5 s", 30, 0, progress=no_progress)
+    # texte → vidéo : format automatique sans image = paysage 720p ; 5 s = 121 images
+    msg, fichier, dossier = videos.generer("a dragon flies", None, videos.AUTO, "5 s", 30, 7, "dragon", "un dragon",
+                                           progress=no_progress)
+    t = _journal()[-1]
+    assert t["action"] == "video" and t["tache"]["image"] is None
+    assert (t["tache"]["largeur"], t["tache"]["hauteur"], t["tache"]["images"], t["tache"]["etapes"]) == (1280, 704, 121, 30)
+    assert t["tache"]["graine"] == 7 and Path(fichier).name == "video.mp4" and "à partir du texte" in msg
+    # image → vidéo : format d'après l'image (portrait), copie de l'image de départ ; enchaînement par la dernière image
+    depart = cfg.DATA_DIR.parent / "carte.png"
+    Image.new("RGB", (600, 900), (1, 2, 3)).save(depart)
+    msg, _, d2 = videos.generer("she smiles", str(depart), videos.AUTO, "2 s", 20, 0, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert (t["largeur"], t["hauteur"], t["images"]) == (704, 1280, 49) and t["graine"] > 0
+    assert Path(t["image"]).parent == Path(d2) and Path(t["image"]).name == "image_depart.png"
+    assert "à partir de l'image" in msg and Path(videos.continuer(d2)).name == "derniere_image.png"
+    assert videos.format_pour("Carré (960×960)", str(depart)) == (960, 960)
+    # galerie : lecteur vidéo, recréation avec la même graine et la même image
+    md, audio, *_, modele, image, video = galerie.details(d2)
+    assert "🎬 Vidéo" in md and "à partir d'une image" in md and video["visible"] and video["value"].endswith("video.mp4")
+    assert not image["visible"] and audio is None and len(galerie.lister("Vidéos")) == 2
+    graine = galerie.lire(d2)["versions"][0]["graine"]
+    _, nouveau = galerie.recreer(d2, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["graine"] == graine and (t["largeur"], t["hauteur"], t["images"]) == (704, 1280, 49)
+    assert Path(t["image"]).parent == Path(nouveau)
+    import shutil
+    shutil.rmtree(diffusion.ckpt_dir("video"))
+    with pytest.raises(gr.Error, match="Wan 2.2"):
+        videos.generer("x", None, videos.AUTO, "2 s", 20, 0, progress=no_progress)

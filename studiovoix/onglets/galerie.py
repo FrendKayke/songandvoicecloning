@@ -26,7 +26,8 @@ def construire():
             gal_version = gr.Radio([1], value=1, label="Version", visible=False)
             gal_audio = gr.Audio(type="filepath", label="Écouter")
             gal_modele = gr.Model3D(label="Modèle 3D", visible=False, clear_color=(0.92, 0.92, 0.92, 1.0))
-            gal_image = gr.Image(label="Illustration", visible=False, interactive=False, type="filepath")
+            gal_image = gr.Image(label="Image", visible=False, interactive=False, type="filepath")
+            gal_video = gr.Video(label="Vidéo", visible=False, interactive=False)
             with gr.Row():
                 gal_recreer = gr.Button("🔁 Recréer (même graine)")
                 gal_dossier = gr.Button("📂 Ouvrir le dossier")
@@ -51,7 +52,8 @@ def construire():
 
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
-    sorties_details = [c.gal_details, c.gal_audio, c.gal_version, c.gal_desc, c.gal_paroles, c.gal_fin, c.gal_modele, c.gal_image]
+    sorties_details = [c.gal_details, c.gal_audio, c.gal_version, c.gal_desc, c.gal_paroles, c.gal_fin, c.gal_modele, c.gal_image,
+                       c.gal_video]
     for evt in (c.gal_filtre.change, c.gal_maj.click, demo.load):
         evt(galerie.maj_liste, [c.gal_filtre, c.gal_liste], c.gal_liste)
     c.gal_liste.change(galerie.details, [c.gal_liste], sorties_details)

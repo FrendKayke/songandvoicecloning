@@ -54,6 +54,7 @@ def construire():
         b_rvc = gr.Button("⬇️ Télécharger RVC (modèles de base)", variant="primary")
     with gr.Row():
         b_dif = gr.Button("⬇️ Télécharger Qwen3-VL, Hunyuan3D, Z-Image, FLUX.2 klein et les outils photo", variant="primary")
+        b_vid = gr.Button("⬇️ Télécharger Wan 2.2 (vidéo, ~20 Go)", variant="primary")
         b_sfx = gr.Button("⬇️ Télécharger Stable Audio Open (jeton requis)", variant="primary")
     with gr.Accordion("🔑 Jeton Hugging Face (nécessaire pour Stable Audio Open)", open=not diffusion.jeton_present()):
         gr.Markdown(
@@ -88,6 +89,7 @@ def brancher(c, demo, o):
     for b, fn in ((c.b_ace, acestep.download), (c.b_sv, seedvc.download), (c.b_dm, demucs.download),
                   (c.b_cb, chatterbox.download), (c.b_nt, nettoyage.download), (c.b_rvc, rvc.download),
                   (c.b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "zimage", "personnages", "photo_detourage", "photo_qualite"])),
+                  (c.b_vid, lambda: diffusion.download(["video"])),
                   (c.b_sfx, lambda: diffusion.download(["bruitages"]))):
         b.click(fn, None, c.log).then(models_status_md, None, c.status)
     c.o_ace.click(lambda: open_folder(acestep.ckpt_dir()))

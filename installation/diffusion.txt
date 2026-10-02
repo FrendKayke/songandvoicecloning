@@ -33,3 +33,8 @@ gguf
 spandrel
 timm
 kornia
+# Vidéo (Wan 2.2) : export MP4 H.264 (imageio-ffmpeg contient ffmpeg) ; ftfy : nettoyage du prompt, exigé par
+# WanImageToVideoPipeline
+imageio
+imageio-ffmpeg
+ftfy

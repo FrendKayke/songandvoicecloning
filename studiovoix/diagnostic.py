@@ -4,7 +4,7 @@ pour dépannage.
 - Diagnostic rapide (moins d'une minute) : système, carte graphique (nvidia-smi), espace disque, chaque environnement
   Python (PyTorch importable, CUDA disponible), modèles manquants, serveur ACE-Step.
 - Essai complet (10 à 20 minutes) : une vraie génération courte par moteur (ACE-Step, Demucs, Seed-VC, Chatterbox,
-  nettoyage, Qwen3-VL, Z-Image, FLUX.2 klein, photos, Stable Audio, Hunyuan3D forme + texture), dans l'ordre qui évite de recharger
+  nettoyage, Qwen3-VL, Z-Image, FLUX.2 klein, photos, Wan 2.2, Stable Audio, Hunyuan3D forme + texture), dans l'ordre qui évite de recharger
   ACE-Step, avec la durée et la mémoire graphique utilisée après chaque étape. Les fichiers produits vont dans
   data/diagnostic/<horodatage>/ (les dossiers de la galerie sont redirigés pendant l'essai : rien ne s'y ajoute).
 Une étape en échec n'arrête pas les suivantes ; le message d'erreur est gardé dans le rapport.
@@ -225,6 +225,14 @@ def _etapes(d, voix):
         diffusion.detourer(d / "photo_amelioree.png", d / "photo_detouree.png", "general")
         return f"agrandie en {res['largeur']}×{res['hauteur']}, puis détourée"
 
+    def film():
+        image = etat.get("image")
+        if not image:
+            raise gr.Error("pas d'image de départ (l'étape Z-Image a échoué)")
+        res = diffusion.video("The red potion bottle slowly rotates on a wooden table, warm candle light, static "
+                              "camera", d / "video" / "video.mp4", image, 832, 480, 17, 6, 42)
+        return f"vidéo {res['largeur']}×{res['hauteur']} de {res['images']} images (6 étapes)"
+
     def audio():
         if "bruitages" in [k for k in diffusion.MODELES if not diffusion.present(k)]:
             raise gr.Error("Stable Audio Open non téléchargé (jeton Hugging Face requis)")
@@ -246,6 +254,7 @@ def _etapes(d, voix):
             ("Z-Image-Turbo (image)", zimage, "diffusion:zimage"),
             ("FLUX.2 klein 4B (personnage d'après une référence)", klein, "diffusion:personnages"),
             ("Photos (Real-ESRGAN, GFPGAN, BiRefNet)", photo, "diffusion:photo_qualite"),
+            ("Wan 2.2 (vidéo courte d'après une image)", film, "diffusion:video"),
             ("Stable Audio Open (bruitage)", audio, "diffusion:bruitages"),
             ("Hunyuan3D-2 (forme + texture)", forme, "diffusion:texture3d")]
 

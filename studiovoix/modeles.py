@@ -24,7 +24,7 @@ def models_status_md() -> str:
         f"| Chatterbox Multilingual V3 (synthèse vocale) | {_cell(not cb_missing, cb_missing)} | `{chatterbox.ckpt_dir()}` |\n"
         f"| Nettoyage de voix (MossFormer2, VoiceFixer) | {_cell(not nt_missing, nt_missing)} | `{nettoyage.ckpt_dir()}` |\n"
         f"| RVC (Applio) — modèles de base | {_cell(not rvc_missing, rvc_missing)} | `{rvc.ckpt_dir()}` |\n"
-        f"| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein, BiRefNet, Real-ESRGAN, GFPGAN, Hunyuan3D-2 | {_cell(not dif_missing, dif_missing)} | `{diffusion.hf_home() / 'hub'}` |\n\n"
+        f"| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein, Wan 2.2, BiRefNet, Real-ESRGAN, GFPGAN, Hunyuan3D-2 | {_cell(not dif_missing, dif_missing)} | `{diffusion.hf_home() / 'hub'}` |\n\n"
         f"Tes modèles RVC entraînés : {len(rvc.modeles())} (`{cfg.RVC_DIR / 'logs'}`)  \n"
         f"Tes voix enregistrées : `{cfg.VOICES_DIR}`  \nTes chansons : `{cfg.SONGS_DIR}`  \n"
         f"Tes textes lus : `{cfg.TTS_DIR}`\n\n"

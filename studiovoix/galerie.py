@@ -1,4 +1,5 @@
-"""Galerie : toutes les créations (chansons, pistes de jeu, lectures, bruitages, modèles 3D, illustrations, photos) à réécouter, recréer avec la même
+"""Galerie : toutes les créations (chansons, pistes de jeu, lectures, bruitages, modèles 3D, illustrations, photos,
+vidéos) à réécouter, recréer avec la même
 graine, retoucher (« Refaire un passage », tâche repaint d'ACE-Step) ou supprimer.
 
 Chaque création est un dossier décrit par creation.json (outils.ecrire_creation). Les chansons et lectures
@@ -17,9 +18,11 @@ from .outils import ecrire_creation, nouveau_dossier
 from .pipeline import INSTRUMENTAL, finaliser_depuis_infos
 
 TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture", "bruitage": "🔊 Bruitage",
-         "3d": "🧊 Modèle 3D", "carte": "🃏 Illustration", "photo": "🖼️ Photo"}
+         "3d": "🧊 Modèle 3D", "carte": "🃏 Illustration", "photo": "🖼️ Photo",
+         "video": "🎬 Vidéo"}
 FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts",
-           "Bruitages": "bruitage", "Modèles 3D": "3d", "Illustrations": "carte", "Photos": "photo"}
+           "Bruitages": "bruitage", "Modèles 3D": "3d", "Illustrations": "carte", "Photos": "photo",
+           "Vidéos": "video"}
 # repaint_mode d'ACE-Step (release_task_models.py : conservative / balanced / aggressive)
 FORCES = {
     "Légère (garde au maximum l'original)": "conservative",
@@ -30,7 +33,8 @@ FORCES = {
 
 def _racines():
     return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR, "bruitage": cfg.SFX_DIR,
-            "3d": cfg.MODELS3D_DIR, "carte": cfg.CARDS_DIR, "photo": cfg.PHOTOS_DIR}
+            "3d": cfg.MODELS3D_DIR, "carte": cfg.CARDS_DIR, "photo": cfg.PHOTOS_DIR,
+            "video": cfg.VIDEOS_DIR}
 
 
 def lire(dossier):
@@ -63,6 +67,7 @@ def _dossiers():
     yield from (d for d in r["3d"].glob("*") if d.is_dir())
     yield from (d for d in r["carte"].glob("*/*") if d.is_dir())
     yield from (d for d in r["photo"].glob("*") if d.is_dir())
+    yield from (d for d in r["video"].glob("*") if d.is_dir())
 
 
 _ACTIONS_PHOTO = {"ameliorer": "améliorée", "detourer": "détourée", "personne": "personne isolée"}
@@ -75,7 +80,7 @@ def _resume(infos):
         return f"{infos.get('projet')} — {infos.get('nom')} — {infos.get('description_fr') or infos.get('description')}"
     if infos["type"] == "photo":
         return f"{infos.get('nom')} — {_ACTIONS_PHOTO.get(infos.get('action'), '')}"
-    if infos["type"] in ("bruitage", "3d"):
+    if infos["type"] in ("bruitage", "3d", "video"):
         return f"{infos.get('nom')} — {infos.get('description_fr') or infos.get('description') or 'depuis une image'}"
     txt = infos.get("texte") if infos["type"] == "tts" else infos.get("description")
     txt = (txt or "").replace("\n", " ")
@@ -122,12 +127,13 @@ def _version(infos, version):
 
 def details(chemin, version=1):
     """(description en Markdown, fichier audio de la version, choix des versions, description, paroles,
-    fin conseillée, modèle 3D à afficher, image à afficher)."""
+    fin conseillée, modèle 3D à afficher, image à afficher, vidéo à afficher)."""
     pas_de_3d = gr.update(value=None, visible=False)
     pas_d_image = gr.update(value=None, visible=False)
+    pas_de_video = gr.update(value=None, visible=False)
     if not chemin:
         return ("*Aucune création pour l'instant.*", None, gr.update(choices=[1], value=1, visible=False), "", "", 10,
-                pas_de_3d, pas_d_image)
+                pas_de_3d, pas_d_image, pas_de_video)
     infos = _infos(chemin)
     i, v = _version(infos, version)
     fichier = v.get("fichier")
@@ -151,6 +157,11 @@ def details(chemin, version=1):
         detail = (f"agrandissement ×{r.get('echelle')}" + (", visages restaurés" if r.get("visages") else "")
                   if infos.get("action") == "ameliorer" else f"fond : {r.get('fond_label') or 'transparent'}")
         lignes.append(f"Photo **{infos.get('nom')}** {_ACTIONS_PHOTO.get(infos.get('action'), '')} ({detail})")
+    if infos["type"] == "video":
+        lignes.append(f"Vidéo **{infos.get('nom')}** : {infos.get('largeur')}×{infos.get('hauteur')}, "
+                      f"{infos.get('duree')}, {infos.get('etapes')} étapes, "
+                      + ("à partir d'une image" if infos.get("image_depart") else "à partir du texte")
+                      + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
     if infos["type"] == "3d":
         texture = "texturé" if v.get("fichier") and v.get("fichier") != v.get("forme") else "forme seule"
         lignes.append(f"Modèle **{infos.get('nom')}** : qualité {infos.get('qualite')}, {infos.get('faces_obtenues')} "
@@ -168,13 +179,16 @@ def details(chemin, version=1):
     versions = gr.update(choices=list(range(1, n + 1)), value=i + 1, visible=n > 1)
     if infos["type"] == "3d":
         return ("\n\n".join(lignes), None, versions, infos.get("description") or "", "", 10,
-                gr.update(value=fichier, visible=True), pas_d_image)
+                gr.update(value=fichier, visible=True), pas_d_image, pas_de_video)
     if infos["type"] in ("carte", "photo"):
         return ("\n\n".join(lignes), None, versions, infos.get("description") or "", "", 10, pas_de_3d,
-                gr.update(value=fichier, visible=True))
+                gr.update(value=fichier, visible=True), pas_de_video)
+    if infos["type"] == "video":
+        return ("\n\n".join(lignes), None, versions, infos.get("description") or "", "", 10, pas_de_3d,
+                pas_d_image, gr.update(value=fichier, visible=True))
     duree = round(sf.info(fichier).duration, 1) if fichier else 10
     return ("\n\n".join(lignes), fichier, versions, infos.get("description") or "", infos.get("paroles") or "", duree,
-            pas_de_3d, pas_d_image)
+            pas_de_3d, pas_d_image, pas_de_video)
 
 
 def supprimer(chemin):
@@ -263,6 +277,10 @@ def recreer(chemin, version=1, progress=gr.Progress()):
                                           infos.get("webp", True), infos.get("description_fr"),
                                           personnage=infos.get("personnage"), progress=progress)
         return f"✅ Illustration recréée avec la graine {graine}.", dossier
+    if infos["type"] == "video":
+        from . import videos
+
+        return f"✅ Vidéo recréée avec la graine {graine}.", videos.recreer(chemin, infos, graine, progress=progress)
     if infos["type"] == "photo":
         from . import photos
 
