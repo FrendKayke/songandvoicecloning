@@ -297,6 +297,12 @@ def _etapes(d, voix):
         etat["musique"] = Path(f)
         return f"10 s de musique, graine {g}"
 
+    def ace_chaud():  # serveur déjà démarré, modèles chargés : la carte seule
+        params = acestep.text2music_params("8-bit chiptune, retro video game music, short loop", "[Instrumental]",
+                                           "en", 10, 0, False)
+        ((_, g),) = acestep.generer(params, [d / "acestep_2.wav"], _rien, "diagnostic")
+        return f"10 s de musique, graine {g}, serveur déjà prêt"
+
     def dem():
         source = etat.get("musique") or _ton(d / "ton.wav")
         voix_sep, _ = demucs.separate_vocals(source, d)
@@ -328,6 +334,11 @@ def _etapes(d, voix):
                               "background", [d / "zimage.png"], [42], 1024, 1024)
         etat["image"] = Path(res["fichiers"][0])
         return "image 1024×1024"
+
+    def zimage_chaud():  # moteur resté ouvert : plus de chargement, la carte calcule
+        diffusion.image("a blue mana crystal on a stone pedestal, single object, centered, plain white background",
+                        [d / "zimage_2.png"], [43], 1024, 1024)
+        return "2ᵉ image 1024×1024, modèles déjà en mémoire"
 
     def klein():
         image = etat.get("image")
@@ -368,10 +379,12 @@ def _etapes(d, voix):
             raise gr.Error(f"forme créée ({res.get('faces')} faces) mais texture non peinte")
         return f"{res.get('faces')} faces, texture peinte, version web écrite"
 
-    return [("ACE-Step (génération musicale)", ace, None), ("Demucs (séparation)", dem, None),
+    return [("ACE-Step (génération musicale)", ace, None),
+            ("ACE-Step, 2ᵉ chanson (à chaud)", ace_chaud, None), ("Demucs (séparation)", dem, None),
             ("Seed-VC (conversion)", svc, None), ("Chatterbox (synthèse vocale)", tts, "chatterbox"),
             ("Nettoyage de voix (léger)", net, "nettoyage"), ("Qwen3-VL (description)", qwen, "diffusion:qwen"),
             ("Z-Image-Turbo (image)", zimage, "diffusion:zimage"),
+            ("Z-Image-Turbo, 2ᵉ image (à chaud)", zimage_chaud, "diffusion:zimage"),
             ("FLUX.2 klein 4B (personnage d'après une référence)", klein, "diffusion:personnages"),
             ("Photos (Real-ESRGAN, GFPGAN, BiRefNet)", photo, "diffusion:photo_qualite"),
             ("Wan 2.2 (vidéo courte d'après une image)", film, "diffusion:video"),
@@ -386,7 +399,7 @@ def complet():
     d = cfg.DATA_DIR / "diagnostic" / f"{datetime.now():%Y%m%d_%H%M%S}_complet"
     d.mkdir(parents=True, exist_ok=True)
     voix = next((str(cfg.VOICES_DIR / f"{v}.wav") for v in list_voices()), None)
-    r.section("Essais (une génération courte par moteur)")
+    r.section("Essais (une génération courte par moteur ; « à chaud » = modèles déjà chargés)")
     yield r.texte() + "\n\n⏳ Essais en cours : compte 10 à 20 minutes…", None
     with _galerie_redirigee(d):
         for nom, fonction, cle in _etapes(d, voix):

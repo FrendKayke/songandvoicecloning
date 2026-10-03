@@ -84,6 +84,8 @@ def test_essai_complet(env, monkeypatch):
     assert "✅ **ACE-Step (génération musicale)** : 10 s de musique, graine 7" in texte
     assert "✅ **Chatterbox (synthèse vocale)** : lecture écrite (moi.wav)" in texte
     assert "✅ **Qwen3-VL (description)** : « door creak »" in texte
+    assert "✅ **ACE-Step, 2ᵉ chanson (à chaud)** : 10 s de musique, graine 7, serveur déjà prêt" in texte
+    assert "✅ **Z-Image-Turbo, 2ᵉ image (à chaud)** : 2ᵉ image 1024×1024, modèles déjà en mémoire" in texte
     assert "✅ **FLUX.2 klein 4B (personnage d'après une référence)** : image 768×768" in texte
     assert [Path(r).name for r in vus["references"]] == ["zimage.png"]  # l'image de Z-Image sert de référence
     assert "❌ **Stable Audio Open (bruitage)** : Stable Audio Open non téléchargé" in texte  # échec n'arrête rien
