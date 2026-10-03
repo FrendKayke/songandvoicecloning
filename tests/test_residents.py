@@ -268,3 +268,33 @@ def _espion(executer, journal):
             journal.append(ligne)
             yield ligne
     return espion
+
+
+def test_attente_et_demarrage_annonces(faux):
+    """Avant la première progression du moteur, on dit ce qui se passe : démarrage, ou attente d'une autre tâche
+    (constaté : « Préparer le prompt » sans aucun message pendant plus de 4 minutes)."""
+    import threading
+
+    annonces = []
+    _lancer_annonce = lambda: outils.lancer_moteur(  # noqa: E731
+        [sys.executable, str(faux.script), "action", str(_tache(faux))], faux.dossier, {"FAUSSE_VAR": "1"}, "Faux",
+        resident="Faux", annonce=annonces.append)
+    _lancer_annonce()
+    assert annonces == ["Démarrage du moteur (Faux)…"]
+    annonces.clear()
+    tenu, relache = threading.Event(), threading.Event()
+
+    def autre_tache():
+        with residents._verrou:
+            tenu.set()
+            relache.wait(10)
+
+    fil = threading.Thread(target=autre_tache)
+    fil.start()
+    tenu.wait(10)
+    assert residents.occupe()
+    threading.Timer(0.3, relache.set).start()
+    _lancer_annonce()
+    fil.join(10)
+    assert annonces == ["En attente : une autre génération utilise la carte graphique…"]
+    assert not residents.occupe()

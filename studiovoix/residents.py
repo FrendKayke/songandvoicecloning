@@ -122,6 +122,19 @@ def lancer(nom, python, script, argv, cwd, env):
         return m.code
 
 
+def occupe():
+    """True si une tâche tourne déjà dans un moteur résident (la suivante attendra son tour)."""
+    if _verrou.acquire(blocking=False):
+        _verrou.release()
+        return False
+    return True
+
+
+def ouvert(nom):
+    m = _moteurs.get(nom)
+    return m is not None and m.vivant()
+
+
 def _arreter_autres(nom=None):
     for autre in [n for n in _moteurs if n != nom]:
         _moteurs.pop(autre).arreter()

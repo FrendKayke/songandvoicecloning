@@ -24,7 +24,7 @@ import gradio as gr
 import numpy as np
 import soundfile as sf
 
-from . import acestep, chatterbox, demucs, diffusion, nettoyage, retraits, rvc, seedvc, serveur_acestep
+from . import acestep, chatterbox, demucs, diffusion, nettoyage, ollama, retraits, rvc, seedvc, serveur_acestep
 from . import config as cfg
 from .voix import list_voices
 
@@ -192,11 +192,35 @@ def _systeme(r):
                              f"{platform.python_version()}")
     gpu = carte_graphique()
     r.ligne(bool(gpu), "Carte graphique", gpu or "nvidia-smi introuvable : pilote NVIDIA absent ?")
+    occupants = programmes_sur_la_carte()
+    if occupants:
+        r.ligne(None, "Programmes sur la carte graphique", occupants)
+    ok, detail = ollama.etat()
+    r.ligne(ok, "Ollama", detail)
     try:
         libre = shutil.disk_usage(cfg.ENG_DIR if cfg.ENG_DIR.exists() else cfg.APP_DIR).free / 1e9
         r.ligne(libre > 20, "Espace libre (disque des moteurs)", f"{libre:.0f} Go")
     except OSError as e:
         r.ligne(False, "Espace libre", str(e))
+
+
+def programmes_sur_la_carte():
+    """« nom (Mo), … » des programmes de calcul sur la carte d'après nvidia-smi (sous Windows la mémoire de chacun
+    est souvent « N/A ») : un autre programme (Ollama, un jeu…) prend de la mémoire graphique à nos moteurs."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-compute-apps=process_name,used_memory",
+                            "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    elements = []
+    for ligne in r.stdout.splitlines():
+        nom, _, mo = ligne.rpartition(",")
+        if nom.strip():
+            mo = mo.strip()
+            elements.append(Path(nom.strip()).name + (f" ({mo} Mo)" if mo.isdigit() else ""))
+    return ", ".join(elements) or None
 
 
 def _modeles(r):

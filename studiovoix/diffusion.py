@@ -135,10 +135,13 @@ def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None
         if progress:
             progress(0.05 + 0.9 * (i - 1) / n, desc=f"{nom} : {libelles.get(i, f'étape {i}/{n}')}…")
 
+    if progress:
+        progress(0.01, desc=f"{nom} : préparation…")
     if gpu:
         serveur_acestep.liberer_gpu(progress)
+    annonce = (lambda texte: progress(0.03, desc=f"{nom} : {texte}")) if progress else None
     lignes = lancer_moteur([cfg.DIFFUSION_PYTHON, str(script()), action, str(fichier)], cfg.DIFFUSION_DIR, _env(),
-                           nom, suivi, resident="Diffusion")
+                           nom, suivi, resident="Diffusion", annonce=annonce)
     resultat = next((l_ for l_ in reversed(lignes) if l_.startswith("RESULTAT ")), None)
     if not resultat:
         raise gr.Error(f"{nom} : pas de résultat renvoyé par le moteur.\n" + "\n".join(lignes[-10:]))

@@ -185,8 +185,9 @@ def assurer(progress=None, timeout=15 * 60):
     """Serveur prêt à répondre (démarré si besoin ; le premier démarrage charge ses modèles).
     Les moteurs résidents libèrent d'abord la carte (ACE-Step occupe ~8 Go) : diffusion, Chatterbox et nettoyage
     sont fermés, Demucs et Seed-VC rangent leurs modèles en mémoire vive pour la chanson suivante."""
-    from . import residents
+    from . import ollama, residents
 
+    ollama.liberer(progress)
     if residents.liberer_pour_ace() and progress:
         progress(0.01, desc="Libération de la carte graphique : fermeture du moteur ouvert…")
     if repond():
@@ -263,7 +264,11 @@ def arreter(attente=30):
 
 
 def liberer_gpu(progress=None):
-    """À appeler avant un moteur gourmand : arrête ACE-Step s'il tourne (réglage « libération automatique »)."""
+    """À appeler avant un moteur gourmand : arrête ACE-Step s'il tourne (réglage « libération automatique ») et
+    fait décharger ses modèles à Ollama s'il en garde sur la carte."""
+    from . import ollama
+
+    ollama.liberer(progress)
     if not (LIBERATION_AUTO and local()) or not (_vivant() or repond(1)):
         return False
     if progress:

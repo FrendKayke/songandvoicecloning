@@ -35,43 +35,87 @@ def ecrire_creation(dossier, infos):
     (Path(dossier) / "creation.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None, resident=None):
+JOURNAL_MAX = 2_000_000  # octets par journal de moteur ; au-delà, l'ancien devient <nom>.1.log
+
+
+def journal_moteur(nom):
+    """data/journaux/<nom>.log : toute la sortie d'un moteur, horodatée (pour un dépannage à distance : la fenêtre
+    du navigateur n'affiche que la progression)."""
+    import unicodedata
+
+    from . import config as cfg
+
+    ascii_ = unicodedata.normalize("NFKD", str(nom or "moteur")).encode("ascii", "ignore").decode().lower()
+    nom_fichier = "".join(c if c.isalnum() else "_" for c in ascii_).strip("_") or "moteur"
+    d = cfg.DATA_DIR / "journaux"
+    d.mkdir(parents=True, exist_ok=True)
+    chemin = d / f"{nom_fichier}.log"
+    try:
+        if chemin.exists() and chemin.stat().st_size > JOURNAL_MAX:
+            chemin.replace(d / f"{nom_fichier}.1.log")
+    except OSError:
+        pass
+    return chemin
+
+
+def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None, resident=None, annonce=None):
     """Lance un script de moteurs/ en sous-processus et suit son protocole :
     « PROGRESSION i/n … » → suivi(i, n) ; « ERREUR : message » → gr.Error(« <nom> : message »).
     Si « attendu » (fichier de sortie) n'existe pas à la fin, c'est aussi une erreur. Renvoie les dernières lignes.
     resident : nom du moteur résident (cmd = [python, script, *arguments]) qui garde ses modèles en mémoire entre
     deux tâches (residents.py) ; sinon, ou si le réglage est désactivé, processus neuf, et les moteurs résidents
-    sont d'abord fermés (ils occuperaient la mémoire dont ce moteur a besoin)."""
-    from . import residents
+    sont d'abord fermés (ils occuperaient la mémoire dont ce moteur a besoin).
+    annonce(texte) : affiche ce qui se passe avant la première progression du moteur (attente, démarrage)."""
+    from . import ollama, residents
 
+    ollama.liberer()  # un modèle d'Ollama resté sur la carte ferait déborder la mémoire graphique
     lignes = []
+    try:
+        journal = open(journal_moteur(resident or nom), "a", encoding="utf-8", errors="replace")
+        journal.write(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}] === {nom} : {' '.join(map(str, cmd[1:]))}\n")
+    except OSError:
+        journal = None
+    debut = datetime.now()
 
     def lire(flux):
         nonlocal lignes
         for ligne in flux:
             ligne = ligne.rstrip()
             lignes = (lignes + [ligne])[-60:]
+            if journal:
+                journal.write(f"[{(datetime.now() - debut).total_seconds():7.1f} s] {ligne}\n")
+                journal.flush()
             if ligne.startswith("PROGRESSION ") and suivi:
                 i, n = (int(x) for x in ligne.split()[1].split("/"))
                 suivi(i, n)
 
-    if resident and residents.ACTIF:
-        flux = residents.lancer(resident, cmd[0], cmd[1], cmd[2:], cwd, extra_env)
-        try:
-            while True:
-                lire([next(flux)])
-        except StopIteration as fin:  # le générateur renvoie le code de sortie de la tâche
-            code = fin.value
-    else:
-        residents.arreter_tous()
-        env = os.environ.copy()
-        env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", **(extra_env or {})})
-        proc = subprocess.Popen(
-            cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace",
-        )
-        lire(proc.stdout)
-        code = proc.wait()
+    code = None
+    try:
+        if resident and residents.ACTIF:
+            if annonce and residents.occupe():
+                annonce("En attente : une autre génération utilise la carte graphique…")
+            if annonce and not residents.ouvert(resident):
+                annonce(f"Démarrage du moteur ({resident})…")
+            flux = residents.lancer(resident, cmd[0], cmd[1], cmd[2:], cwd, extra_env)
+            try:
+                while True:
+                    lire([next(flux)])
+            except StopIteration as fin:  # le générateur renvoie le code de sortie de la tâche
+                code = fin.value
+        else:
+            residents.arreter_tous()
+            env = os.environ.copy()
+            env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", **(extra_env or {})})
+            proc = subprocess.Popen(
+                cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+            )
+            lire(proc.stdout)
+            code = proc.wait()
+    finally:
+        if journal:
+            journal.write(f"[{(datetime.now() - debut).total_seconds():7.1f} s] fin (code {code})\n")
+            journal.close()
     erreur = next((l_ for l_ in reversed(lignes) if l_.startswith("ERREUR : ")), None)
     if code != 0 or (attendu is not None and not Path(attendu).exists()):
         if erreur:

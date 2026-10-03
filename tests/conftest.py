@@ -80,6 +80,7 @@ def _acestep_injoignable(monkeypatch):
     """Par défaut, aucun serveur ACE-Step : un test ne doit jamais arrêter le vrai serveur d'un poste de
     développement (liberer_gpu) ; fake_acestep remplace cette adresse par celle de son faux serveur."""
     monkeypatch.setattr(cfg, "ACESTEP_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("OLLAMA_HOST", "127.0.0.1:9")  # jamais le vrai Ollama d'un poste de développement
 
 
 @pytest.fixture(autouse=True)

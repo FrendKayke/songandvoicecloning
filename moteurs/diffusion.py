@@ -222,7 +222,11 @@ def _garder(cle, fabrique, go, vers_cpu=None, vers_gpu=None):
         return entree[0]
     _ranger()
     _faire_place(go)
+    import time
+
+    debut = time.time()
     objet = fabrique()
+    print(f"{cle[0]} chargé en {time.time() - debut:.0f} s.", flush=True)
     _CHARGES[cle] = [objet, go, vers_cpu, vers_gpu]
     return objet
 
