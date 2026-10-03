@@ -12,7 +12,7 @@ Quatre modèles qui partagent la même pile (diffusers, transformers) :
   - Photos : BiRefNet (MIT) détoure ou isole une personne ; Real-ESRGAN (BSD-3) agrandit et restaure, GFPGAN 1.4
     (Apache 2.0) restaure les visages trouvés par YuNet (OpenCV, MIT).
 
-    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | personnage | video | detourer | ameliorer | forme3d
+    python diffusion.py <action> <tache.json>      action : decrire | bruitage | image | personnage | video | assembler | detourer | ameliorer | forme3d
                                                    | alleger
     python diffusion.py telecharger [modele…]      qwen | bruitages | forme3d | texture3d | zimage | personnages
                                                    | video | photo_detourage | photo_qualite | detourage
@@ -683,6 +683,32 @@ def video(chemin_tache):
     print(f"TERMINE {t['sortie']}", flush=True)
 
 
+def assembler(chemin_tache):
+    """Tâche : {clips: [mp4…], sortie, fps}. Met les clips bout à bout en un seul MP4 H.264 (même écriture
+    qu'export_to_video de diffusers : imageio + imageio-ffmpeg, libx264, yuv420p). La première image d'un clip
+    enchaîné est la dernière du précédent (elle a servi d'image de départ) : elle est retirée, sinon l'image se
+    fige un instant à chaque raccord. Processeur seulement. RESULTAT {sortie, images, duree}."""
+    import imageio
+
+    t = _lire(chemin_tache)
+    clips, fps = t["clips"], int(t.get("fps", 24))
+    if not clips:
+        _erreur("aucun clip à assembler.")
+    Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with imageio.get_writer(t["sortie"], fps=fps, quality=9, macro_block_size=16) as sortie:
+        for i, clip in enumerate(clips, 1):
+            print(f"PROGRESSION {i}/{len(clips)} clip {i}", flush=True)
+            with imageio.get_reader(clip) as lecteur:
+                for k, image in enumerate(lecteur):
+                    if i > 1 and k == 0:
+                        continue
+                    sortie.append_data(image)
+                    n += 1
+    _resultat({"sortie": t["sortie"], "images": n, "duree": round(n / fps, 2)})
+    print(f"TERMINE {t['sortie']}", flush=True)
+
+
 # --- Photos : détourage (BiRefNet), agrandissement (Real-ESRGAN), visages (GFPGAN) -------------------------
 def _dossier_photos():
     return Path(os.environ.get("STUDIOVOIX_PHOTOS") or Path.cwd() / "photos")
@@ -1241,7 +1267,7 @@ def telecharger(noms):
 
 
 ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
-           "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger}
+           "assembler": assembler, "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger}
 
 
 def principal(argv):
@@ -1266,7 +1292,7 @@ def principal(argv):
             finally:
                 _EN_LIGNE_FORCE = False
     else:
-        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|video|detourer|ameliorer|forme3d|alleger "
+        _erreur("usage : diffusion.py decrire|bruitage|image|personnage|video|assembler|detourer|ameliorer|forme3d|alleger "
                 "<tache.json> | telecharger [modèle…] | --resident <secondes>")
 
 

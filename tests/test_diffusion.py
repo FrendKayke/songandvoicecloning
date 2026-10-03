@@ -71,6 +71,8 @@ FAUX_MOTEUR = textwrap.dedent("""
         print("RESULTAT " + json.dumps(res), flush=True)
     elif action == "video":
         from PIL import Image
+        if "ECHEC" in t["prompt"]:
+            print("ERREUR : mémoire de la carte graphique insuffisante.", flush=True); sys.exit(3)
         n = t["etapes"] + 3
         for i in range(1, n + 1): print(f"PROGRESSION {i}/{n} x", flush=True)
         Path(t["sortie"]).write_bytes(b"mp4")
@@ -79,6 +81,10 @@ FAUX_MOTEUR = textwrap.dedent("""
         print("RESULTAT " + json.dumps({"sortie": t["sortie"], "graine": t["graine"], "images": t["images"],
                                         "duree": round(t["images"] / 24, 2), "largeur": t["largeur"],
                                         "hauteur": t["hauteur"], "derniere_image": derniere}), flush=True)
+    elif action == "assembler":
+        Path(t["sortie"]).write_bytes(b"".join(Path(c).read_bytes() for c in t["clips"]))
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "images": 49 * len(t["clips"]),
+                                        "duree": 2.0 * len(t["clips"])}), flush=True)
     elif action == "detourer":
         from PIL import Image
         for i in (1, 2, 3): print(f"PROGRESSION {i}/3 x", flush=True)
@@ -689,3 +695,45 @@ def test_modele_3d_qualite_maximale(faux_diffusion):
     assert infos["complet"] is True and infos["etapes"] == 50
     modele3d.generer(str(im), "Tasse", "Normale", False, 0, ["glb"], progress=no_progress)
     assert "sous_dossier" not in _journal()[-1]["tache"]  # turbo par défaut
+
+
+def test_videos_plans_a_la_suite(faux_diffusion):
+    """Plusieurs plans : prompts préparés d'abord, chaque clip part de la dernière image du précédent, assemblage."""
+    from PIL import Image
+
+    from studiovoix import galerie, videos
+
+    depart = cfg.DATA_DIR.parent / "pont.png"
+    Image.new("RGB", (1200, 700), (1, 2, 3)).save(depart)
+    plans = "les aventuriers avancent sur le pont\n\n  un kraken surgit de l'eau  \nle mage lance une boule de feu"
+    msg, fichier, dossier = videos.generer_suite(plans, str(depart), videos.AUTO, "2 s", 20, 5, "Kraken",
+                                                 progress=no_progress)
+    j = _journal()
+    assert [e["tache"]["mode"] for e in j if e["action"] == "decrire"] == ["video"] * 3  # avant toute vidéo
+    assert [e["action"] for e in j][-4:] == ["video", "video", "video", "assembler"]
+    clips = [e["tache"] for e in j if e["action"] == "video"]
+    d = Path(dossier)
+    assert Path(clips[0]["image"]) == d / "image_depart.png"
+    assert Path(clips[1]["image"]) == d / "plan_1" / "derniere_image.png"  # dernière image du plan précédent
+    assert Path(clips[2]["image"]) == d / "plan_2" / "derniere_image.png"
+    assert [c["graine"] for c in clips] == [5, 6, 7] and {(c["largeur"], c["hauteur"]) for c in clips} == {(1280, 704)}
+    assert j[-1]["tache"]["clips"] == [str(d / f"plan_{i}" / "video.mp4") for i in (1, 2, 3)]
+    assert Path(fichier) == d / "video.mp4" and (d / "derniere_image.png").exists() and "3 plan(s)" in msg
+    infos = galerie.lire(dossier)
+    assert infos["type"] == "video" and [p["plan"] for p in infos["plans"]][1] == "un kraken surgit de l'eau"
+    assert infos["image_depart"] == "image_depart.png"
+    # recréer depuis la galerie : mêmes prompts (pas de nouvelle préparation), même graine
+    avant = len([e for e in _journal() if e["action"] == "decrire"])
+    _, nouveau = galerie.recreer(dossier, progress=no_progress)
+    assert len([e for e in _journal() if e["action"] == "decrire"]) == avant
+    assert [e["tache"]["graine"] for e in _journal() if e["action"] == "video"][-3:] == [5, 6, 7]
+    # un plan qui échoue : les précédents sont gardés et assemblés
+    msg, _, d3 = videos.generer_suite(None, None, videos.AUTO, "2 s", 20, 1, prompts=["ok", "ECHEC", "jamais"],
+                                      progress=no_progress)
+    assert "1 plan(s)" in msg and "Arrêt au plan 2" in msg and _journal()[-1]["tache"]["clips"] == [
+        str(Path(d3) / "plan_1" / "video.mp4")]
+    with pytest.raises(gr.Error, match="une ligne par plan"):
+        videos.generer_suite(" \n ", None, videos.AUTO, "2 s", 20, 0, progress=no_progress)
+    with pytest.raises(gr.Error, match="au plus"):
+        videos.generer_suite("\n".join(["x"] * (videos.PLANS_MAX + 1)), None, videos.AUTO, "2 s", 20, 0,
+                             progress=no_progress)

@@ -99,6 +99,80 @@ def generer(prompt, image, format_label, duree_label, etapes, graine, nom="", de
     return msg, res["sortie"], str(dossier)
 
 
+PLANS_MAX = 12  # ~15 à 25 minutes par plan de 5 s en 720p sur une RTX 4070 : déjà plusieurs heures
+
+
+def plans_du_texte(texte):
+    """Une ligne non vide = un plan."""
+    return [ligne.strip() for ligne in (texte or "").splitlines() if ligne.strip()]
+
+
+def generer_suite(plans_texte, image, format_label, duree_label, etapes, graine, nom="", prompts=None,
+                  progress=gr.Progress()):
+    """Plusieurs plans enchaînés : la dernière image de chaque clip est l'image de départ du suivant (comme le bouton
+    « Continuer », mais d'un coup), puis les clips sont assemblés en une seule vidéo. Les prompts sont tous
+    préparés d'abord (Qwen3-VL), puis les clips générés (Wan 2.2) : un seul changement de modèle.
+    prompts : prompts anglais déjà prêts (recréation depuis la galerie). Renvoie (message, vidéo, dossier)."""
+    plans = plans_du_texte(plans_texte) if prompts is None else [None] * len(prompts)
+    if not plans:
+        raise gr.Error("Écris au moins un plan : une ligne par plan (par exemple « le dragon décolle », puis "
+                       "« il survole la forêt »).")
+    if len(plans) > PLANS_MAX:
+        raise gr.Error(f"{len(plans)} plans : {PLANS_MAX} au plus (chaque plan de 5 s prend 15 à 25 minutes).")
+    n = len(plans)
+    if prompts is None:
+        prompts = []
+        for i, plan in enumerate(plans, 1):
+            progress(0.05 * (i - 1) / n, desc=f"Plan {i}/{n} : préparation du prompt…")
+            prompts.append(preparer(plan, progress=lambda *a, **k: None))
+    largeur, hauteur = format_pour(format_label, image)
+    images = DUREES.get(duree_label, DUREES[DUREE_DEFAUT])
+    graine = int(graine or 0) or diffusion.graines(1)[0]
+    dossier = nouveau_dossier(cfg.VIDEOS_DIR)
+    depart = None
+    if image:
+        depart = dossier / f"image_depart{Path(image).suffix.lower() or '.png'}"
+        shutil.copy(image, depart)
+    image_depart = depart.name if depart else None
+    clips, details, erreur = [], [], None
+    for i, prompt in enumerate(prompts, 1):
+        sous = dossier / f"plan_{i}"
+        sous.mkdir()
+
+        def suivi(valeur, desc="", i=i):  # progression du plan i dans celle de toute la suite
+            progress(0.05 + 0.9 * ((i - 1) + valeur) / n, desc=f"Plan {i}/{n} — {desc}")
+
+        try:
+            res = diffusion.video(prompt, sous / "video.mp4", depart, largeur, hauteur, images, etapes, graine + i - 1,
+                                  progress=suivi)
+        except gr.Error as e:  # on garde les plans réussis
+            erreur = f"plan {i} : {getattr(e, 'message', e)}"
+            break
+        clips.append(res["sortie"])
+        details.append({"plan": plans[i - 1], "prompt": prompt, "graine": res["graine"], "fichier": res["sortie"]})
+        depart = Path(res["derniere_image"])
+    if not clips:
+        raise gr.Error(f"Aucun plan n'a pu être généré ({erreur}).")
+    progress(0.97, desc="Assemblage des plans…")
+    sortie = dossier / "video.mp4"
+    assemblee = diffusion.assembler(clips, sortie, FPS)
+    shutil.copy(depart, dossier / "derniere_image.png")  # « Continuer » repart de la fin de la suite
+    nom = (nom or "").strip() or "video"
+    ecrire_creation(dossier, {
+        "type": "video", "nom": nom, "description": " / ".join(prompts[:len(clips)]),
+        "description_fr": " / ".join(p for p in plans[:len(clips)] if p) or None,
+        "image_depart": image_depart,
+        "format": format_label, "largeur": largeur, "hauteur": hauteur, "duree": duree_label, "images": images,
+        "etapes": int(etapes), "fps": FPS, "plans": details,
+        "versions": [{"graine": graine, "dossier": ".", "fichier": str(sortie)}],
+    })
+    msg = (f"✅ {len(clips)} plan(s) enchaînés : vidéo {largeur}×{hauteur} de {assemblee['duree']} s, dans {dossier}. "
+           "Chaque plan part de la dernière image du précédent.")
+    if erreur:
+        msg += f"\n\n⚠️ Arrêt au {erreur} ; les plans réussis sont assemblés."
+    return msg, str(sortie), str(dossier)
+
+
 def continuer(dossier):
     """La dernière image de la vidéo devient l'image de départ du clip suivant."""
     derniere = Path(dossier or "") / "derniere_image.png"
@@ -108,10 +182,17 @@ def continuer(dossier):
 
 
 def recreer(chemin, infos, graine, progress=gr.Progress()):
-    """Galerie : même vidéo, mêmes réglages, même graine (résultat proche)."""
+    """Galerie : même vidéo, mêmes réglages, même graine (résultat proche) ; une suite de plans est refaite avec
+    les mêmes prompts."""
     depart = Path(chemin) / infos["image_depart"] if infos.get("image_depart") else None
     if depart is not None and not depart.exists():
         raise gr.Error(f"Image de départ introuvable : {depart}")
+    if infos.get("plans"):
+        _, _, dossier = generer_suite(None, str(depart) if depart else None, infos.get("format") or AUTO,
+                                      infos.get("duree") or DUREE_DEFAUT, infos.get("etapes", 30), graine,
+                                      infos.get("nom"), prompts=[p["prompt"] for p in infos["plans"]],
+                                      progress=progress)
+        return dossier
     _, _, dossier = generer(infos.get("description"), str(depart) if depart else None, infos.get("format") or AUTO,
                             infos.get("duree") or DUREE_DEFAUT, infos.get("etapes", 30), graine, infos.get("nom"),
                             infos.get("description_fr"), progress=progress)

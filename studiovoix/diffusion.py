@@ -213,6 +213,14 @@ def video(prompt, sortie, image=None, largeur=1280, hauteur=704, images=121, eta
     return lancer("video", tache, Path(sortie).parent, "Vidéo", progress, libelles)
 
 
+def assembler(clips, sortie, fps=24, progress=None):
+    """Clips MP4 bout à bout (première image des clips enchaînés retirée), processeur seulement.
+    RESULTAT {sortie, images, duree}."""
+    _installe()
+    return lancer("assembler", {"clips": [str(c) for c in clips], "sortie": str(sortie), "fps": int(fps)},
+                  Path(sortie).parent, "Assemblage", progress, gpu=False)
+
+
 def detourer(entree, sortie, modele="general", fond=None, masque=None, progress=None):
     """BiRefNet : PNG transparent (fond None) ou sujet sur une couleur « #rrggbb » ou sur son fond flouté (« flou »).
     modele : « general » (tout sujet, cheveux fins) ou « personne ». RESULTAT {sortie, masque, couverture…}."""

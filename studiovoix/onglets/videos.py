@@ -35,6 +35,18 @@ def construire():
         vid_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
         vid_nom = gr.Textbox(label="Nom (pour la galerie)", value="video")
     btn_vid = gr.Button("🎬 Générer la vidéo", variant="primary")
+    with gr.Accordion("🎞️ Plusieurs plans à la suite (une scène plus longue)", open=False):
+        gr.Markdown(
+            "Écris **un plan par ligne**, en français. Chaque plan devient un clip de la durée choisie ci-dessus ; "
+            "il part de la **dernière image du plan précédent** (le premier part de l'image de départ, s'il y en a "
+            "une), puis tous les clips sont assemblés en une seule vidéo. Garde les mêmes personnages et le même "
+            f"décor d'une ligne à l'autre. {videos.PLANS_MAX} plans au plus ; compte 15 à 25 minutes par plan de "
+            "5 s en 720p. Au fil des raccords l'image peut perdre un peu en netteté : préfère des plans courts.")
+        vid_plans = gr.Textbox(label="Plans (un par ligne)", lines=5,
+                               placeholder="les aventuriers avancent sur le pont du navire, la caméra les suit\n"
+                                           "un kraken géant surgit de l'eau devant eux\n"
+                                           "le mage lance une boule de feu sur le kraken")
+        btn_vid_suite = gr.Button("🎞️ Générer les plans à la suite", variant="primary")
     vid_statut = gr.Markdown()
     vid_dossier = gr.State()
     vid_video = gr.Video(label="Vidéo", height=480, interactive=False)
@@ -53,5 +65,8 @@ def brancher(c, demo, o):
                     [c.vid_prompt, c.vid_image, c.vid_format, c.vid_duree, c.vid_etapes, c.vid_graine, c.vid_nom,
                      c.vid_texte],
                     [c.vid_statut, c.vid_video, c.vid_dossier])
+    c.btn_vid_suite.click(videos.generer_suite,
+                          [c.vid_plans, c.vid_image, c.vid_format, c.vid_duree, c.vid_etapes, c.vid_graine, c.vid_nom],
+                          [c.vid_statut, c.vid_video, c.vid_dossier])
     c.btn_vid_continuer.click(videos.continuer, c.vid_dossier, c.vid_image)
     c.btn_vid_dossier.click(lambda d: open_folder(d) if d else None, c.vid_dossier)
