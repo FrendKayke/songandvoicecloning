@@ -989,6 +989,8 @@ def forme3d(chemin_tache):
     print(f"PROGRESSION 5/{total} chargement du peintre de texture", flush=True)
     from hy3dgen.texgen import Hunyuan3DPaintPipeline
 
+    _permettre_code_peintre()
+
     cle_peintre = ("Hunyuan3D texture", HUNYUAN_TEXTURE)
 
     def pipelines(p_):  # délumination et vues multiples : deux pipelines diffusers (texgen/utils/*_utils.py)
@@ -1019,6 +1021,29 @@ def forme3d(chemin_tache):
         resultat["web"] = _alleger_glb(modele, dossier / "modele_web.glb", int(t.get("texture_web", 1024)))["sortie"]
     _resultat(resultat)
     print(f"TERMINE {modele}", flush=True)
+
+
+def _permettre_code_peintre():
+    """Le peintre de Hunyuan3D-2 charge son pipeline de vues multiples avec un custom_pipeline local (dossier
+    hy3dgen/texgen/hunyuanpaint du code épinglé) dont le UNet est lui aussi du code du modèle (unet/modules.py,
+    UNet2p5DConditionModel, déclaré dans model_index.json). diffusers 0.39 refuse ce code sans trust_remote_code
+    (dynamic_modules_utils.get_cached_module_file : « contains custom code in pipeline.py… », constaté sur la
+    RTX 4070), et texgen/utils/multiview_utils.py ne le passe pas. On l'ajoute à ce seul appel."""
+    import hy3dgen.texgen.utils.multiview_utils as vues
+    from diffusers import DiffusionPipeline
+
+    if getattr(vues.DiffusionPipeline, "_studiovoix", False):
+        return
+
+    class _AvecCodeDuModele:
+        _studiovoix = True
+
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            kwargs.setdefault("trust_remote_code", True)
+            return DiffusionPipeline.from_pretrained(*args, **kwargs)
+
+    vues.DiffusionPipeline = _AvecCodeDuModele
 
 
 def _nettoyer(mesh, faces):
