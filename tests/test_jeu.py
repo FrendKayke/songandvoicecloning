@@ -133,3 +133,33 @@ def test_reference_obligatoire(jeux):
     with pytest.raises(gr.Error, match="thème de référence"):
         jeu.generer_bande_son("p", EPOQUE, [], ["combat"], [], 60, False, 0, None, jeu.REF_TIMBRE,
                               progress=no_progress)
+
+
+def test_boucle_cherchee_pendant_la_generation_suivante(fake_acestep, jeux, monkeypatch):
+    """Le processeur cherche la boucle de la piste 1 pendant que la carte génère la piste 2 (même ordre de sortie,
+    une erreur de boucle remonte à la fin)."""
+    import threading
+
+    fake_acestep()
+    journal, verrou = [], threading.Lock()
+    generer = jeu.acestep.generer
+    creer = jeu.boucles.creer_boucle
+
+    def generer_espion(*a, **k):
+        with verrou:
+            journal.append("génération")
+        return generer(*a, **k)
+
+    def creer_lente(*a, **k):
+        threading.Event().wait(0.6)  # time.sleep est neutralisé par le faux serveur ACE-Step
+        with verrou:
+            journal.append("boucle trouvée")
+        return creer(*a, **k)
+
+    monkeypatch.setattr(jeu.acestep, "generer", generer_espion)
+    monkeypatch.setattr(jeu.boucles, "creer_boucle", creer_lente)
+    msg, liste, premiere, _ = jeu.generer_bande_son("p", EPOQUE, [], ["combat", "boss"], [], 60, False,
+                                                    progress=no_progress)
+    assert journal[:2] == ["génération", "génération"]  # la 2ᵉ génération n'a pas attendu la 1ʳᵉ boucle
+    assert [lib for lib, _ in liste["choices"]] == [jeu.SITUATIONS["combat"][0], jeu.SITUATIONS["boss"][0]]
+    assert premiere.endswith("piste.wav") and "combat" in premiere

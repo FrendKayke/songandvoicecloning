@@ -8,6 +8,7 @@ pousserait à l'imitation. Rangement : data/jeux/<projet>/<situation>/<horodatag
 import json
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import gradio as gr
@@ -141,7 +142,11 @@ def generer_bande_son(projet, epoque, univers, situations, extra, duree_boucles,
         raise gr.Error("Choisis au moins une situation (ou tape la tienne).")
     if not texte(epoque):
         raise gr.Error("Choisis une époque (style général de la bande-son).")
-    pistes = []
+    # La carte génère la piste suivante pendant que le processeur cherche la boucle parfaite de la précédente
+    # (boucle.py : 10 à 30 s de librosa par piste, carte inoccupée auparavant). Un seul fil : les pistes sont
+    # finalisées dans l'ordre, et les erreurs remontent à la fin comme avant.
+    en_cours = []
+    processeur = ThreadPoolExecutor(max_workers=1, thread_name_prefix="boucles")
     for n, cle in enumerate(situations, 1):
         ident, libelle, txt, duree, boucle = situation(cle)
         duree_gen = int(duree_boucles) if boucle else max(DUREE_MIN_ACESTEP, duree)
@@ -158,8 +163,13 @@ def generer_bande_son(projet, epoque, univers, situations, extra, duree_boucles,
                  "reference": str(reference) if fichiers else None,
                  "usage_reference": ("variation" if "src_audio" in fichiers else "timbre") if fichiers else None,
                  "fidelite": float(fidelite) if fichiers and "src_audio" in fichiers else None}
-        piste, note = generer_piste(params, infos, progress, f"{n}/{len(situations)} {libelle}", fichiers, graine)
-        pistes.append((libelle, str(piste), note))
+        brute = generer_brute(params, infos, progress, f"{n}/{len(situations)} {libelle}", fichiers, graine)
+        en_cours.append((libelle, processeur.submit(finaliser_piste, *brute, params, infos)))
+    progress(0.99, desc="Dernières boucles…")
+    try:
+        pistes = [(libelle, str(f.result()[0]), f.result()[1]) for libelle, f in en_cours]
+    finally:
+        processeur.shutdown(wait=True)
     choix = [(lib, p) for lib, p, _ in pistes]
     msg = (f"✅ {len(pistes)} piste(s) générée(s) dans {cfg.GAMES_DIR / projet} :\n\n"
            + "\n".join(f"- **{lib}** : {note}" for lib, _, note in pistes))
@@ -170,9 +180,19 @@ def generer_piste(params, infos, progress, etape, fichiers=None, graine=0, dossi
     """Une piste de jeu : génération ACE-Step (params prêts : text2music, cover ou repaint), puis boucle
     parfaite ou jingle selon infos["boucle"], et creation.json. Sert à la bande-son, à « Recréer » et à
     « Refaire un passage » (galerie). Renvoie (piste, note lisible)."""
+    return finaliser_piste(*generer_brute(params, infos, progress, etape, fichiers, graine, dossier), params, infos)
+
+
+def generer_brute(params, infos, progress, etape, fichiers=None, graine=0, dossier=None):
+    """Génération ACE-Step seule (carte graphique). Renvoie (dossier, brute.wav, graine)."""
     dossier = dossier or nouveau_dossier(cfg.GAMES_DIR / infos["projet"] / infos["situation"])
     ((brute, seed),) = acestep.generer(params, [dossier / "brute.wav"], progress, etape, fichiers=fichiers,
                                        graine=graine)
+    return dossier, brute, seed
+
+
+def finaliser_piste(dossier, brute, seed, params, infos):
+    """Boucle parfaite ou jingle, puis creation.json (processeur seulement). Renvoie (piste, note lisible)."""
     piste = dossier / "piste.wav"
     infos_boucle = None
     if infos["boucle"]:
