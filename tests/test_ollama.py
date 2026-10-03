@@ -79,3 +79,20 @@ def test_diagnostic_et_reglage(faux_ollama, monkeypatch):
 
 def test_ollama_absent():
     assert ollama.modeles_charges() == [] and ollama.liberer() == [] and ollama.etat()[0] is None
+
+
+def test_avertissement_memoire_graphique_affiche(env, monkeypatch, tmp_path):
+    """Le moteur signale une carte déjà occupée : bandeau dans l'interface, avec les programmes qui l'occupent."""
+    import sys
+
+    from studiovoix import diagnostic as diag
+
+    vus = []
+    monkeypatch.setattr(outils.gr, "Warning", lambda texte, duration=10: vus.append(texte))
+    monkeypatch.setattr(diag, "programmes_sur_la_carte", lambda: "ollama.exe (5400 Mo)")
+    script = tmp_path / "moteur.py"
+    script.write_text("print('AVERTISSEMENT : seulement 3.1 Go libres sur 12.0 Go de mémoire graphique.')\n"
+                      "print('PROGRESSION 1/1 ok')\n")
+    outils.lancer_moteur([sys.executable, str(script)], tmp_path, None, "Essai")
+    assert vus == ["seulement 3.1 Go libres sur 12.0 Go de mémoire graphique. Programmes sur la carte : "
+                   "ollama.exe (5400 Mo). Ferme-les, puis relance."]

@@ -222,6 +222,7 @@ def _garder(cle, fabrique, go, vers_cpu=None, vers_gpu=None):
         return entree[0]
     _ranger()
     _faire_place(go)
+    _verifier_memoire_carte()
     import time
 
     debut = time.time()
@@ -229,6 +230,26 @@ def _garder(cle, fabrique, go, vers_cpu=None, vers_gpu=None):
     print(f"{cle[0]} chargé en {time.time() - debut:.0f} s.", flush=True)
     _CHARGES[cle] = [objet, go, vers_cpu, vers_gpu]
     return objet
+
+
+def _verifier_memoire_carte():
+    """Nos autres modèles viennent de quitter la carte : elle devrait être presque vide. Sinon un autre programme
+    l'occupe (Ollama, jeu, autre application d'IA) et le pilote NVIDIA déborde en mémoire vive : tout devient très
+    lent (constaté : « Préparer le prompt » à plus de 4 minutes). La ligne AVERTISSEMENT est affichée à
+    l'utilisateur par l'application, avec la liste des programmes sur la carte."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        libre, total = torch.cuda.mem_get_info()
+    except Exception:  # noqa: BLE001 - mesure facultative
+        return
+    print(f"Mémoire graphique libre : {libre / 1e9:.1f} Go sur {total / 1e9:.1f} Go.", flush=True)
+    if libre < 0.6 * total:
+        print(f"AVERTISSEMENT : seulement {libre / 1e9:.1f} Go libres sur {total / 1e9:.1f} Go de mémoire graphique "
+              "avant le chargement : un autre programme occupe la carte, la génération risque d'être très lente.",
+              flush=True)
 
 
 def _oublier(cle):

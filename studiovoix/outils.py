@@ -58,6 +58,21 @@ def journal_moteur(nom):
     return chemin
 
 
+def _avertir(texte):
+    """Avertissement d'un moteur : bandeau de l'interface (gr.Warning), avec les programmes qui occupent la carte
+    graphique quand il s'agit de mémoire."""
+    if "mémoire graphique" in texte:
+        from .diagnostic import programmes_sur_la_carte
+
+        occupants = programmes_sur_la_carte()
+        if occupants:
+            texte += f" Programmes sur la carte : {occupants}. Ferme-les, puis relance."
+    try:
+        gr.Warning(texte, duration=None)
+    except Exception:  # noqa: BLE001 - hors d'un événement Gradio (essai, script)
+        pass
+
+
 def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None, resident=None, annonce=None):
     """Lance un script de moteurs/ en sous-processus et suit son protocole :
     « PROGRESSION i/n … » → suivi(i, n) ; « ERREUR : message » → gr.Error(« <nom> : message »).
@@ -88,6 +103,8 @@ def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None, resident=N
             if ligne.startswith("PROGRESSION ") and suivi:
                 i, n = (int(x) for x in ligne.split()[1].split("/"))
                 suivi(i, n)
+            elif ligne.startswith("AVERTISSEMENT : "):
+                _avertir(ligne[len("AVERTISSEMENT : "):])
 
     code = None
     try:
