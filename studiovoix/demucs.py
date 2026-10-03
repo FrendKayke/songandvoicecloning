@@ -1,6 +1,5 @@
 """Demucs : séparation voix / instrumental (sous-processus, environnement de Seed-VC)."""
 import os
-import subprocess
 from pathlib import Path
 
 import gradio as gr
@@ -18,19 +17,21 @@ FICHIERS = ("f7e0c4bc-ba3fe64a.th", "d12395a8-e57c48e6.th", "92cfc3b6-ef3bcb9c.t
 PISTES = ("drums", "bass", "other", "vocals")
 
 
+# --shifts 2 : deux passes décalées moyennées (« shift trick » du README de Demucs : un peu plus propre, deux fois
+# plus de calcul, à réserver à la carte graphique)
+DECALAGES = 2
+
+
 def _run(song: Path, out: Path, extra_args):
     if not Path(cfg.SEEDVC_PYTHON).exists():
         raise gr.Error(
             f"Python de Seed-VC introuvable : {cfg.SEEDVC_PYTHON} (il sert aussi à Demucs). "
             "Lance INSTALLER.bat."
         )
-    from . import residents
+    from . import seedvc
 
-    residents.arreter_tous()  # la carte et la mémoire vive pour Demucs
-    cmd = [cfg.SEEDVC_PYTHON, "-m", "demucs", *extra_args, "-n", MODELE, "-o", str(out), str(song)]
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    if p.returncode != 0:
-        raise gr.Error(f"Demucs a échoué :\n{p.stderr[-1500:]}")
+    args = [*extra_args, "-n", MODELE, "--shifts", str(DECALAGES), "-o", str(out), str(song)]
+    seedvc.lancer_separation("demucs", args, "Demucs")
 
 
 def separate_vocals(song: Path, workdir: Path):

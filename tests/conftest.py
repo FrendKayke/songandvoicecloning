@@ -224,35 +224,69 @@ def fake_acestep(env, monkeypatch):
 # Fréquence de la tonalité écrite dans chaque piste par le faux Demucs en mode 4 pistes
 FREQ_PISTES = {"drums": 100.0, "bass": 200.0, "other": 300.0, "vocals": 400.0}
 
+# Faux demucs.separate : mêmes points d'entrée que le vrai (main(opts), get_model_from_args), appelés par
+# moteurs/separation.py ; CHARGEMENTS compte les chargements de modèle (moteur résident : un seul)
 FAKE_DEMUCS = textwrap.dedent('''
-    import sys, shutil
+    import shutil, sys
     from pathlib import Path
     import numpy as np, soundfile as sf
-    args = sys.argv[1:]
-    assert args[args.index("-n") + 1] == "htdemucs_ft", args
-    out = Path(args[args.index("-o") + 1]); song = Path(args[-1])
-    d = out / "htdemucs_ft" / song.stem
-    d.mkdir(parents=True)
-    if "--two-stems=vocals" in args:
-        shutil.copy(song, d / "vocals.wav"); shutil.copy(song, d / "no_vocals.wav")
-    else:  # 4 pistes, chacune une tonalité reconnaissable
-        info = sf.info(str(song)); t = np.arange(info.frames) / info.samplerate
-        for piste, f in %r.items():
-            y = (0.2 * np.sin(2 * np.pi * f * t)).astype("float32")
-            sf.write(str(d / f"{piste}.wav"), np.stack([y, y], 1), info.samplerate)
+    CHARGEMENTS = []
+
+    def get_model_from_args(args):
+        CHARGEMENTS.append(args.name)
+        print(f"chargement de {args.name} ({len(CHARGEMENTS)})", flush=True)
+        return args.name
+
+    def main(opts=None):
+        args = list(sys.argv[1:] if opts is None else opts)
+        nom = args[args.index("-n") + 1]
+        assert nom == "htdemucs_ft" and args[args.index("--shifts") + 1] == "2", args
+        get_model_from_args(type("A", (), {"name": nom, "repo": None})())
+        out = Path(args[args.index("-o") + 1]); song = Path(args[-1])
+        if not song.exists():
+            print(f"File {song} does not exist.", file=sys.stderr)
+            sys.exit(1)
+        d = out / nom / song.stem
+        d.mkdir(parents=True)
+        if "--two-stems=vocals" in args:
+            shutil.copy(song, d / "vocals.wav"); shutil.copy(song, d / "no_vocals.wav")
+        else:  # 4 pistes, chacune une tonalité reconnaissable
+            info = sf.info(str(song)); t = np.arange(info.frames) / info.samplerate
+            for piste, f in %r.items():
+                y = (0.2 * np.sin(2 * np.pi * f * t)).astype("float32")
+                sf.write(str(d / f"{piste}.wav"), np.stack([y, y], 1), info.samplerate)
 ''' % FREQ_PISTES)
 
+# Faux inference.py de Seed-VC : load_models(args) puis main(args), comme le vrai ; utilisable aussi en script
 FAKE_SEEDVC = textwrap.dedent('''
     import sys, json, shutil, argparse
     from pathlib import Path
-    p = argparse.ArgumentParser()
-    for a in ("--source", "--target", "--output", "--diffusion-steps", "--f0-condition",
-              "--auto-f0-adjust", "--semi-tone-shift", "--fp16"):
-        p.add_argument(a)
-    a = p.parse_args()
-    Path("appel.json").write_text(json.dumps(sys.argv[1:]))
-    src = Path(a.source)
-    shutil.copy(src, Path(a.output) / f"vc_{src.stem}_{Path(a.target).stem}_1.0_{a.diffusion_steps}_0.7.wav")
+    device = "cpu"
+    fp16 = False
+    CHARGEMENTS = []
+
+    def str2bool(v):
+        return str(v).lower() in ("true", "1", "yes")
+
+    def load_models(args):
+        global fp16
+        fp16 = args.fp16
+        CHARGEMENTS.append(1)
+        print(f"chargement des modèles ({len(CHARGEMENTS)})", flush=True)
+        return ({"dit": None}, None, None, None, None, None, {"sampling_rate": 44100})
+
+    def main(args):
+        load_models(args)
+        Path("appel.json").write_text(json.dumps(vars(args), default=str))
+        src = Path(args.source)
+        shutil.copy(src, Path(args.output) / f"vc_{src.stem}_{Path(args.target).stem}_1.0_{args.diffusion_steps}_0.7.wav")
+
+    if __name__ == "__main__":
+        p = argparse.ArgumentParser()
+        for a in ("--source", "--target", "--output", "--diffusion-steps", "--f0-condition",
+                  "--auto-f0-adjust", "--semi-tone-shift", "--fp16"):
+            p.add_argument(a)
+        main(p.parse_args())
 ''')
 
 
@@ -262,7 +296,8 @@ def fake_engines(env, monkeypatch):
     pkgs = env / "fakepkgs" / "demucs"
     pkgs.mkdir(parents=True)
     (pkgs / "__init__.py").write_text("")
-    (pkgs / "__main__.py").write_text(FAKE_DEMUCS)
+    (pkgs / "separate.py").write_text(FAKE_DEMUCS)
+    (pkgs / "__main__.py").write_text("from demucs.separate import main\nmain()\n")
     monkeypatch.setenv("PYTHONPATH", str(env / "fakepkgs"))
     cfg.SEEDVC_DIR.mkdir(parents=True)
     (cfg.SEEDVC_DIR / "inference.py").write_text(FAKE_SEEDVC)

@@ -183,11 +183,11 @@ def demarrer():
 
 def assurer(progress=None, timeout=15 * 60):
     """Serveur prêt à répondre (démarré si besoin ; le premier démarrage charge ses modèles).
-    Les moteurs résidents (diffusion, Chatterbox…) sont fermés d'abord : ACE-Step (~8 Go) puis Demucs et Seed-VC
-    ont besoin de la carte et de la mémoire vive qu'ils gardent."""
+    Les moteurs résidents libèrent d'abord la carte (ACE-Step occupe ~8 Go) : diffusion, Chatterbox et nettoyage
+    sont fermés, Demucs et Seed-VC rangent leurs modèles en mémoire vive pour la chanson suivante."""
     from . import residents
 
-    if residents.arreter_tous() and progress:
+    if residents.liberer_pour_ace() and progress:
         progress(0.01, desc="Libération de la carte graphique : fermeture du moteur ouvert…")
     if repond():
         return

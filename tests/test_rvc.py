@@ -1,6 +1,7 @@
 """RVC : jeu d'enregistrements, entraînement et conversion (faux moteur), intégration chanson et lecture."""
 import importlib.util
 import json
+import shutil
 import sys
 import textwrap
 
@@ -42,6 +43,8 @@ def faux_rvc(env, monkeypatch):
     moteurs = env / "moteurs"
     moteurs.mkdir(exist_ok=True)
     (moteurs / "rvc_voix.py").write_text(FAUX_MOTEUR, encoding="utf-8")
+    for vrai in ("separation.py", "resident.py"):  # Demucs du pipeline (faux demucs.separate de conftest)
+        shutil.copy(cfg.MOTEURS_DIR / vrai, moteurs / vrai)
     monkeypatch.setattr(cfg, "MOTEURS_DIR", moteurs)
     monkeypatch.setattr(cfg, "RVC_PYTHON", sys.executable)
     monkeypatch.setattr(cfg, "RVC_DIR", env / "StudioVoix" / "rvc")

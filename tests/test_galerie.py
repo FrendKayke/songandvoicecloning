@@ -87,8 +87,8 @@ def test_refaire_un_passage_de_chanson(fake_acestep, fake_engines, gal):
     assert infos["retouche_de"] == dossier and infos["passage"] == [1.0, 3.0] and infos["voix"] == "moi"
     assert (galerie.Path(nouveau) / "chanson_finale.wav").exists()  # voix convertie et remixée à nouveau
     appel = json.loads((cfg.SEEDVC_DIR / "appel.json").read_text())
-    assert appel[appel.index("--target") + 1] == str(cfg.VOICES_DIR / "moi.wav")
-    assert appel[appel.index("--semi-tone-shift") + 1] == "-3"  # réglages Seed-VC d'origine repris
+    assert appel["target"] == str(cfg.VOICES_DIR / "moi.wav")
+    assert appel["semi_tone_shift"] == -3  # réglages Seed-VC d'origine repris
 
 
 def test_refaire_un_passage_de_piste_de_jeu(fake_acestep, gal):

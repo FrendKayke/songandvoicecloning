@@ -12,7 +12,7 @@ Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 |---|---|
 | `studio_voix.py` | point d'entrée de l'application (lancé par `lancer.bat`) |
 | `studiovoix/` | le code de l'application, un module par rôle (voir ci-dessous) |
-| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`, `rvc_voix.py`, `diffusion.py`) ; `resident.py` : leur mode « résident » |
+| `moteurs/` | scripts exécutés dans l'environnement d'un moteur (`chatterbox_tts.py`, `nettoyage_voix.py`, `rvc_voix.py`, `diffusion.py`, `separation.py` : Demucs et Seed-VC) ; `resident.py` : leur mode « résident » |
 | `tests/` | tests automatiques sans carte graphique (moteurs simulés) |
 | `installer.ps1` / `INSTALLER.bat` | installation complète en un clic |
 | `METTRE_A_JOUR.bat` | mise à jour en un clic (dernière version sur GitHub, puis étapes nouvelles ou modifiées) |
@@ -145,7 +145,7 @@ Les onglets sont rangés en cinq groupes : **🎤 Voix** (bibliothèque de voix,
 Dans les onglets Bruitages, Illustrations, Vidéos et Modèles 3D, « Générer » prépare tout seul le prompt anglais si tu ne l'as pas fait (il s'affiche ensuite, modifiable) ; un prompt déjà préparé ou retouché est gardé tel quel.
 
 13. **Carte graphique** : tu n'as rien à fermer, l'application fait une génération à la fois et donne toute la carte à celle qui tourne. Réglages dans Outils → Modèles → « 🎛️ Carte graphique : performances et serveur ACE-Step » :
-    - **Modèles gardés en mémoire** (activé) : la diffusion (images, illustrations, 3D, vidéos, photos, bruitages), la synthèse vocale et le nettoyage restent ouverts entre deux générations ; la suivante démarre sans relire ses modèles sur le disque (de quelques secondes à une minute gagnées à chaque fois). Un seul moteur ouvert à la fois, fermé avant une chanson et après 15 minutes sans génération (`STUDIOVOIX_GARDER_MODELES` dans `lancer.bat` pour changer ce délai, 0 pour désactiver ; `STUDIOVOIX_MEMOIRE_MODELES` pour la mémoire vive qu'ils peuvent occuper, par défaut la mémoire du PC moins 12 Go). Le bouton « ⏏️ Fermer le moteur ouvert » rend la mémoire tout de suite (avant de lancer un jeu, par exemple).
+    - **Modèles gardés en mémoire** (activé) : la diffusion (images, illustrations, 3D, vidéos, photos, bruitages), la synthèse vocale, le nettoyage, Demucs et Seed-VC restent ouverts entre deux générations (Demucs et Seed-VC gardent même leurs modèles en mémoire vive pendant qu'ACE-Step compose la chanson suivante) ; la suivante démarre sans relire ses modèles sur le disque (de quelques secondes à une minute gagnées à chaque fois). Un seul moteur ouvert à la fois, fermé avant une chanson et après 15 minutes sans génération (`STUDIOVOIX_GARDER_MODELES` dans `lancer.bat` pour changer ce délai, 0 pour désactiver ; `STUDIOVOIX_MEMOIRE_MODELES` pour la mémoire vive qu'ils peuvent occuper, par défaut la mémoire du PC moins 12 Go). Le bouton « ⏏️ Fermer le moteur ouvert » rend la mémoire tout de suite (avant de lancer un jeu, par exemple).
     - **Modèle de langage d'ACE-Step** : 1.7B par défaut. ACE-Step classe les cartes de 12 Go (une RTX 4070 annonce 11,99 Go) avec les cartes de 8 Go et leur donnait son plus petit modèle (0.6B) ; le 1.7B, celui que sa documentation conseille, donne des chansons mieux construites. Si la mémoire manque (autre programme sur la carte), repasse en 0.6B.
     - La mise à jour réinstalle ACE-Step en Python 3.11 (une fois, quelques minutes) : c'est la seule version où son modèle de langage a son moteur rapide sous Windows ; le diagnostic rapide indique le moteur et le modèle utilisés.
     - Pour voir si la carte travaille vraiment : « 📈 Mesurer la carte graphique pendant 1 minute », pendant qu'une génération tourne (le Gestionnaire des tâches de Windows montre par défaut le graphe « 3D », presque à zéro pendant un calcul d'IA : choisis plutôt le graphe « Cuda »). L'**essai complet** (volet « 🩺 Diagnostic et essai complet des moteurs », juste en dessous) note aussi l'utilisation de la carte pendant chaque moteur.
@@ -157,7 +157,7 @@ Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix conve
 ## Comment ça marche
 
 1. **ACE-Step 1.5** génère la chanson complète, avec une voix chantée générique.
-2. **Demucs** (`htdemucs_ft`, sa meilleure séparation : quatre modèles affinés, un par piste) sépare la voix de l'instrumental.
+2. **Demucs** (`htdemucs_ft`, sa meilleure séparation : quatre modèles affinés, un par piste, avec deux passes moyennées) sépare la voix de l'instrumental.
 3. **Seed-VC** (conversion de voix chantée, sans entraînement) remplace cette voix par la tienne.
 4. L'application remixe voix et instrumental.
 

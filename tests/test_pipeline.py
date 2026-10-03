@@ -38,9 +38,8 @@ def test_chanson_avec_ma_voix(fake_acestep, fake_engines):
     assert "Terminé" in msg
     assert (workdir / "prompt.txt").read_text(encoding="utf-8") == "pop, piano\n\n[Verse]\nBonjour\n"
     appel = json.loads((cfg.SEEDVC_DIR / "appel.json").read_text())
-    assert appel[appel.index("--semi-tone-shift") + 1] == "-12"
-    assert appel[appel.index("--f0-condition") + 1] == "True"
-    assert appel[appel.index("--target") + 1] == str(cfg.VOICES_DIR / "moi.wav")
+    assert appel["semi_tone_shift"] == -12 and appel["f0_condition"] is True and appel["fp16"] is True
+    assert appel["target"] == str(cfg.VOICES_DIR / "moi.wav")
     assert srv.payloads[0]["lyrics"] == "[Verse]\nBonjour"
 
 
@@ -150,7 +149,7 @@ def test_ma_voix_sans_basse(fake_acestep, fake_engines):
     write_tone(cfg.VOICES_DIR / "moi.wav", seconds=10)
     final, brute, conv, instru, msg, _v2 = _call("moi", "[Verse]\nla", retirer=["bass"])
     appel = json.loads((cfg.SEEDVC_DIR / "appel.json").read_text())
-    assert appel[appel.index("--source") + 1].endswith("vocals.wav") and "demucs4" in appel[appel.index("--source") + 1]
+    assert appel["source"].endswith("vocals.wav") and "demucs4" in appel["source"]
     assert _presentes(final) == {"drums", "other", "vocals"}  # la « voix convertie » du faux Seed-VC = piste voix
     assert _presentes(instru) == {"drums", "other"} and msg.startswith("Terminé (sans basse)")
 

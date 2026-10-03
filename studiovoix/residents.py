@@ -33,6 +33,9 @@ def _minutes():
 
 GARDER_MIN = _minutes()
 ACTIF = GARDER_MIN > 0
+# Moteurs légers en mémoire vive (quelques Go) qui savent sortir leurs modèles de la carte (« --ranger ») : avant
+# ACE-Step ils sont rangés au lieu d'être fermés, et la chanson suivante ne les recharge pas.
+RANGEABLES = {"Séparation"}
 _verrou = threading.RLock()
 _moteurs = {}  # nom → _Moteur
 
@@ -122,6 +125,25 @@ def lancer(nom, python, script, argv, cwd, env):
 def _arreter_autres(nom=None):
     for autre in [n for n in _moteurs if n != nom]:
         _moteurs.pop(autre).arreter()
+
+
+def liberer_pour_ace():
+    """Avant ACE-Step : les moteurs rangeables (Demucs + Seed-VC) passent leurs modèles en mémoire vive, les autres
+    (diffusion : jusqu'à 20 Go de mémoire vive) sont fermés. True si la carte a été libérée."""
+    with _verrou:
+        libere = False
+        for nom in list(_moteurs):
+            m = _moteurs[nom]
+            if not m.vivant():
+                _moteurs.pop(nom)
+                continue
+            libere = True
+            if nom in RANGEABLES:
+                list(m.executer(["--ranger"]))
+                if m.code == 0 and m.vivant():
+                    continue
+            _moteurs.pop(nom).arreter()
+        return libere
 
 
 def arreter_tous():

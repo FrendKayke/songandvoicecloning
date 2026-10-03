@@ -1,5 +1,4 @@
-"""Seed-VC : conversion de voix chantée zero-shot (sous-processus, inference.py)."""
-import subprocess
+"""Seed-VC : conversion de voix chantée zero-shot (inference.py, appelé par moteurs/separation.py)."""
 from pathlib import Path
 
 import gradio as gr
@@ -7,7 +6,7 @@ import numpy as np
 import soundfile as sf
 
 from . import config as cfg
-from .outils import stream_command
+from .outils import lancer_moteur, stream_command
 
 # Fichiers attendus dans checkpoints/ (téléchargés au premier inference.py)
 SEEDVC_NEEDED = {
@@ -49,8 +48,7 @@ def convert_voice(vocals: Path, voice_ref: Path, semitones: int, steps: int, wor
     out = workdir / "seedvc"
     out.mkdir(exist_ok=True)
     voice_ref = reference_courte(voice_ref, workdir)
-    cmd = [
-        cfg.SEEDVC_PYTHON, "inference.py",
+    args = [
         "--source", str(vocals),
         "--target", str(voice_ref),
         "--output", str(out),
@@ -60,16 +58,20 @@ def convert_voice(vocals: Path, voice_ref: Path, semitones: int, steps: int, wor
         "--semi-tone-shift", str(int(semitones)),
         "--fp16", "True",
     ]
-    from . import residents
-
-    residents.arreter_tous()  # la carte et la mémoire vive pour Seed-VC
-    p = subprocess.run(cmd, cwd=cfg.SEEDVC_DIR, capture_output=True, text=True)
-    if p.returncode != 0:
-        raise gr.Error(f"Seed-VC a échoué :\n{p.stderr[-1500:]}")
+    lancer_separation("seedvc", args, "Seed-VC")
     result = next(out.glob("*.wav"), None)
     if not result:
         raise gr.Error("Seed-VC n'a produit aucun fichier.")
     return result
+
+
+def lancer_separation(action, args, nom):
+    """Demucs ou Seed-VC dans moteurs/separation.py, depuis le dossier de Seed-VC (ses chemins relatifs) : un
+    moteur résident qui garde leurs modèles d'une chanson à l'autre (en mémoire vive pendant ACE-Step).
+    Même environnement pour les deux actions, sinon le moteur résident serait relancé entre elles."""
+    env = {"STUDIOVOIX_HORS_LIGNE": "0" if missing_components() else "1"}  # modèles présents : aucune requête
+    lancer_moteur([cfg.SEEDVC_PYTHON, str(cfg.MOTEURS_DIR / "separation.py"), action, *args], cfg.SEEDVC_DIR, env,
+                  nom, resident="Séparation")
 
 
 # --- Modèles -----------------------------------------------------------------

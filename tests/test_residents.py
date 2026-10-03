@@ -227,3 +227,44 @@ def test_depot_incomplet_hors_ligne_puis_en_ligne(monkeypatch, tmp_path):
     monkeypatch.setattr(huggingface_hub, "scan_cache_dir", lambda: SimpleNamespace(repos=[]))
     with pytest.raises(OSError, match="illisible"):
         moteur.principal(["decrire", "t.json"])
+
+
+def test_demucs_et_seed_vc_gardes_d_une_chanson_a_l_autre(fake_engines, monkeypatch):
+    """Demucs et Seed-VC dans un même moteur résident (moteurs/separation.py) : modèles chargés une fois ; avant
+    ACE-Step ils sont rangés en mémoire vive (« --ranger »), pas fermés."""
+    from studiovoix import demucs, seedvc
+    from conftest import write_tone
+
+    monkeypatch.setattr(residents, "ACTIF", True)
+    monkeypatch.setattr(residents, "GARDER_MIN", 15.0)
+    morceau = fake_engines / "chanson.wav"
+    write_tone(morceau, seconds=2)
+    write_tone(cfg.VOICES_DIR / "moi.wav", seconds=3)
+    journal = []
+    monkeypatch.setattr(residents._Moteur, "executer", _espion(residents._Moteur.executer, journal))
+    for i in (1, 2):
+        d = fake_engines / f"chanson{i}"
+        d.mkdir()
+        voix, instru = demucs.separate_vocals(morceau, d)
+        assert voix.name == "vocals.wav" and instru.name == "no_vocals.wav" and "htdemucs_ft" in str(voix)
+        assert seedvc.convert_voice(voix, cfg.VOICES_DIR / "moi.wav", 0, 10, d).exists()
+        if i == 1:
+            m = residents._moteurs["Séparation"]
+            monkeypatch.setattr(serveur_acestep, "repond", lambda timeout=3: True)
+            serveur_acestep.assurer()  # chanson suivante : ACE-Step a besoin de la carte
+            assert m.vivant() and residents._moteurs["Séparation"] is m  # rangé, pas fermé
+    texte = "\n".join(journal)
+    assert texte.count("chargement de htdemucs_ft") == 1 and texte.count("chargement des modèles") == 1
+    assert "Seed-VC : modèles déjà en mémoire" in texte and "Demucs : htdemucs_ft déjà en mémoire" in texte
+    assert "Modèles de séparation et de conversion en mémoire vive" in texte
+    with pytest.raises(gr.Error, match="Demucs a échoué"):  # erreur : le moteur repart neuf
+        demucs.separate_vocals(fake_engines / "absent.wav", fake_engines / "chanson1")
+    assert "Séparation" not in residents._moteurs
+
+
+def _espion(executer, journal):
+    def espion(self, argv):
+        for ligne in executer(self, argv):
+            journal.append(ligne)
+            yield ligne
+    return espion
