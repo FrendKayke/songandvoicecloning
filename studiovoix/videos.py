@@ -8,6 +8,7 @@ Rangement : data/videos/<horodatage>/ : video.mp4, derniere_image.png, image_dep
 « video »).
 """
 import shutil
+import time
 from pathlib import Path
 
 import gradio as gr
@@ -56,13 +57,21 @@ def format_pour(format_label, image=None):
     return FORMATS["Paysage 16:9, 720p (1280×704)"]
 
 
-def preparer(description, image=None, progress=gr.Progress()):
+def duree_lisible(secondes):
+    """« 18 min 32 s », « 1 h 05 min », « 42 s »."""
+    s = int(round(secondes))
+    if s >= 3600:
+        return f"{s // 3600} h {s % 3600 // 60:02d} min"
+    return f"{s // 60} min {s % 60:02d} s" if s >= 60 else f"{s} s"
+
+
+def preparer(description, image=None, progress=gr.Progress(), suite=None):
     """Description française → prompt anglais pour la vidéo (Qwen3-VL), modifiable. Avec une image de départ,
     Qwen la voit : sans elle, il inventait couleurs et lumière (« tons cramoisis » sur une scène bleue, constaté)."""
     description = (description or "").strip()
     if not description:
         raise gr.Error("Décris la vidéo (en français ou en anglais).")
-    return diffusion.decrire("video", description, image=image or None, progress=progress)
+    return diffusion.decrire("video", description, image=image or None, progress=progress, suite=suite)
 
 
 def prompt_pret(description, prompt, image=None, progress=gr.Progress()):
@@ -77,6 +86,7 @@ def generer(prompt, image, format_label, duree_label, etapes, graine, nom="", de
     prompt = (prompt or "").strip()
     if not prompt:
         raise gr.Error("Il manque le prompt : clique d'abord sur « Préparer le prompt », ou écris-le en anglais.")
+    debut = time.monotonic()
     largeur, hauteur = format_pour(format_label, image)
     images = DUREES.get(duree_label, DUREES[DUREE_DEFAUT])
     graine = int(graine or 0) or diffusion.graines(1)[0]
@@ -88,15 +98,16 @@ def generer(prompt, image, format_label, duree_label, etapes, graine, nom="", de
     res = diffusion.video(prompt, dossier / "video.mp4", depart, largeur, hauteur, images, etapes, graine,
                           progress=progress)
     nom = (nom or "").strip() or "video"
+    temps = time.monotonic() - debut
     ecrire_creation(dossier, {
-        "type": "video", "nom": nom, "description": prompt, "description_fr": (description_fr or "").strip() or None,
+        "type": "video", "nom": nom, "description": prompt, "temps_s": round(temps), "description_fr": (description_fr or "").strip() or None,
         "image_depart": depart.name if depart else None, "format": format_label, "largeur": largeur,
         "hauteur": hauteur, "duree": duree_label, "images": images, "etapes": int(etapes), "fps": FPS,
         "versions": [{"graine": res["graine"], "dossier": ".", "fichier": res["sortie"]}],
     })
     mode = "à partir de l'image" if depart else "à partir du texte"
-    msg = (f"✅ Vidéo {largeur}×{hauteur} de {res['duree']} s {mode}, graine {res['graine']}, dans {dossier}. "
-           "Pas de son : ajoute un bruitage ou une musique depuis leurs onglets.")
+    msg = (f"✅ Vidéo {largeur}×{hauteur} de {res['duree']} s {mode}, graine {res['graine']}, en "
+           f"{duree_lisible(temps)}, dans {dossier}. Pas de son : ajoute un bruitage ou une musique depuis leurs onglets.")
     return msg, res["sortie"], str(dossier)
 
 
@@ -121,12 +132,15 @@ def generer_suite(plans_texte, image, format_label, duree_label, etapes, graine,
     if len(plans) > PLANS_MAX:
         raise gr.Error(f"{len(plans)} plans : {PLANS_MAX} au plus (chaque plan de 5 s prend 15 à 25 minutes).")
     n = len(plans)
+    debut = time.monotonic()
     if prompts is None:
         prompts = []
         for i, plan in enumerate(plans, 1):
             progress(0.05 * (i - 1) / n, desc=f"Plan {i}/{n} : préparation du prompt…")
-            # le premier plan part de l'image de départ : Qwen la voit (les suivants partent du clip précédent)
-            prompts.append(preparer(plan, image if i == 1 else None, progress=lambda *a, **k: None))
+            # le premier plan part de l'image de départ : Qwen la voit (les suivants partent du clip précédent) ;
+            # chaque plan est écrit avec toute l'histoire et le prompt du précédent (mêmes personnages, même lieu)
+            suite = {"plans": plans, "indice": i, "precedent": prompts[-1] if prompts else None} if n > 1 else None
+            prompts.append(preparer(plan, image if i == 1 else None, progress=lambda *a, **k: None, suite=suite))
     largeur, hauteur = format_pour(format_label, image)
     images = DUREES.get(duree_label, DUREES[DUREE_DEFAUT])
     graine = int(graine or 0) or diffusion.graines(1)[0]
@@ -160,15 +174,17 @@ def generer_suite(plans_texte, image, format_label, duree_label, etapes, graine,
     assemblee = diffusion.assembler(clips, sortie, FPS)
     shutil.copy(depart, dossier / "derniere_image.png")  # « Continuer » repart de la fin de la suite
     nom = (nom or "").strip() or "video"
+    temps = time.monotonic() - debut
     ecrire_creation(dossier, {
-        "type": "video", "nom": nom, "description": " / ".join(prompts[:len(clips)]),
+        "type": "video", "nom": nom, "description": " / ".join(prompts[:len(clips)]), "temps_s": round(temps),
         "description_fr": " / ".join(p for p in plans[:len(clips)] if p) or None,
         "image_depart": image_depart,
         "format": format_label, "largeur": largeur, "hauteur": hauteur, "duree": duree_label, "images": images,
         "etapes": int(etapes), "fps": FPS, "plans": details,
         "versions": [{"graine": graine, "dossier": ".", "fichier": str(sortie)}],
     })
-    msg = (f"✅ {len(clips)} plan(s) enchaînés : vidéo {largeur}×{hauteur} de {assemblee['duree']} s, dans {dossier}. "
+    msg = (f"✅ {len(clips)} plan(s) enchaînés : vidéo {largeur}×{hauteur} de {assemblee['duree']} s, en "
+           f"{duree_lisible(temps)}, dans {dossier}. "
            "Chaque plan part de la dernière image du précédent.")
     if erreur:
         msg += f"\n\n⚠️ Arrêt au {erreur} ; les plans réussis sont assemblés."

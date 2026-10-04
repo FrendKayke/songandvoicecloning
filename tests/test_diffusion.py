@@ -713,6 +713,14 @@ def test_videos_plans_a_la_suite(faux_diffusion):
                                                  progress=no_progress)
     j = _journal()
     assert [e["tache"]["mode"] for e in j if e["action"] == "decrire"] == ["video"] * 3  # avant toute vidéo
+    # chaque plan est écrit avec toute l'histoire et le prompt du précédent (sinon : décors et personnages changeaient)
+    suites = [e["tache"]["suite"] for e in j if e["action"] == "decrire"]
+    assert [s_["indice"] for s_ in suites] == [1, 2, 3] and suites[0]["precedent"] is None
+    assert suites[2]["plans"] == ["les aventuriers avancent sur le pont", "un kraken surgit de l'eau",
+                                  "le mage lance une boule de feu"]
+    prompts = [p["prompt"] for p in galerie.lire(dossier)["plans"]]
+    assert suites[1]["precedent"] == prompts[0] and suites[2]["precedent"] == prompts[1]
+    assert " en " in msg and " s, dans " in msg  # temps de génération affiché
     assert [e["action"] for e in j][-4:] == ["video", "video", "video", "assembler"]
     clips = [e["tache"] for e in j if e["action"] == "video"]
     d = Path(dossier)

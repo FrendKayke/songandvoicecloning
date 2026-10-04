@@ -149,8 +149,9 @@ def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None
 
 
 # --- Actions ----------------------------------------------------------------------------------------------
-def decrire(mode, texte=None, image=None, dossier=None, progress=None):
-    """Texte reformulé en anglais (mode « bruitage » ou « objet ») ou description d'une image (« son », « image »)."""
+def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=None):
+    """Texte reformulé en anglais (mode « bruitage » ou « objet ») ou description d'une image (« son », « image »).
+    suite : {plans, indice, precedent} pour un plan d'une vidéo en plusieurs plans (continuité)."""
     _verifier("qwen")
     dossier = dossier or (cfg.DATA_DIR / "_tmp")
     tache = {"mode": mode}
@@ -158,6 +159,8 @@ def decrire(mode, texte=None, image=None, dossier=None, progress=None):
         tache["texte"] = texte
     if image:
         tache["image"] = str(image)
+    if suite:
+        tache["suite"] = suite
     return lancer("decrire", tache, dossier, "Qwen3-VL", progress,
                   {1: "chargement du modèle de description", 2: "description"})["texte"]
 

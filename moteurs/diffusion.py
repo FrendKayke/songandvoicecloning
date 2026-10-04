@@ -379,6 +379,16 @@ CONSIGNES = {
 IMAGE_DE_DEPART = ("The attached image is the first frame of the video. Keep its characters, their number, clothes, "
                    "setting, colors and lighting exactly as they appear in the image. ")
 
+# Plan d'une suite (plusieurs plans enchaînés) : chaque plan était reformulé seul, sans les autres ; « A kraken
+# appears » devenait un océan sans les aventuriers, « They are fighting him » une ruelle à néons avec d'autres
+# personnages (constaté). Qwen reçoit toute l'histoire et le prompt du plan précédent.
+SUITE_VIDEO = ("This is shot {i} of {n} of ONE continuous video: each shot starts from the last frame of the previous "
+               "shot. The whole story, shot by shot:\n{histoire}\n\n{precedent}"
+               "Write the prompt for shot {i} only. Keep the SAME characters (same number, same faces, same clothes), "
+               "the SAME place, the SAME lighting and colors as the previous shots, unless shot {i} explicitly says "
+               "otherwise; a new creature or object appears in that same place. Replace pronouns (they, him, it) by "
+               "who or what they refer to in the story. ")
+
 # Modes qui reformulent un texte : leur consigne se termine par « \n\n » et le texte y est ajouté. Déduit des
 # consignes : une liste écrite à la main avait oublié « video », et Qwen inventait une scène sans rapport (constaté).
 MODES_TEXTE = {mode for mode, consigne in CONSIGNES.items() if consigne.endswith("\n\n")}
@@ -418,6 +428,13 @@ def decrire(chemin_tache):
     consigne = CONSIGNES[mode]
     if t.get("image") and mode in MODES_TEXTE:  # vidéo à partir d'une image : Qwen la voit
         consigne = IMAGE_DE_DEPART + consigne
+    suite = t.get("suite")  # {plans: [textes], indice (1…n), precedent: prompt du plan précédent ou None}
+    if suite and mode in MODES_TEXTE:
+        plans = suite["plans"]
+        histoire = "\n".join(f"Shot {k}: {p}" for k, p in enumerate(plans, 1))
+        precedent = f"Prompt of shot {suite['indice'] - 1}: {suite['precedent']}\n\n" if suite.get("precedent") else ""
+        consigne = SUITE_VIDEO.format(i=suite["indice"], n=len(plans), histoire=histoire,
+                                      precedent=precedent) + consigne
     if mode in MODES_TEXTE:
         texte_ = (t.get("texte") or "").strip()
         if not texte_:
