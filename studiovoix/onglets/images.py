@@ -1,7 +1,7 @@
 """Onglet « Images » : à partir d'un prompt (Z-Image-Turbo) ou d'une photo (FLUX.2 klein)."""
 import gradio as gr
 
-from .. import images
+from .. import images, videos
 from ..outils import open_folder
 from .commun import espace_de_noms
 
@@ -45,6 +45,36 @@ def construire():
         btn_img_retoucher = gr.Button("✏️ Retoucher cette image (elle devient la photo)")
         btn_img_animer = gr.Button("🎬 Animer dans l'onglet Vidéos")
         btn_img_dossier = gr.Button("📂 Ouvrir le dossier")
+    with gr.Accordion("📖 Une histoire en plusieurs images (et en mini-vidéos)", open=False):
+        gr.Markdown(
+            "Colle un texte (une histoire, un résumé, une scène), choisis le **nombre d'images** : Qwen3-VL le découpe "
+            "en scènes (modifiables, une par ligne), puis chaque scène devient une image. Avec « Mêmes personnages », "
+            "les images 2, 3… reprennent les personnages et le style de la première (FLUX.2 klein). La photo, le style, "
+            "le format, la graine et le nom ci-dessus sont repris. Ensuite, « Faire les mini-vidéos » anime chaque "
+            "image (Wan 2.2, ~4 à 7 min par mini-vidéo de 3 s sur la RTX 4070)."
+        )
+        with gr.Row():
+            with gr.Column():
+                hist_texte = gr.Textbox(label="Ton texte", lines=6,
+                                        placeholder="Trois aventuriers quittent leur village à l'aube…")
+                hist_nombre = gr.Slider(2, images.NOMBRE_MAX, value=4, step=1, label="Nombre d'images")
+                btn_hist_decouper = gr.Button("✂️ Découper en scènes")
+            with gr.Column():
+                hist_scenes = gr.Textbox(label="Scènes (une par ligne, anglais, modifiables)", lines=8)
+                hist_memes = gr.Checkbox(value=True, label="Mêmes personnages d'une image à l'autre")
+        btn_hist = gr.Button("🎨 Générer les images de l'histoire", variant="primary")
+        hist_statut = gr.Markdown()
+        hist_dossier = gr.State()
+        hist_galerie = gr.Gallery(label="Images de l'histoire", columns=4, height=520, object_fit="contain")
+        with gr.Row():
+            hist_duree = gr.Radio(["2 s", "3 s"], value="3 s", label="Durée de chaque mini-vidéo")
+            hist_etapes = gr.Slider(10, 40, value=20, step=1, label="Pas (plus = plus fin, plus long)")
+            hist_assembler = gr.Checkbox(value=True, label="Assembler en une seule vidéo")
+        hist_mouvement = gr.Textbox(label="Mouvement (facultatif, anglais ; vide = la scène s'anime doucement)",
+                                    placeholder=videos.MOUVEMENT_DEFAUT)
+        btn_hist_videos = gr.Button("🎬 Faire les mini-vidéos")
+        hist_vid_statut = gr.Markdown()
+        hist_video = gr.Video(label="Mini-vidéos", height=420)
     return espace_de_noms(locals())
 
 
@@ -61,6 +91,12 @@ def _animer(choisie):
     return choisie
 
 
+
+def _mini_videos(dossier, duree, etapes, mouvement, assembler, nom, progress=gr.Progress()):
+    msg, video, _ = videos.generer_depuis_images(dossier, duree, etapes, mouvement, assembler, nom, progress=progress)
+    return msg, video
+
+
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     c.img_exemples.change(lambda v: v or "", c.img_exemples, c.img_texte)
@@ -73,3 +109,11 @@ def brancher(c, demo, o):
     c.btn_img_retoucher.click(_retoucher, c.img_choisie, [c.img_photo, c.img_usage, c.img_texte, c.img_prompt])
     c.btn_img_animer.click(_animer, c.img_choisie, o.videos.vid_image)
     c.btn_img_dossier.click(lambda d: open_folder(d) if d else None, c.img_dossier)
+    c.btn_hist_decouper.click(images.decouper, [c.hist_texte, c.hist_nombre, c.img_photo], c.hist_scenes)
+    c.btn_hist.click(images.scenes_pretes, [c.hist_texte, c.hist_scenes, c.hist_nombre, c.img_photo],
+                     c.hist_scenes).success(
+        images.generer_histoire, [c.hist_scenes, c.img_photo, c.img_styles, c.img_format, c.hist_memes, c.img_graine,
+                                  c.img_nom, c.hist_texte], [c.hist_statut, c.hist_galerie, c.hist_dossier])
+    c.btn_hist_videos.click(_mini_videos,
+                            [c.hist_dossier, c.hist_duree, c.hist_etapes, c.hist_mouvement, c.hist_assembler, c.img_nom],
+                            [c.hist_vid_statut, c.hist_video])

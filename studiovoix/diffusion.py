@@ -149,7 +149,7 @@ def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None
 
 
 # --- Actions ----------------------------------------------------------------------------------------------
-def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=None):
+def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=None, nombre=None):
     """Texte reformulé en anglais (mode « bruitage » ou « objet ») ou description d'une image (« son », « image »).
     suite : {plans, indice, precedent} pour un plan d'une vidéo en plusieurs plans (continuité)."""
     _verifier("qwen")
@@ -161,6 +161,8 @@ def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=Non
         tache["image"] = str(image)
     if suite:
         tache["suite"] = suite
+    if nombre:  # mode « histoire » : nombre d'images (longueur de la réponse de Qwen)
+        tache["nombre"] = int(nombre)
     return lancer("decrire", tache, dossier, "Qwen3-VL", progress,
                   {1: "chargement du modèle de description", 2: "description"})["texte"]
 
@@ -216,11 +218,12 @@ def video(prompt, sortie, image=None, largeur=1280, hauteur=704, images=121, eta
     return lancer("video", tache, Path(sortie).parent, "Vidéo", progress, libelles)
 
 
-def assembler(clips, sortie, fps=24, progress=None):
-    """Clips MP4 bout à bout (première image des clips enchaînés retirée), processeur seulement.
-    RESULTAT {sortie, images, duree}."""
+def assembler(clips, sortie, fps=24, progress=None, enchaines=True):
+    """Clips MP4 bout à bout (première image des clips enchaînés retirée ; enchaines=False : clips indépendants,
+    un par image d'une histoire), processeur seulement. RESULTAT {sortie, images, duree}."""
     _installe()
-    return lancer("assembler", {"clips": [str(c) for c in clips], "sortie": str(sortie), "fps": int(fps)},
+    return lancer("assembler", {"clips": [str(c) for c in clips], "sortie": str(sortie), "fps": int(fps),
+                                "enchaines": bool(enchaines)},
                   Path(sortie).parent, "Assemblage", progress, gpu=False)
 
 

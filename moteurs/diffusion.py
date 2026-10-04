@@ -377,6 +377,14 @@ CONSIGNES = {
               "subject, action, setting, lighting, colors, mood and composition. If the description asks for a "
               "style (photo, painting, drawing, 3D render...), keep it; otherwise describe a realistic, high quality "
               "image. No artist names, no existing works. 2 to 4 sentences. Answer with the prompt only:\n\n"),
+    # onglet « Images », histoire en plusieurs images : le texte reçu commence par « Number of images: N »
+    "histoire": ("Split the following story into exactly the number of successive images given (a storyboard). For "
+                 "each image, write one English prompt for an image generator: the moment of the story, every "
+                 "character present with their FULL appearance (repeat the same description of each character, "
+                 "word for word, in every prompt where they appear, so they look identical), the setting, lighting, "
+                 "colors and mood. Keep the same characters, places and visual style from one image to the next. "
+                 "No artist names, no text in the images. Answer with exactly that many lines, numbered 1., 2., "
+                 "3. and so on, one prompt per line, nothing else:\n\n"),
     # onglet « Images », « Modifier la photo » : consigne de retouche pour FLUX.2 klein (image de référence)
     "retouche": ("The attached image must be edited. Rewrite the following edit request into ONE short, precise "
                  "English instruction for an image editing model: say exactly what to change, and keep the people, "
@@ -391,6 +399,8 @@ IMAGE_DE_DEPART = ("The attached image is the first frame of the video. Keep its
 # Image libre d'après une photo (sujet ou composition repris) : Qwen décrit précisément le sujet de la photo.
 IMAGE_REFERENCE = ("The attached image is a reference photo for the picture to create: describe its main subject "
                    "precisely (appearance, clothes, colors) inside the new scene. ")
+IMAGE_PERSONNAGES = ("The attached image shows the main character(s) of the story: describe their appearance "
+                     "precisely, from this image, in every prompt. ")
 
 # Plan d'une suite (plusieurs plans enchaînés) : chaque plan était reformulé seul, sans les autres ; « A kraken
 # appears » devenait un océan sans les aventuriers, « They are fighting him » une ruelle à néons avec d'autres
@@ -440,7 +450,8 @@ def decrire(chemin_tache):
         contenu.append({"type": "image", "image": im})
     consigne = CONSIGNES[mode]
     if t.get("image") and mode in MODES_TEXTE:  # texte + image : Qwen la voit (vidéo : première image ;
-        consigne = {"video": IMAGE_DE_DEPART, "scene": IMAGE_REFERENCE}.get(mode, "") + consigne  # image : modèle)
+        consigne = {"video": IMAGE_DE_DEPART, "scene": IMAGE_REFERENCE,  # image : modèle)
+                    "histoire": IMAGE_PERSONNAGES}.get(mode, "") + consigne
     suite = t.get("suite")  # {plans: [textes], indice (1…n), precedent: prompt du plan précédent ou None}
     if suite and mode in MODES_TEXTE:
         plans = suite["plans"]
@@ -459,9 +470,14 @@ def decrire(chemin_tache):
     entrees = entrees.to(modele.device)
     print("PROGRESSION 2/2 description", flush=True)
     with torch.inference_mode():
-        sortie = _memoire(modele.generate)(**entrees, max_new_tokens=160, do_sample=False)
+        # « histoire » : un prompt par image (jusqu'à 12) ; 160 jetons suffisent pour un seul prompt
+        jetons = 160 if mode != "histoire" else 120 * max(1, int(t.get("nombre", 4))) + 60
+        sortie = _memoire(modele.generate)(**entrees, max_new_tokens=jetons, do_sample=False)
     texte = processeur.batch_decode(sortie[:, entrees["input_ids"].shape[1]:], skip_special_tokens=True)[0]
-    texte = " ".join(texte.strip().strip('"').split())
+    if mode == "histoire":  # une scène par ligne : les retours à la ligne sont gardés
+        texte = "\n".join(" ".join(ligne.split()) for ligne in texte.strip().splitlines() if ligne.strip())
+    else:
+        texte = " ".join(texte.strip().strip('"').split())
     _resultat({"texte": texte})
     print("TERMINE -", flush=True)
 
@@ -862,8 +878,8 @@ def assembler(chemin_tache):
             print(f"PROGRESSION {i}/{len(clips)} clip {i}", flush=True)
             with imageio.get_reader(clip) as lecteur:
                 for k, image in enumerate(lecteur):
-                    if i > 1 and k == 0:
-                        continue
+                    if i > 1 and k == 0 and t.get("enchaines", True):
+                        continue  # clips indépendants (un par image d'une histoire) : rien n'est retiré
                     sortie.append_data(image)
                     n += 1
     _resultat({"sortie": t["sortie"], "images": n, "duree": round(n / fps, 2)})

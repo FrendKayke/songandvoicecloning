@@ -206,6 +206,73 @@ def generer_suite(plans_texte, image, format_label, duree_label, etapes, graine,
     return msg, str(sortie), str(dossier)
 
 
+MOUVEMENT_DEFAUT = ("The scene comes alive with natural, subtle motion: the characters move slightly, hair and clothes "
+                    "stir in the wind, the light flickers, slow gentle camera push-in.")
+
+
+def generer_depuis_images(dossier_images, duree_label="3 s", etapes=20, mouvement="", assembler=True, nom="",
+                          plans=None, progress=gr.Progress()):
+    """Une mini-vidéo par image d'une histoire (onglet Images) : chaque clip part de son image, avec la scène comme
+    prompt et un mouvement (par défaut : la scène s'anime doucement). Clips indépendants, assemblés bout à bout si
+    demandé. plans : [{image, prompt}] déjà prêts (recréation). Renvoie (message, vidéo, dossier)."""
+    import json
+
+    if plans is None:
+        if not dossier_images:
+            raise gr.Error("Génère d'abord les images de l'histoire.")
+        infos = json.loads((Path(dossier_images) / "creation.json").read_text(encoding="utf-8"))
+        if not infos.get("scenes"):
+            raise gr.Error("Cette création n'est pas une histoire en plusieurs images.")
+        geste = (mouvement or "").strip() or MOUVEMENT_DEFAUT
+        plans = [{"image": s["fichier"], "prompt": f"{s['scene'].rstrip('.')}. {geste}"} for s in infos["scenes"]]
+    debut = time.monotonic()
+    images = DUREES.get(duree_label, DUREES["3 s"])
+    largeur, hauteur = format_pour(AUTO, plans[0]["image"])
+    dossier = nouveau_dossier(cfg.VIDEOS_DIR)
+    n, clips, details, erreur = len(plans), [], [], None
+    graine = diffusion.graines(1)[0]
+    for i, plan in enumerate(plans, 1):
+        sous = dossier / f"plan_{i}"
+        sous.mkdir()
+        depart = sous / f"image{Path(plan['image']).suffix.lower() or '.png'}"
+        shutil.copy(plan["image"], depart)  # la recréation ne dépend pas de la création d'origine
+
+        def suivi(valeur, desc="", i=i):
+            progress(0.02 + 0.93 * ((i - 1) + valeur) / n, desc=f"Mini-vidéo {i}/{n} — {desc}")
+
+        try:
+            res = diffusion.video(plan["prompt"], sous / "video.mp4", depart, largeur, hauteur, images, etapes,
+                                  graine + i - 1, progress=suivi)
+        except gr.Error as e:  # on garde les clips réussis
+            erreur = f"image {i} : {getattr(e, 'message', e)}"
+            break
+        clips.append(res["sortie"])
+        details.append({"plan": None, "prompt": plan["prompt"], "graine": res["graine"], "fichier": res["sortie"],
+                        "image": str(depart)})
+    if not clips:
+        raise gr.Error(f"Aucune mini-vidéo n'a pu être générée ({erreur}).")
+    sortie = Path(clips[-1])
+    if assembler and len(clips) > 1:
+        progress(0.97, desc="Assemblage des mini-vidéos…")
+        sortie = dossier / "video.mp4"
+        diffusion.assembler(clips, sortie, FPS, enchaines=False)
+    temps = time.monotonic() - debut
+    nom = (nom or "").strip() or "histoire"
+    ecrire_creation(dossier, {
+        "type": "video", "nom": nom, "description": " / ".join(p["prompt"] for p in details),
+        "description_fr": None, "image_depart": None, "depuis_images": True, "assemblee": bool(assembler),
+        "format": AUTO, "largeur": largeur, "hauteur": hauteur, "duree": duree_label, "images": images,
+        "etapes": int(etapes), "fps": FPS, "plans": details, "temps_s": round(temps),
+        "versions": [{"graine": graine, "dossier": ".", "fichier": str(sortie)}],
+    })
+    quoi = (f"vidéo assemblée de {len(clips)} plans" if assembler and len(clips) > 1
+            else f"{len(clips)} mini-vidéo(s) séparées (dans plan_1 … plan_{len(clips)})")
+    msg = f"✅ {quoi}, {largeur}×{hauteur}, en {duree_lisible(temps)}, dans {dossier}."
+    if erreur:
+        msg += f"\n\n⚠️ Arrêt à l'{erreur} ; les mini-vidéos réussies sont gardées."
+    return msg, str(sortie), str(dossier)
+
+
 def continuer(dossier):
     """La dernière image de la vidéo devient l'image de départ du clip suivant."""
     derniere = Path(dossier or "") / "derniere_image.png"
@@ -220,6 +287,12 @@ def recreer(chemin, infos, graine, progress=gr.Progress()):
     depart = Path(chemin) / infos["image_depart"] if infos.get("image_depart") else None
     if depart is not None and not depart.exists():
         raise gr.Error(f"Image de départ introuvable : {depart}")
+    if infos.get("depuis_images"):  # mini-vidéos d'une histoire : chaque plan repart de son image (copiée)
+        _, _, dossier = generer_depuis_images(None, infos.get("duree") or "3 s", infos.get("etapes", 20),
+                                              assembler=infos.get("assemblee", True), nom=infos.get("nom"),
+                                              plans=[{"image": p["image"], "prompt": p["prompt"]} for p in infos["plans"]],
+                                              progress=progress)
+        return dossier
     if infos.get("plans"):
         _, _, dossier = generer_suite(None, str(depart) if depart else None, infos.get("format") or AUTO,
                                       infos.get("duree") or DUREE_DEFAUT, infos.get("etapes", 30), graine,

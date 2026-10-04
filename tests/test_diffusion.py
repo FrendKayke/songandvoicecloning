@@ -139,9 +139,9 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire"}
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
-    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche"}
+    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 
@@ -808,3 +808,50 @@ def test_images(faux_diffusion):
     assert j["action"] == "personnage" and images.SUJET in j["tache"]["prompt"] and nouveau != d2
     with pytest.raises(gr.Error, match="prompt"):
         images.generer(" ", None, images.USAGE_DEFAUT, [], images.AUTO, 1, 0, progress=no_progress)
+
+
+def test_histoire_en_images_puis_mini_videos(faux_diffusion):
+    """Un texte → N scènes (Qwen, mode « histoire ») → une image par scène, les suivantes avec la première comme
+    référence (mêmes personnages) → une mini-vidéo par image, assemblées sans retirer de première image."""
+    from studiovoix import galerie, images, videos
+
+    texte = "Trois aventuriers quittent leur village et affrontent un dragon."
+    scenes = images.decouper(texte, 3, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["mode"] == "histoire" and t["nombre"] == 3 and "Number of images: 3" in t["texte"]
+    assert len(scenes.splitlines()) == 3  # complété jusqu'au nombre demandé
+    assert images.scenes_du_texte("1. a hero leaves home\n\n2) the dragon wakes up\n- the fight") == [
+        "a hero leaves home", "the dragon wakes up", "the fight"]
+    # réponse réelle de Qwen : scènes numérotées à la suite sur une seule ligne
+    assert images.scenes_du_texte("Heroes leave at dawn, 2. they cross a forest 3. a dragon sleeps on gold") == [
+        "Heroes leave at dawn,", "they cross a forest", "a dragon sleeps on gold"]
+    # scènes déjà là : pas de nouveau découpage
+    n = len(_journal())
+    assert images.scenes_pretes(texte, "a\nb", 3, progress=no_progress) == "a\nb" and len(_journal()) == n
+    msg, gal, dossier = images.generer_histoire("a hero leaves the village\na dragon in the sky\nthe final fight",
+                                                None, [], images.AUTO, True, 11, "Dragon", texte, progress=no_progress)
+    j = [e for e in _journal() if e["action"] in ("image", "personnage")][-3:]
+    assert [e["action"] for e in j] == ["image", "personnage", "personnage"] and len(gal) == 3
+    assert [Path(r).name for r in j[1]["tache"]["references"]] == ["scene_1.png"]
+    assert images.MEMES_PERSONNAGES in j[2]["tache"]["prompt"]
+    infos = galerie.lire(dossier)
+    assert [s["graine"] for s in infos["scenes"]] == [11, 12, 13] and "mini-vidéos" in msg
+    # mini-vidéos : une par image, chacune part de son image, assemblées (clips indépendants)
+    msg, fichier, dv = videos.generer_depuis_images(dossier, "2 s", 12, "", True, "Dragon", progress=no_progress)
+    j = _journal()
+    clips = [e["tache"] for e in j if e["action"] == "video"][-3:]
+    assert [Path(c["image"]).parent.name for c in clips] == ["plan_1", "plan_2", "plan_3"]
+    assert clips[1]["prompt"].startswith("a dragon in the sky. ") and videos.MOUVEMENT_DEFAUT in clips[1]["prompt"]
+    assert j[-1]["action"] == "assembler" and j[-1]["tache"]["enchaines"] is False
+    assert Path(fichier) == Path(dv) / "video.mp4" and "3 plans" in msg and " en " in msg
+    v = galerie.lire(dv)
+    assert v["depuis_images"] and len(v["plans"]) == 3
+    # recréer : mêmes images (copiées dans la création), mêmes prompts
+    _, nouveau = galerie.recreer(dv, progress=no_progress)
+    clips2 = [e["tache"] for e in _journal() if e["action"] == "video"][-3:]
+    assert [c["prompt"] for c in clips2] == [c["prompt"] for c in clips] and nouveau != dv
+    # recréer l'histoire : mêmes scènes, même graine de départ
+    _, h2 = galerie.recreer(dossier, progress=no_progress)
+    assert [s["graine"] for s in galerie.lire(h2)["scenes"]] == [11, 12, 13]
+    with pytest.raises(gr.Error, match="histoire"):
+        videos.generer_depuis_images(None, progress=no_progress)
