@@ -372,12 +372,25 @@ CONSIGNES = {
               "and mood, composition centered on the subject. Do not mention any art style, artist or existing "
               "work. No text, no letters, no card frame, no border, no user interface. Answer with the prompt "
               "only:\n\n"),
+    # onglet « Images » : image libre (texte seul, ou nouvelle scène d'après une photo)
+    "scene": ("Rewrite the following description into a detailed English prompt for an image generator: main "
+              "subject, action, setting, lighting, colors, mood and composition. If the description asks for a "
+              "style (photo, painting, drawing, 3D render...), keep it; otherwise describe a realistic, high quality "
+              "image. No artist names, no existing works. 2 to 4 sentences. Answer with the prompt only:\n\n"),
+    # onglet « Images », « Modifier la photo » : consigne de retouche pour FLUX.2 klein (image de référence)
+    "retouche": ("The attached image must be edited. Rewrite the following edit request into ONE short, precise "
+                 "English instruction for an image editing model: say exactly what to change, and keep the people, "
+                 "faces, pose, framing and everything else unchanged. Answer with the instruction only:\n\n"),
 }
 
 
 # Reformulation d'un texte accompagné de l'image de départ (vidéo) : la scène doit rester celle de l'image.
 IMAGE_DE_DEPART = ("The attached image is the first frame of the video. Keep its characters, their number, clothes, "
                    "setting, colors and lighting exactly as they appear in the image. ")
+
+# Image libre d'après une photo (sujet ou composition repris) : Qwen décrit précisément le sujet de la photo.
+IMAGE_REFERENCE = ("The attached image is a reference photo for the picture to create: describe its main subject "
+                   "precisely (appearance, clothes, colors) inside the new scene. ")
 
 # Plan d'une suite (plusieurs plans enchaînés) : chaque plan était reformulé seul, sans les autres ; « A kraken
 # appears » devenait un océan sans les aventuriers, « They are fighting him » une ruelle à néons avec d'autres
@@ -426,8 +439,8 @@ def decrire(chemin_tache):
         im.thumbnail((QWEN_COTE_MAX, QWEN_COTE_MAX), Image.LANCZOS)
         contenu.append({"type": "image", "image": im})
     consigne = CONSIGNES[mode]
-    if t.get("image") and mode in MODES_TEXTE:  # vidéo à partir d'une image : Qwen la voit
-        consigne = IMAGE_DE_DEPART + consigne
+    if t.get("image") and mode in MODES_TEXTE:  # texte + image : Qwen la voit (vidéo : première image ;
+        consigne = {"video": IMAGE_DE_DEPART, "scene": IMAGE_REFERENCE}.get(mode, "") + consigne  # image : modèle)
     suite = t.get("suite")  # {plans: [textes], indice (1…n), precedent: prompt du plan précédent ou None}
     if suite and mode in MODES_TEXTE:
         plans = suite["plans"]

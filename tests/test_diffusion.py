@@ -139,9 +139,9 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche"}
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
-    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video"}
+    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 
@@ -758,3 +758,53 @@ def test_videos_plans_a_la_suite(faux_diffusion):
     with pytest.raises(gr.Error, match="au plus"):
         videos.generer_suite("\n".join(["x"] * (videos.PLANS_MAX + 1)), None, videos.AUTO, "2 s", 20, 0,
                              progress=no_progress)
+
+
+def test_images(faux_diffusion):
+    """Onglet « Images » : texte seul → Z-Image ; avec une photo → FLUX.2 klein (modifier, sujet, composition)."""
+    from PIL import Image
+
+    from studiovoix import galerie, images
+
+    # texte seul : Qwen en mode « scene », puis Z-Image au format choisi
+    assert images.preparer("un phare dans la tempête", progress=no_progress) == "a red potion bottle"
+    assert _journal()[-1]["tache"] == {"mode": "scene", "texte": "un phare dans la tempête"}
+    msg, gal, dossier = images.generer("a lighthouse in a storm", None, images.USAGE_DEFAUT,
+                                       ["photorealistic photograph, natural light, sharp focus, high detail"],
+                                       "Paysage 16:9 (1344×768)", 2, 7, "Phare", "un phare", progress=no_progress)
+    j = _journal()[-1]
+    assert j["action"] == "image" and (j["tache"]["largeur"], j["tache"]["hauteur"]) == (1344, 768)
+    assert j["tache"]["prompt"].startswith("a lighthouse in a storm. Style: photorealistic") and len(gal) == 2
+    assert j["tache"]["graines"][0] == 7 and "à partir du texte" in msg and " en " in msg
+    infos = galerie.lire(dossier)
+    assert infos["type"] == "image" and infos["moteur"] == "Z-Image-Turbo" and infos["photo"] is None
+    assert any(d == dossier for _, d in galerie.lister("Images"))
+    # avec une photo (portrait 3:4), « Modifier » : consigne de retouche, klein, proportions de la photo
+    photo = faux_diffusion / "moi.jpg"
+    Image.new("RGB", (900, 1200), (5, 5, 5)).save(photo)
+    images.preparer("mets-lui un chapeau", str(photo), images.USAGE_DEFAUT, progress=no_progress)
+    assert _journal()[-1]["tache"]["mode"] == "retouche" and _journal()[-1]["tache"]["image"] == str(photo)
+    msg, _, dossier = images.generer("Add a pirate hat", str(photo), images.USAGE_DEFAUT, [], images.AUTO, 1, 0,
+                                     progress=no_progress)
+    j = _journal()[-1]
+    assert j["action"] == "personnage" and [Path(r).name for r in j["tache"]["references"]] == ["photo.jpg"]
+    assert images.GARDER_LE_RESTE in j["tache"]["prompt"]
+    w, h = j["tache"]["largeur"], j["tache"]["hauteur"]
+    assert w % 16 == 0 and h % 16 == 0 and abs(w / h - 0.75) < 0.02 and 0.9e6 < w * h < 1.2e6
+    assert galerie.lire(dossier)["usage"] == "modifier" and "photo modifiée" in msg
+    # « Garder le sujet » : Qwen décrit la photo dans une nouvelle scène ; prompt court tapé à la main enrichi
+    sujet = next(k for k, v in images.USAGES.items() if v == "sujet")
+    images.prompt_pret("", "on the moon", str(photo), sujet, progress=no_progress)
+    assert _journal()[-1]["tache"]["mode"] == "scene" and _journal()[-1]["tache"]["image"] == str(photo)
+    _, _, d2 = images.generer("me on the moon", str(photo), sujet, [], images.AUTO, 1, 0, progress=no_progress)
+    assert images.SUJET in _journal()[-1]["tache"]["prompt"]
+    # une consigne de retouche courte est gardée telle quelle (pas de reformulation)
+    n = len(_journal())
+    assert images.prompt_pret("", "Add a red cape", str(photo), images.USAGE_DEFAUT, progress=no_progress) == "Add a red cape"
+    assert len(_journal()) == n
+    # recréer depuis la galerie : même photo (copiée), même usage, même graine
+    _, nouveau = galerie.recreer(d2, progress=no_progress)
+    j = _journal()[-1]
+    assert j["action"] == "personnage" and images.SUJET in j["tache"]["prompt"] and nouveau != d2
+    with pytest.raises(gr.Error, match="prompt"):
+        images.generer(" ", None, images.USAGE_DEFAUT, [], images.AUTO, 1, 0, progress=no_progress)

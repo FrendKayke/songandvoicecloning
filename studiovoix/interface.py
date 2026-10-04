@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import gradio as gr
 
-from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, illustrations,
+from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, illustrations, images,
                       modeles, modeles_3d, photos, synthese, videos)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
@@ -27,6 +27,7 @@ GROUPES = [
         ("chanson", chanson, "Créer une chanson"),
     ]),
     ("🖼️ Image et vidéo", [
+        ("images", images, "Images"),
         ("photos", photos, "Photos"),
         ("videos", videos, "Vidéos"),
     ]),

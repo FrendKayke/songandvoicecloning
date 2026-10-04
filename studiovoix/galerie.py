@@ -19,10 +19,10 @@ from .pipeline import INSTRUMENTAL, finaliser_depuis_infos
 
 TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture", "bruitage": "🔊 Bruitage",
          "3d": "🧊 Modèle 3D", "carte": "🃏 Illustration", "photo": "🖼️ Photo",
-         "video": "🎬 Vidéo"}
+         "video": "🎬 Vidéo", "image": "🎨 Image"}
 FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts",
            "Bruitages": "bruitage", "Modèles 3D": "3d", "Illustrations": "carte", "Photos": "photo",
-           "Vidéos": "video"}
+           "Vidéos": "video", "Images": "image"}
 # repaint_mode d'ACE-Step (release_task_models.py : conservative / balanced / aggressive)
 FORCES = {
     "Légère (garde au maximum l'original)": "conservative",
@@ -34,7 +34,7 @@ FORCES = {
 def _racines():
     return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR, "bruitage": cfg.SFX_DIR,
             "3d": cfg.MODELS3D_DIR, "carte": cfg.CARDS_DIR, "photo": cfg.PHOTOS_DIR,
-            "video": cfg.VIDEOS_DIR}
+            "video": cfg.VIDEOS_DIR, "image": cfg.IMAGES_DIR}
 
 
 def lire(dossier):
@@ -68,6 +68,7 @@ def _dossiers():
     yield from (d for d in r["carte"].glob("*/*") if d.is_dir())
     yield from (d for d in r["photo"].glob("*") if d.is_dir())
     yield from (d for d in r["video"].glob("*") if d.is_dir())
+    yield from (d for d in r["image"].glob("*") if d.is_dir())
 
 
 _ACTIONS_PHOTO = {"ameliorer": "améliorée", "detourer": "détourée", "personne": "personne isolée"}
@@ -80,7 +81,7 @@ def _resume(infos):
         return f"{infos.get('projet')} — {infos.get('nom')} — {infos.get('description_fr') or infos.get('description')}"
     if infos["type"] == "photo":
         return f"{infos.get('nom')} — {_ACTIONS_PHOTO.get(infos.get('action'), '')}"
-    if infos["type"] in ("bruitage", "3d", "video"):
+    if infos["type"] in ("bruitage", "3d", "video", "image"):
         return f"{infos.get('nom')} — {infos.get('description_fr') or infos.get('description') or 'depuis une image'}"
     txt = infos.get("texte") if infos["type"] == "tts" else infos.get("description")
     txt = (txt or "").replace("\n", " ")
@@ -158,6 +159,11 @@ def details(chemin, version=1):
         detail = (f"agrandissement ×{r.get('echelle')}" + (", visages restaurés" if r.get("visages") else "")
                   if infos.get("action") == "ameliorer" else f"fond : {r.get('fond_label') or 'transparent'}")
         lignes.append(f"Photo **{infos.get('nom')}** {_ACTIONS_PHOTO.get(infos.get('action'), '')} ({detail})")
+    if infos["type"] == "image":
+        origine = {"modifier": "photo modifiée", "sujet": "sujet d'une photo", "composition": "composition d'une photo"}
+        lignes.append(f"Image **{infos.get('nom')}** : {infos.get('largeur')}×{infos.get('hauteur')}, "
+                      f"{origine.get(infos.get('usage'), 'à partir du texte')}, {infos.get('moteur')}"
+                      + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
     if infos["type"] == "video":
         lignes.append(f"Vidéo **{infos.get('nom')}** : {infos.get('largeur')}×{infos.get('hauteur')}, "
                       f"{infos.get('duree')}, {infos.get('etapes')} étapes, "
@@ -181,7 +187,7 @@ def details(chemin, version=1):
     if infos["type"] == "3d":
         return ("\n\n".join(lignes), None, versions, infos.get("description") or "", "", 10,
                 gr.update(value=fichier, visible=True), pas_d_image, pas_de_video)
-    if infos["type"] in ("carte", "photo"):
+    if infos["type"] in ("carte", "photo", "image"):
         return ("\n\n".join(lignes), None, versions, infos.get("description") or "", "", 10, pas_de_3d,
                 gr.update(value=fichier, visible=True), pas_de_video)
     if infos["type"] == "video":
@@ -280,6 +286,10 @@ def recreer(chemin, version=1, progress=gr.Progress()):
                                           photo=str(Path(chemin) / infos["photo_modele"]) if infos.get("photo_modele") else None,
                                           usage_photo=infos.get("usage_photo") or "sujet", progress=progress)
         return f"✅ Illustration recréée avec la graine {graine}.", dossier
+    if infos["type"] == "image":
+        from . import images
+
+        return f"✅ Image recréée avec la graine {graine}.", images.recreer(chemin, infos, graine, progress=progress)
     if infos["type"] == "video":
         from . import videos
 

@@ -1,0 +1,75 @@
+"""Onglet « Images » : à partir d'un prompt (Z-Image-Turbo) ou d'une photo (FLUX.2 klein)."""
+import gradio as gr
+
+from .. import images
+from ..outils import open_folder
+from .commun import espace_de_noms
+
+
+def construire():
+    """Composants de l'onglet (dans l'onglet ouvert par l'appelant)."""
+    gr.Markdown(
+        "Crée une **image à partir d'un texte**, ou **à partir d'une photo** : la modifier (« mets-lui un chapeau », "
+        "« la même scène la nuit »), garder la personne ou l'objet dans une nouvelle scène, ou reprendre sa pose. "
+        "Décris ce que tu veux en français ; « Préparer le prompt » le traduit et le précise (Qwen3-VL, qui voit "
+        "aussi la photo). Texte seul : Z-Image-Turbo ; avec une photo : FLUX.2 klein 4B (licences Apache 2.0 : "
+        "tu peux utiliser les images commercialement). N'utilise que des photos que tu as le droit d'utiliser."
+    )
+    with gr.Row():
+        with gr.Column():
+            img_texte = gr.Textbox(label="Ce que tu veux (français ou anglais)", lines=3,
+                                   placeholder="un phare sur une falaise pendant une tempête, ou avec une photo : "
+                                               "« ajoute-lui une cape rouge »")
+            img_exemples = gr.Dropdown([(lib, txt) for lib, txt in images.EXEMPLES], label="Exemples", value=None,
+                                       allow_custom_value=True)
+            btn_img_prep = gr.Button("🧠 Préparer le prompt (traduction et précision)")
+            img_prompt = gr.Textbox(label="Prompt envoyé au générateur (anglais, modifiable)", lines=4)
+        with gr.Column():
+            img_photo = gr.Image(type="filepath", label="Photo (facultative)", height=300)
+            img_usage = gr.Radio(list(images.USAGES), value=images.USAGE_DEFAUT, label="Ce que l'image reprend de la photo")
+    with gr.Row():
+        img_styles = gr.Dropdown([(lib, val) for lib, val in images.STYLES], value=[], multiselect=True,
+                                 allow_custom_value=True, label="Style (facultatif, plusieurs choix ou le tien en anglais)")
+        img_format = gr.Dropdown(list(images.FORMATS), value=images.AUTO, label="Format")
+    with gr.Row():
+        img_variantes = gr.Radio([1, 2, 3, 4], value=2, label="Variantes")
+        img_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
+        img_nom = gr.Textbox(label="Nom (pour la galerie)", value="image")
+    btn_img = gr.Button("🎨 Générer l'image", variant="primary")
+    img_statut = gr.Markdown()
+    img_dossier = gr.State()
+    img_choisie = gr.State()
+    img_galerie = gr.Gallery(label="Variantes", columns=4, height=520, object_fit="contain")
+    img_choix_msg = gr.Markdown("Clique sur une variante pour la choisir.")
+    with gr.Row():
+        btn_img_retoucher = gr.Button("✏️ Retoucher cette image (elle devient la photo)")
+        btn_img_animer = gr.Button("🎬 Animer dans l'onglet Vidéos")
+        btn_img_dossier = gr.Button("📂 Ouvrir le dossier")
+    return espace_de_noms(locals())
+
+
+def _retoucher(choisie):
+    if not choisie:
+        raise gr.Error("Clique d'abord sur une variante.")
+    return choisie, images.USAGE_DEFAUT, "", ""
+
+
+def _animer(choisie):
+    if not choisie:
+        raise gr.Error("Clique d'abord sur une variante.")
+    gr.Info("Image envoyée dans l'onglet « Vidéos » (Image et vidéo → Vidéos) comme image de départ.")
+    return choisie
+
+
+def brancher(c, demo, o):
+    """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
+    c.img_exemples.change(lambda v: v or "", c.img_exemples, c.img_texte)
+    c.btn_img_prep.click(images.preparer, [c.img_texte, c.img_photo, c.img_usage], c.img_prompt)
+    # prompt vide (ou court, tapé à la main) : préparé d'abord, puis l'image (seulement si la préparation a réussi)
+    c.btn_img.click(images.prompt_pret, [c.img_texte, c.img_prompt, c.img_photo, c.img_usage], c.img_prompt).success(
+        images.generer, [c.img_prompt, c.img_photo, c.img_usage, c.img_styles, c.img_format, c.img_variantes,
+                         c.img_graine, c.img_nom, c.img_texte], [c.img_statut, c.img_galerie, c.img_dossier])
+    c.img_galerie.select(images.choisir, c.img_dossier, [c.img_choix_msg, c.img_choisie])
+    c.btn_img_retoucher.click(_retoucher, c.img_choisie, [c.img_photo, c.img_usage, c.img_texte, c.img_prompt])
+    c.btn_img_animer.click(_animer, c.img_choisie, o.videos.vid_image)
+    c.btn_img_dossier.click(lambda d: open_folder(d) if d else None, c.img_dossier)
