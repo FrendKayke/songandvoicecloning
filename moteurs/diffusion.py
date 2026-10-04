@@ -382,7 +382,8 @@ CONSIGNES = {
                  "each image, write one English prompt for an image generator: the moment of the story, every "
                  "character present with their FULL appearance (repeat the same description of each character, "
                  "word for word, in every prompt where they appear, so they look identical), the setting, lighting, "
-                 "colors and mood. Keep the same characters, places and visual style from one image to the next. "
+                 "colors and mood, in 40 to 70 words. Spread the images over the WHOLE story, from its beginning "
+                 "to its end. Keep the same characters, places and visual style from one image to the next. "
                  "No artist names, no text in the images. Answer with exactly that many lines, numbered 1., 2., "
                  "3. and so on, one prompt per line, nothing else:\n\n"),
     # onglet « Images », « Modifier la photo » : consigne de retouche pour FLUX.2 klein (image de référence)
@@ -401,6 +402,10 @@ IMAGE_REFERENCE = ("The attached image is a reference photo for the picture to c
                    "precisely (appearance, clothes, colors) inside the new scene. ")
 IMAGE_PERSONNAGES = ("The attached image shows the main character(s) of the story: describe their appearance "
                      "precisely, from this image, in every prompt. ")
+# Ajouté après l'histoire : un long texte français faisait oublier la consigne du début (prompts écrits en
+# français, constaté avec une histoire de 27 000 caractères sur la RTX 4070).
+RAPPEL_HISTOIRE = ("\n\nEnd of the story. Now write exactly {n} numbered prompts, one per line, IN ENGLISH (translate "
+                   "everything except the characters' names), nothing else.")
 
 # Plan d'une suite (plusieurs plans enchaînés) : chaque plan était reformulé seul, sans les autres ; « A kraken
 # appears » devenait un océan sans les aventuriers, « They are fighting him » une ruelle à néons avec d'autres
@@ -415,6 +420,17 @@ SUITE_VIDEO = ("This is shot {i} of {n} of ONE continuous video: each shot start
 # Modes qui reformulent un texte : leur consigne se termine par « \n\n » et le texte y est ajouté. Déduit des
 # consignes : une liste écrite à la main avait oublié « video », et Qwen inventait une scène sans rapport (constaté).
 MODES_TEXTE = {mode for mode, consigne in CONSIGNES.items() if consigne.endswith("\n\n")}
+
+
+def _sans_gqa_sdpa():
+    """Long texte pour Qwen3-VL (histoire de 27 000 caractères = 8 260 jetons) : transformers 4.57 passe
+    `enable_gqa=True` à scaled_dot_product_attention quand il n'y a pas de masque, or les noyaux économes de
+    PyTorch 2.6 n'acceptent pas des têtes de clés moins nombreuses que celles des requêtes : repli sur le calcul
+    complet (32 × 8 260² par couche), 25,6 Go demandés, manque de mémoire (constaté sur la RTX 4070). Clés et
+    valeurs répétées (`repeat_kv`) à la place : noyau économe, pic à 10,1 Go, même résultat."""
+    from transformers.integrations import sdpa_attention
+
+    sdpa_attention.use_gqa_in_sdpa = lambda *a, **k: False
 
 
 def decrire(chemin_tache):
@@ -464,14 +480,18 @@ def decrire(chemin_tache):
         if not texte_:
             _erreur("description vide : écris ce que tu veux obtenir.")
         consigne += texte_
+        if mode == "histoire":
+            consigne += RAPPEL_HISTOIRE.format(n=max(1, int(t.get("nombre", 4))))
     contenu.append({"type": "text", "text": consigne})
     entrees = processeur.apply_chat_template([{"role": "user", "content": contenu}], tokenize=True,
                                              add_generation_prompt=True, return_dict=True, return_tensors="pt")
     entrees = entrees.to(modele.device)
     print("PROGRESSION 2/2 description", flush=True)
+    _sans_gqa_sdpa()
     with torch.inference_mode():
-        # « histoire » : un prompt par image (jusqu'à 12) ; 160 jetons suffisent pour un seul prompt
-        jetons = 160 if mode != "histoire" else 120 * max(1, int(t.get("nombre", 4))) + 60
+        # « histoire » : un prompt par image (jusqu'à 12, 40 à 70 mots chacun ; 120 jetons par image coupaient la
+        # réponse à la 9ᵉ sur 12) ; 160 jetons suffisent pour un seul prompt
+        jetons = 160 if mode != "histoire" else 180 * max(1, int(t.get("nombre", 4))) + 100
         sortie = _memoire(modele.generate)(**entrees, max_new_tokens=jetons, do_sample=False)
     texte = processeur.batch_decode(sortie[:, entrees["input_ids"].shape[1]:], skip_special_tokens=True)[0]
     if mode == "histoire":  # une scène par ligne : les retours à la ligne sont gardés
