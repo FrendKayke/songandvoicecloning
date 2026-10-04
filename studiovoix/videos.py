@@ -57,6 +57,10 @@ def format_pour(format_label, image=None):
     return FORMATS["Paysage 16:9, 720p (1280×704)"]
 
 
+MOTS_PROMPT_COURT = 25  # un prompt préparé par Qwen fait 50 à 120 mots ; en dessous, il est d'abord enrichi
+MOTS_LIGNE_PLAN = 15  # plusieurs lignes aussi courtes dans la case du prompt : une liste de plans
+
+
 def duree_lisible(secondes):
     """« 18 min 32 s », « 1 h 05 min », « 42 s »."""
     s = int(round(secondes))
@@ -77,7 +81,18 @@ def preparer(description, image=None, progress=gr.Progress(), suite=None):
 def prompt_pret(description, prompt, image=None, progress=gr.Progress()):
     """« Générer » sans avoir préparé le prompt (constaté : erreur « Il manque le prompt ») : le prompt anglais est
     préparé d'abord depuis la description, puis affiché ; un prompt déjà là (préparé ou retouché) est gardé."""
-    return (prompt or "").strip() or preparer(description, image, progress=progress)
+    prompt, description = (prompt or "").strip(), (description or "").strip()
+    lignes = [l_ for l_ in prompt.splitlines() if l_.strip()]
+    if len(lignes) > 1 and all(len(l_.split()) <= MOTS_LIGNE_PLAN for l_ in lignes):
+        # constaté : les plans tapés dans la case du prompt, envoyés tels quels à Wan → vidéo sans rapport
+        raise gr.Error(f"Ton prompt contient {len(lignes)} lignes courtes : on dirait une liste de plans. Pour les "
+                       "enchaîner, ouvre « 🎞️ Plusieurs plans à la suite » plus bas et écris-y une ligne par plan. "
+                       "Pour une seule vidéo, écris une seule description.")
+    if prompt and not description and len(prompt.split()) < MOTS_PROMPT_COURT:
+        # prompt court tapé à la main (« aventurers are fighting ») : Wan a besoin d'une description détaillée en
+        # bon anglais ; Qwen la rédige (et corrige les fautes), la case affiche ce qui est vraiment envoyé
+        return preparer(prompt, image, progress=progress)
+    return prompt or preparer(description, image, progress=progress)
 
 
 def generer(prompt, image, format_label, duree_label, etapes, graine, nom="", description_fr=None,

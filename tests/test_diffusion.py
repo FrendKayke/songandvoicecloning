@@ -669,6 +669,16 @@ def test_prompt_prepare_automatiquement(faux_diffusion):
     assert len(_journal()) == nb
     with pytest.raises(gr.Error, match="Décris la vidéo"):
         videos.prompt_pret("", "", progress=no_progress)
+    # constaté : des plans tapés dans la case du prompt, envoyés tels quels à Wan (vidéo sans aucun rapport)
+    with pytest.raises(gr.Error, match="Plusieurs plans à la suite"):
+        videos.prompt_pret("", "aventurers are fighting\nA kreken apears\nThey are fighting it with magic.",
+                           progress=no_progress)
+    assert len(_journal()) == nb
+    # prompt court tapé à la main, sans description : enrichi par Qwen d'abord
+    assert videos.prompt_pret("", "aventurers are fighting", progress=no_progress) == "a red potion bottle"
+    assert _journal()[-1]["tache"] == {"mode": "video", "texte": "aventurers are fighting"}
+    long_ = " ".join(["word"] * 40)  # prompt détaillé écrit à la main : gardé
+    assert videos.prompt_pret("", long_, progress=no_progress) == long_
 
 
 def test_grande_photo_agrandie_dans_la_limite(faux_diffusion, monkeypatch):
