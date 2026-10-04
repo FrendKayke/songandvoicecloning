@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 
 QWEN = "Qwen/Qwen3-VL-4B-Instruct"  # 8,9 Go en bf16 : seul sur la carte, prompts plus fidèles que le 2B
+QWEN_COTE_MAX = 1024  # côté maximal des images données à Qwen (jetons visuels, mémoire graphique)
 STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
 # Z-Image-Turbo (Alibaba Tongyi-MAI, Apache 2.0) : encodeur de texte (Qwen3-4B), VAE et réglages depuis le dépôt
 # officiel ; le transformeur (6 milliards de paramètres, 24,6 Go en fp32 dans le dépôt officiel) depuis sa version
@@ -283,6 +284,61 @@ def _hors_ligne_si_present(*repos):
     _hors_ligne(hors_ligne)
 
 
+def _precharger(*parties):
+    """Lit d'un bloc, dans l'ordre, les fichiers de poids avant leur chargement. parties : (dépôt, sous-dossier ou
+    nom de fichier ou None). Les chargeurs (safetensors, GGUF) projettent le fichier en mémoire et le lisent par
+    morceaux, dans le désordre : sur un disque dur, les déplacements de la tête ramenaient la lecture à ~40 Mo/s
+    (umT5 de Wan : 250 s), contre ~120 Mo/s en lecture suivie (mesuré sur la machine de l'utilisateur, modèles sur un
+    disque dur). Une fois lus, les fichiers sont dans le cache de Windows : le chargement les y reprend. Sur un SSD
+    ou si les fichiers sont déjà en mémoire, quelques secondes seulement."""
+    import time
+
+    from huggingface_hub import constants
+
+    fichiers = []
+    for depot, partie in parties:
+        racine = Path(constants.HF_HUB_CACHE) / ("models--" + depot.replace("/", "--")) / "snapshots"
+        for instantane in sorted(racine.glob("*")):
+            cible = instantane / partie if partie else instantane
+            if cible.is_file():
+                fichiers.append(cible)
+            elif cible.is_dir():
+                fichiers += [f for f in sorted(cible.rglob("*"))
+                             if f.suffix in (".safetensors", ".gguf", ".bin", ".pth", ".pt") and f.is_file()]
+    total = sum(f.stat().st_size for f in fichiers)
+    if total < 200e6:
+        return
+    debut = time.time()
+    tampon = bytearray(16 << 20)
+    for f in fichiers:
+        try:
+            with open(f, "rb", buffering=0) as h:
+                while h.readinto(tampon):
+                    pass
+        except OSError:
+            pass
+    duree = time.time() - debut
+    print(f"Fichiers lus : {total / 1e9:.1f} Go en {duree:.0f} s ({total / 1e6 / max(duree, 0.01):.0f} Mo/s).",
+          flush=True)
+
+
+def _en_memoire_vive(*modules):
+    """Copie les poids restés sur le processeur dans la mémoire du moteur. transformers ne lit pas les safetensors :
+    il les projette en mémoire (mmap) et les tenseurs pointent sur le fichier. Si la lecture d'un autre gros fichier
+    (le GGUF du transformeur) chasse ces pages du cache de Windows, le passage sur la carte relit le disque dur
+    au hasard : encodeur de Z-Image/klein (8 Go) envoyé sur la carte à ~40 Mo/s, 170 à 215 s d'attente (constaté).
+    À appeler juste après le chargement, quand _precharger vient de mettre le fichier en cache : copie en mémoire."""
+    import torch
+
+    with torch.no_grad():
+        for m in modules:
+            if m is None:
+                continue
+            for t_ in list(m.parameters()) + list(m.buffers()):
+                if t_.device.type == "cpu":
+                    t_.data = t_.data.clone()
+
+
 def _hors_ligne(actif):
     from huggingface_hub import constants
 
@@ -319,6 +375,10 @@ CONSIGNES = {
 }
 
 
+# Reformulation d'un texte accompagné de l'image de départ (vidéo) : la scène doit rester celle de l'image.
+IMAGE_DE_DEPART = ("The attached image is the first frame of the video. Keep its characters, their number, clothes, "
+                   "setting, colors and lighting exactly as they appear in the image. ")
+
 # Modes qui reformulent un texte : leur consigne se termine par « \n\n » et le texte y est ajouté. Déduit des
 # consignes : une liste écrite à la main avait oublié « video », et Qwen inventait une scène sans rapport (constaté).
 MODES_TEXTE = {mode for mode, consigne in CONSIGNES.items() if consigne.endswith("\n\n")}
@@ -328,7 +388,7 @@ def decrire(chemin_tache):
     """Tâche : {mode: son|image (d'après une image) ou objet|bruitage|carte|video (texte reformulé), image?, texte?}.
     Renvoie RESULTAT {"texte": …}."""
     import torch
-    from PIL import Image
+    from PIL import Image, ImageOps
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
     t = _lire(chemin_tache)
@@ -340,6 +400,7 @@ def decrire(chemin_tache):
     print("PROGRESSION 1/2 chargement de Qwen3-VL", flush=True)
 
     def charger():  # sans device_map : un modèle « dispatché » par accelerate ne se déplace plus avec .to()
+        _precharger((QWEN, None))
         m = Qwen3VLForConditionalGeneration.from_pretrained(
             QWEN, dtype=torch.bfloat16 if device == "cuda" else torch.float32).to(device)
         return m, AutoProcessor.from_pretrained(QWEN)
@@ -348,8 +409,15 @@ def decrire(chemin_tache):
                                  vers_gpu=lambda o: o[0].to(device))
     contenu = []
     if t.get("image"):
-        contenu.append({"type": "image", "image": Image.open(t["image"]).convert("RGB")})
+        # Qwen3-VL découpe l'image en carrés de 32 px à sa résolution d'origine : une illustration de 2900×4060
+        # donnait ~11 000 jetons et un manque de mémoire graphique (constaté) ; 1024 px suffisent pour la décrire
+        with Image.open(t["image"]) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+        im.thumbnail((QWEN_COTE_MAX, QWEN_COTE_MAX), Image.LANCZOS)
+        contenu.append({"type": "image", "image": im})
     consigne = CONSIGNES[mode]
+    if t.get("image") and mode in MODES_TEXTE:  # vidéo à partir d'une image : Qwen la voit
+        consigne = IMAGE_DE_DEPART + consigne
     if mode in MODES_TEXTE:
         texte_ = (t.get("texte") or "").strip()
         if not texte_:
@@ -387,6 +455,7 @@ def bruitage(chemin_tache):
     _hors_ligne_si_present(depot)
 
     def charger():
+        _precharger((depot, "transformer"), (depot, "vae"), (depot, "text_encoder"))
         try:
             return StableAudioPipeline.from_pretrained(
                 depot, torch_dtype=torch.float16 if device == "cuda" else torch.float32).to(device)
@@ -436,11 +505,15 @@ def image(chemin_tache):
 
     def charger():
         gguf = t.get("gguf") or hf_hub_download(*ZIMAGE_GGUF)
+        # chaque fichier lu juste avant son chargement : lus tous d'avance (15 Go), les premiers sortaient du cache
+        _precharger(ZIMAGE_GGUF if not t.get("gguf") else (depot, "-"))
         transformeur = ZImageTransformer2DModel.from_single_file(
             gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot,
             subfolder="transformer", torch_dtype=dtype)
+        _precharger((depot, "vae"), (depot, "text_encoder"))
         pipe = ZImagePipeline.from_pretrained(depot, transformer=transformeur, torch_dtype=dtype,
                                               **({"text_encoder": None, "tokenizer": None} if sans_encodeur else {}))
+        _en_memoire_vive(pipe.text_encoder, pipe.vae)
         return pipe if device == "cuda" else pipe.to(device)  # sur la carte : placement à la main (_sur_carte)
 
     pipe = _garder(("Z-Image-Turbo", depot, t.get("gguf"), sans_encodeur, device), charger, 16,
@@ -462,10 +535,16 @@ def _sur_carte(pipe, *noms):
     carte, les autres en mémoire vive. Avec enable_model_cpu_offload, diffusers renvoyait tout en mémoire vive à la
     fin de CHAQUE appel (maybe_free_model_hooks) : chaque variante rechargeait le transformeur (4 à 7 Go) et la
     carte attendait. Ici : encodeur seul le temps de lire le texte, puis transformeur et VAE pour toutes les
-    variantes, et ils y restent pour la tâche suivante (moteur résident). Le VAE vient en premier dans la signature
-    des pipelines : c'est lui qui donne pipe._execution_device."""
+    variantes, et ils y restent pour la tâche suivante (moteur résident).
+    pipe._execution_device (où la pipeline crée latents et plongements) est fixé à la carte : diffusers le déduit du
+    premier module par ordre alphabétique (DiffusionPipeline.device, _get_signature_keys trié), donc de
+    text_encoder, resté en mémoire vive pendant la génération → « cuda:0 and cpu » (constaté sur la RTX 4070)."""
     import torch
 
+    if noms and not getattr(type(pipe), "_sur_carte_fixe", False):
+        classe = type(pipe)
+        pipe.__class__ = type(classe.__name__, (classe,), {
+            "_sur_carte_fixe": True, "_execution_device": property(lambda self: torch.device("cuda"))})
     for nom in ("text_encoder", "transformer", "vae"):
         m = getattr(pipe, nom, None)
         if m is not None and nom not in noms and m.device.type != "cpu":
@@ -534,6 +613,7 @@ def personnage(chemin_tache):
 
     def charger():
         gguf = t.get("gguf") or hf_hub_download(*KLEIN_GGUF)
+        _precharger(KLEIN_GGUF if not t.get("gguf") else (depot, "-"))  # chaque fichier juste avant son chargement
         # config= obligatoire : sans lui, diffusers reconnaît « flux-2-dev » et lit la configuration de FLUX.2-dev
         # (dépôt soumis à licence non commerciale)
         transformeur = Flux2Transformer2DModel.from_single_file(
@@ -543,7 +623,9 @@ def personnage(chemin_tache):
         if not sans_encodeur:
             from transformers import AutoTokenizer, Qwen3ForCausalLM
 
+            _precharger((depot_encodeur, "text_encoder"))
             encodeur = Qwen3ForCausalLM.from_pretrained(depot_encodeur, subfolder="text_encoder", torch_dtype=dtype)
+            _en_memoire_vive(encodeur)
             tokeniseur = AutoTokenizer.from_pretrained(depot_encodeur, subfolder="tokenizer")
         # pipeline assemblée composant par composant : from_pretrained voudrait aussi les 16 Go de poids officiels
         pipe = Flux2KleinPipeline(
@@ -581,6 +663,7 @@ def _encoder_texte_video(t, device, dtype):
         g = torch.Generator("cpu").manual_seed(0)
         return (torch.randn(1, 512, 4096, generator=g).to(dtype), torch.randn(1, 512, 4096, generator=g).to(dtype))
     tokeniseur = AutoTokenizer.from_pretrained(depot, subfolder="tokenizer")
+    _precharger((depot, "text_encoder"))  # relu à chaque vidéo : depuis le cache de Windows s'il l'a gardé
     encodeur = UMT5EncoderModel.from_pretrained(depot, subfolder="text_encoder", torch_dtype=torch.bfloat16)
     cible = "cpu"
     if device == "cuda":
@@ -617,6 +700,24 @@ def _encoder_texte_video(t, device, dtype):
     return prompt, negatif
 
 
+def _par_blocs_wan(transformeur, vae):
+    """Sur 12 Go, seuls les poids du bloc en cours sont sur la carte ; le suivant arrive pendant le calcul (flux CUDA).
+    Avec enable_model_cpu_offload, tout le transformeur (5,4 Go) restait sur la carte pendant le débruitage : en 720p
+    et 121 images (~109 000 jetons), les activations ne tenaient plus et le pilote débordait en mémoire vive
+    (« Sysmem Fallback ») : 146 s par étape, carte à 60–100 W ; par blocs : 31 s (mesuré sur la RTX 4070). Le VAE
+    (fp32, 2,8 Go) monte entier sur la carte quand il sert (crochet d'accelerate, déclenché par encode/decode) et en
+    sort pendant le débruitage (crochet.offload()) ; module par module, le décodage en tuiles prenait 265 s.
+    Renvoie le crochet du VAE."""
+    import torch
+    from accelerate import cpu_offload_with_hook
+    from diffusers.hooks import apply_group_offloading
+
+    carte = torch.device("cuda")
+    apply_group_offloading(transformeur, onload_device=carte, offload_type="block_level", num_blocks_per_group=1,
+                           use_stream=True)
+    return cpu_offload_with_hook(vae, execution_device=carte)[1]
+
+
 def video(chemin_tache):
     """Tâche : {prompt, negatif, image (facultative), sortie, largeur, hauteur, images, etapes, guidage, graine, fps}.
     Sans image : texte → vidéo (WanPipeline) ; avec image : la vidéo part de cette image (WanImageToVideoPipeline,
@@ -647,16 +748,22 @@ def video(chemin_tache):
 
     def charger():
         gguf = t.get("gguf") or hf_hub_download(*WAN_GGUF)
+        _precharger(WAN_GGUF if not t.get("gguf") else (depot, "-"))
         # config= obligatoire : sans lui, diffusers reconnaît « wan-i2v-14B » (dimensions différentes)
         transformeur = WanTransformer3DModel.from_single_file(
             gguf, quantization_config=GGUFQuantizationConfig(compute_dtype=dtype), config=depot,
             subfolder="transformer", torch_dtype=dtype)
+        _en_memoire_vive(transformeur)  # sinon relu sur le disque quand il passe sur la carte (96 s constatées)
+        _precharger((depot, "vae"))
         vae = AutoencoderKLWan.from_pretrained(depot, subfolder="vae", torch_dtype=torch.float32)
+        _en_memoire_vive(vae)
         vae.enable_tiling()
-        return transformeur, vae, UniPCMultistepScheduler.from_pretrained(depot, subfolder="scheduler").config
+        crochet = _par_blocs_wan(transformeur, vae) if device == "cuda" else None
+        return (transformeur, vae, UniPCMultistepScheduler.from_pretrained(depot, subfolder="scheduler").config,
+                crochet)
 
     # transformeur et VAE gardés ; pipeline refaite à chaque vidéo (texte ou image), ordonnanceur neuf (il a un état)
-    transformeur, vae, config_ordonnanceur = _garder(cle, charger, 9)
+    transformeur, vae, config_ordonnanceur, crochet_vae = _garder(cle, charger, 9)
     composants = dict(tokenizer=None, text_encoder=None, vae=vae,
                       scheduler=UniPCMultistepScheduler.from_config(config_ordonnanceur), transformer=transformeur,
                       expand_timesteps=True)
@@ -671,9 +778,7 @@ def video(chemin_tache):
         pipe = WanImageToVideoPipeline(**composants, image_encoder=None, image_processor=None)
     else:
         pipe = WanPipeline(**composants)
-    if device == "cuda":
-        pipe.enable_model_cpu_offload()
-    else:
+    if device != "cuda":  # sur la carte : poids amenés bloc par bloc (_par_blocs_wan, fait au chargement)
         pipe = pipe.to(device)
     # Les plongements de la phase 1 sont sur le processeur : WanPipeline ne les change que de type (pas d'appareil)
     # et le transformeur fait `.type_as(encoder_hidden_states)`, qui ramène aussi le calcul du pas de temps sur le
@@ -685,11 +790,16 @@ def video(chemin_tache):
         return kwargs
 
     graine = int(t.get("graine") or 0)
+    # l'image de départ encodée, le VAE laisse la carte au transformeur (sans effet s'il est déjà en mémoire vive)
+    poignee = transformeur.register_forward_pre_hook(lambda *_: crochet_vae.offload()) if crochet_vae else None
     images = _memoire(pipe)(
         **options, prompt_embeds=prompt, negative_prompt_embeds=negatif, height=hauteur, width=largeur,
         num_frames=int(t.get("images", 121)), num_inference_steps=etapes, guidance_scale=float(t.get("guidage", 5.0)),
         generator=torch.Generator("cpu").manual_seed(graine), callback_on_step_end=suivi,
     ).frames[0]
+    if crochet_vae:
+        poignee.remove()
+        crochet_vae.offload()
     print(f"PROGRESSION {total}/{total} enregistrement de la vidéo", flush=True)
     Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True)
     fps = int(t.get("fps", 24))
@@ -1007,6 +1117,7 @@ def forme3d(chemin_tache):
     depot, sous_dossier = t.get("depot", HUNYUAN), t.get("sous_dossier", HUNYUAN_FORME)
 
     def charger():
+        _precharger((depot, sous_dossier))
         p_ = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
             depot, subfolder=sous_dossier, device=device, dtype=torch.float16 if device == "cuda" else torch.float32)
         if device == "cuda":
@@ -1048,8 +1159,11 @@ def forme3d(chemin_tache):
         return [m.pipeline for m in p_.models.values()]
 
     # le générateur de forme passe en mémoire vive (_garder) avant que le peintre arrive sur la carte
-    peintre = _garder(cle_peintre, lambda: Hunyuan3DPaintPipeline.from_pretrained(HUNYUAN, subfolder=HUNYUAN_TEXTURE),
-                      6, vers_cpu=lambda p_: [x.to("cpu") for x in pipelines(p_)],
+    def charger_peintre():
+        _precharger((HUNYUAN, HUNYUAN_TEXTURE), (HUNYUAN, "hunyuan3d-delight-v2-0"))
+        return Hunyuan3DPaintPipeline.from_pretrained(HUNYUAN, subfolder=HUNYUAN_TEXTURE)
+
+    peintre = _garder(cle_peintre, charger_peintre, 6, vers_cpu=lambda p_: [x.to("cpu") for x in pipelines(p_)],
                       vers_gpu=lambda p_: [x.to("cuda") for x in pipelines(p_)])
     print(f"PROGRESSION 6/{total} peinture de la texture", flush=True)
     # Tout sur la carte d'abord : ses deux pipelines y sont déjà, en fp16, dès le chargement (~6 Go de poids, ~8 à

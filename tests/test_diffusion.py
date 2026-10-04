@@ -507,6 +507,9 @@ def test_videos(faux_diffusion):
 
     assert videos.preparer("un dragon s'envole", progress=no_progress) == "a red potion bottle"
     assert _journal()[-1]["tache"] == {"mode": "video", "texte": "un dragon s'envole"}
+    # avec une image de départ, Qwen la voit (sinon il inventait les couleurs)
+    videos.prompt_pret("un dragon s'envole", "", "depart.png", progress=no_progress)
+    assert _journal()[-1]["tache"] == {"mode": "video", "texte": "un dragon s'envole", "image": "depart.png"}
     with pytest.raises(gr.Error, match="prompt"):
         videos.generer(" ", None, videos.AUTO, "5 s", 30, 0, progress=no_progress)
     # texte → vidéo : format automatique sans image = paysage 720p ; 5 s = 121 images

@@ -36,6 +36,8 @@ def disque(env, monkeypatch):
     monkeypatch.setattr(cfg, "ENG_DIR", eng)
     for nom in ("CHATTERBOX", "NETTOYAGE", "RVC", "DIFFUSION"):
         monkeypatch.setattr(cfg, f"{nom}_DIR", eng / nom.lower())
+        # sinon le Python du vrai moteur, installé sur la machine où passent les tests
+        monkeypatch.setattr(cfg, f"{nom}_PYTHON", str(cfg.venv_python(eng / nom.lower())))
     monkeypatch.setenv("HF_HOME", str(eng / "hf-home"))
     monkeypatch.setattr(cfg, "DIFFUSION_PYTHON", sys.executable)  # environnement « installé »
     monkeypatch.delenv("HF_HUB_CACHE", raising=False)

@@ -12,36 +12,41 @@ quand l'entrée standard se ferme (application arrêtée) ou après <secondes> s
 Bibliothèque standard seulement : ce fichier est importé par des scripts de plusieurs environnements Python.
 """
 import json
-import queue
+import os
 import sys
 import threading
+import time
 import traceback
 
 FIN = "@@FIN@@"
 
 
-def _lecteur(file):
-    for ligne in sys.stdin:
-        file.put(ligne)
-    file.put(None)  # entrée fermée : l'application s'est arrêtée
+def _surveiller(etat, inactivite):
+    """Ferme le moteur après `inactivite` secondes sans tâche (jamais pendant une tâche)."""
+    while True:
+        time.sleep(min(30.0, inactivite / 4))
+        if not etat["en_cours"] and time.time() - etat["derniere"] > inactivite:
+            print("Moteur inactif depuis longtemps : fermeture (la mémoire est rendue).", flush=True)
+            os._exit(0)
 
 
 def servir(executer, inactivite):
     """Boucle du mode résident : executer(argv) pour chaque tâche reçue. inactivite : secondes sans tâche avant
-    l'arrêt (0 ou moins : jamais)."""
-    file = queue.Queue()
-    threading.Thread(target=_lecteur, args=(file,), daemon=True).start()
+    l'arrêt (0 ou moins : jamais).
+    L'entrée standard n'est lue que par le fil principal, entre deux tâches : sous Windows, une lecture en attente
+    sur un tube dans un autre fil bloque le chargement de certaines DLL (GetFileType sur les handles standard,
+    appelé à l'initialisation du CRT d'OpenBLAS/numpy) : le moteur restait figé dans « import torch »."""
+    etat = {"en_cours": False, "derniere": time.time()}
+    if inactivite > 0:
+        threading.Thread(target=_surveiller, args=(etat, inactivite), daemon=True).start()
     print(f"{FIN} 0", flush=True)  # prêt
     while True:
-        try:
-            ligne = file.get(timeout=inactivite if inactivite > 0 else None)
-        except queue.Empty:
-            print("Moteur inactif depuis longtemps : fermeture (la mémoire est rendue).", flush=True)
-            return
-        if ligne is None:
-            return
+        ligne = sys.stdin.readline()
+        if not ligne:
+            return  # entrée fermée : l'application s'est arrêtée
         if not ligne.strip():
             continue
+        etat["en_cours"] = True
         try:
             executer(json.loads(ligne)["argv"])
             code = 0
@@ -50,6 +55,7 @@ def servir(executer, inactivite):
         except BaseException:  # noqa: BLE001 - erreur imprévue : on la montre et on la signale
             traceback.print_exc(file=sys.stdout)
             code = 1
+        etat["en_cours"], etat["derniere"] = False, time.time()
         sys.stdout.flush()
         print(f"{FIN} {code}", flush=True)
 

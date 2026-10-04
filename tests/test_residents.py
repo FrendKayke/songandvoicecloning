@@ -293,8 +293,49 @@ def test_attente_et_demarrage_annonces(faux):
     fil.start()
     tenu.wait(10)
     assert residents.occupe()
-    threading.Timer(0.3, relache.set).start()
+    threading.Timer(2, relache.set).start()  # sous Windows, la sonde d'Ollama (absent) prend déjà 0,3 s
     _lancer_annonce()
     fil.join(10)
     assert annonces == ["En attente : une autre génération utilise la carte graphique…"]
     assert not residents.occupe()
+
+
+def test_import_de_dll_pendant_une_tache(tmp_path):
+    """Sous Windows, une lecture de l'entrée standard en attente dans un autre fil bloquait le chargement des DLL de
+    numpy (« import torch » figé, moteur de diffusion bloqué sans aucun message, constaté sur la machine de
+    l'utilisateur) : la tâche importe numpy après le « prêt », comme les vrais moteurs."""
+    import subprocess
+
+    script = tmp_path / "moteur_numpy.py"
+    script.write_text(textwrap.dedent(f'''
+        import sys
+        sys.path.insert(0, {str(cfg.MOTEURS_DIR)!r})
+        import resident
+
+        def principal(argv):
+            import numpy
+            print("RESULTAT", int(numpy.arange(4).sum()), flush=True)
+
+        if __name__ == "__main__":
+            resident.servir(principal, resident.demande(sys.argv[1:]))
+    '''), encoding="utf-8")
+    proc = subprocess.Popen([sys.executable, str(script), "--resident", "60"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8")
+    import threading
+
+    bloque = threading.Timer(60, proc.kill)  # l'entrée reste ouverte, comme dans l'application (communicate la
+    lignes = []                              # fermerait et débloquerait le moteur)
+    try:
+        assert proc.stdout.readline().startswith(residents.FIN)
+        time.sleep(0.5)  # le moteur attend sa tâche
+        proc.stdin.write(json.dumps({"argv": ["x"]}) + "\n")
+        proc.stdin.flush()
+        bloque.start()
+        for ligne in proc.stdout:
+            lignes.append(ligne.strip())
+            if ligne.startswith(residents.FIN):
+                break
+    finally:
+        bloque.cancel()
+        proc.kill()
+    assert lignes == ["RESULTAT 6", f"{residents.FIN} 0"]

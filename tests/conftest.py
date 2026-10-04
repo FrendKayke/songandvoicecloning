@@ -107,6 +107,15 @@ def env(tmp_path, monkeypatch):
             monkeypatch.setattr(cfg, nom, data / valeur.relative_to(vrai))
     data.mkdir(exist_ok=True)
     monkeypatch.setattr(cfg, "DATA_DIR", data)
+    # De même pour les moteurs (dossiers et Python) : sur une machine où ils sont installés, les tests voyaient les
+    # vrais (état des modèles, Python de Chatterbox présent après un retrait simulé)
+    vrais_moteurs = Path(cfg.ENG_DIR)
+    for nom, valeur in list(vars(cfg).items()):
+        if nom.endswith(("_DIR", "_PYTHON")) and isinstance(valeur, (str, Path)) and valeur:
+            chemin = Path(valeur)
+            if vrais_moteurs in chemin.parents:
+                faux = tmp_path / "StudioVoix" / chemin.relative_to(vrais_moteurs)
+                monkeypatch.setattr(cfg, nom, faux if isinstance(valeur, Path) else str(faux))
     monkeypatch.setattr(cfg, "ENG_DIR", tmp_path / "StudioVoix")
     monkeypatch.setattr(cfg, "ACESTEP_DIR", tmp_path / "StudioVoix" / "ace-step")
     monkeypatch.setattr(cfg, "SEEDVC_DIR", tmp_path / "StudioVoix" / "seed-vc")
@@ -297,10 +306,10 @@ def fake_engines(env, monkeypatch):
     pkgs = env / "fakepkgs" / "demucs"
     pkgs.mkdir(parents=True)
     (pkgs / "__init__.py").write_text("")
-    (pkgs / "separate.py").write_text(FAKE_DEMUCS)
+    (pkgs / "separate.py").write_text(FAKE_DEMUCS, encoding="utf-8")
     (pkgs / "__main__.py").write_text("from demucs.separate import main\nmain()\n")
     monkeypatch.setenv("PYTHONPATH", str(env / "fakepkgs"))
     cfg.SEEDVC_DIR.mkdir(parents=True)
-    (cfg.SEEDVC_DIR / "inference.py").write_text(FAKE_SEEDVC)
+    (cfg.SEEDVC_DIR / "inference.py").write_text(FAKE_SEEDVC, encoding="utf-8")
     monkeypatch.setattr(cfg, "SEEDVC_PYTHON", sys.executable)
     return env

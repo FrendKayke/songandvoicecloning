@@ -56,18 +56,19 @@ def format_pour(format_label, image=None):
     return FORMATS["Paysage 16:9, 720p (1280×704)"]
 
 
-def preparer(description, progress=gr.Progress()):
-    """Description française → prompt anglais pour la vidéo (Qwen3-VL), modifiable."""
+def preparer(description, image=None, progress=gr.Progress()):
+    """Description française → prompt anglais pour la vidéo (Qwen3-VL), modifiable. Avec une image de départ,
+    Qwen la voit : sans elle, il inventait couleurs et lumière (« tons cramoisis » sur une scène bleue, constaté)."""
     description = (description or "").strip()
     if not description:
         raise gr.Error("Décris la vidéo (en français ou en anglais).")
-    return diffusion.decrire("video", description, progress=progress)
+    return diffusion.decrire("video", description, image=image or None, progress=progress)
 
 
-def prompt_pret(description, prompt, progress=gr.Progress()):
+def prompt_pret(description, prompt, image=None, progress=gr.Progress()):
     """« Générer » sans avoir préparé le prompt (constaté : erreur « Il manque le prompt ») : le prompt anglais est
     préparé d'abord depuis la description, puis affiché ; un prompt déjà là (préparé ou retouché) est gardé."""
-    return (prompt or "").strip() or preparer(description, progress=progress)
+    return (prompt or "").strip() or preparer(description, image, progress=progress)
 
 
 def generer(prompt, image, format_label, duree_label, etapes, graine, nom="", description_fr=None,
@@ -124,7 +125,8 @@ def generer_suite(plans_texte, image, format_label, duree_label, etapes, graine,
         prompts = []
         for i, plan in enumerate(plans, 1):
             progress(0.05 * (i - 1) / n, desc=f"Plan {i}/{n} : préparation du prompt…")
-            prompts.append(preparer(plan, progress=lambda *a, **k: None))
+            # le premier plan part de l'image de départ : Qwen la voit (les suivants partent du clip précédent)
+            prompts.append(preparer(plan, image if i == 1 else None, progress=lambda *a, **k: None))
     largeur, hauteur = format_pour(format_label, image)
     images = DUREES.get(duree_label, DUREES[DUREE_DEFAUT])
     graine = int(graine or 0) or diffusion.graines(1)[0]

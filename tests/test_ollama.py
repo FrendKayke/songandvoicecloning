@@ -92,7 +92,7 @@ def test_avertissement_memoire_graphique_affiche(env, monkeypatch, tmp_path):
     monkeypatch.setattr(diag, "programmes_sur_la_carte", lambda: "ollama.exe (5400 Mo)")
     script = tmp_path / "moteur.py"
     script.write_text("print('AVERTISSEMENT : seulement 3.1 Go libres sur 12.0 Go de mémoire graphique.')\n"
-                      "print('PROGRESSION 1/1 ok')\n")
+                      "print('PROGRESSION 1/1 ok')\n", encoding="utf-8")  # cp1252 par défaut sous Windows
     outils.lancer_moteur([sys.executable, str(script)], tmp_path, None, "Essai")
     assert vus == ["seulement 3.1 Go libres sur 12.0 Go de mémoire graphique. Programmes sur la carte : "
                    "ollama.exe (5400 Mo). Ferme-les, puis relance."]

@@ -40,7 +40,9 @@ def liberer(progress=None):
     if not ACTIF:
         return []
     decharges = []
-    for nom, go in modeles_charges():
+    # 0,3 s : un Ollama local répond en quelques millisecondes ; sous Windows, une connexion refusée (Ollama absent)
+    # n'échoue qu'au bout d'environ 2 s, attendues avant chaque génération avec le délai d'une seconde.
+    for nom, go in modeles_charges(timeout=0.3):
         if not nom or go <= 0:
             continue  # modèle sur le processeur seulement : il ne gêne pas la carte
         if progress:
