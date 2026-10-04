@@ -400,8 +400,9 @@ IMAGE_DE_DEPART = ("The attached image is the first frame of the video. Keep its
 # Image libre d'après une photo (sujet ou composition repris) : Qwen décrit précisément le sujet de la photo.
 IMAGE_REFERENCE = ("The attached image is a reference photo for the picture to create: describe its main subject "
                    "precisely (appearance, clothes, colors) inside the new scene. ")
-IMAGE_PERSONNAGES = ("The attached image shows the main character(s) of the story: describe their appearance "
-                     "precisely, from this image, in every prompt. ")
+IMAGE_PERSONNAGES = ("The attached image shows the main character(s), creatures or places of the story (several "
+                     "reference pictures may be placed side by side): describe their appearance precisely, from "
+                     "this image, in every prompt where they appear. ")
 # Ajouté après l'histoire : un long texte français faisait oublier la consigne du début (prompts écrits en
 # français, constaté avec une histoire de 27 000 caractères sur la RTX 4070).
 RAPPEL_HISTOIRE = ("\n\nEnd of the story. Now write exactly {n} numbered prompts, one per line, IN ENGLISH (translate "

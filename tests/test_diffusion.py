@@ -855,3 +855,35 @@ def test_histoire_en_images_puis_mini_videos(faux_diffusion):
     assert [s["graine"] for s in galerie.lire(h2)["scenes"]] == [11, 12, 13]
     with pytest.raises(gr.Error, match="histoire"):
         videos.generer_depuis_images(None, progress=no_progress)
+
+
+def test_histoire_avec_images_de_depart(faux_diffusion):
+    """Images de départ (personnages, lieu) : Qwen les voit en planche, toutes les images les reprennent (klein),
+    sans l'image 1 de l'histoire en plus ; 3 au plus ; copiées pour la recréation."""
+    from PIL import Image
+
+    from studiovoix import galerie, images
+
+    depart = []
+    for k, taille in enumerate([(600, 900), (900, 600)], 1):
+        depart.append(str(faux_diffusion / f"perso_{k}.png"))
+        Image.new("RGB", taille, (k, k, k)).save(depart[-1])
+    images.decouper("Deux héros dans une forêt.", 2, depart, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    with Image.open(t["image"]) as planche:  # les deux images côte à côte, même hauteur
+        assert planche.height == 768 and planche.width == 512 + 16 + 1152
+    _, _, dossier = images.generer_histoire("two heroes walk in a forest\nthey find a cave", depart, [], images.AUTO,
+                                            True, 3, progress=no_progress)
+    j = [e["tache"] for e in _journal() if e["action"] in ("image", "personnage")][-2:]
+    assert [[Path(r).name for r in e["references"]] for e in j] == [
+        ["depart_1.png", "depart_2.png"], ["depart_1.png", "depart_2.png"]]  # pas l'image 1 : pose recopiée
+    assert images.DEPART in j[0]["prompt"] and images.DEPART in j[1]["prompt"]
+    w, h = j[0]["largeur"], j[0]["hauteur"]
+    assert h > w  # format automatique d'après la première image de départ (portrait)
+    assert galerie.lire(dossier)["depart"] == ["depart_1.png", "depart_2.png"]
+    _, nouveau = galerie.recreer(dossier, progress=no_progress)
+    assert [Path(r).name for r in _journal()[-1]["tache"]["references"]] == ["depart_1.png", "depart_2.png"]
+    # la photo de l'onglet sert d'image de départ quand le volet n'en a pas
+    assert images.images_de_depart(None, depart[0]) == [depart[0]]
+    with pytest.raises(gr.Error, match="3 au plus"):
+        images.images_de_depart(depart * 2)
