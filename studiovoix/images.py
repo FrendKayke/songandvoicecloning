@@ -45,6 +45,26 @@ GARDER_LE_RESTE = "Keep everything else exactly as in the reference image: same 
 SUJET = ("The main subject is the person or object of the reference image: keep their face, features, hair, "
          "body shape and recognizable details")
 COMPOSITION = "Follow the composition, pose and framing of the reference image"
+# plusieurs photos (1 à 4, références de FLUX.2 klein dans l'ordre) : le texte parle de « photo 1 », « photo 2 »…
+PHOTOS_MAX = 4
+GARDER_LE_RESTE_N = "Keep everything else exactly as in image 1: same people, faces, pose and framing"
+SUJET_N = ("Keep the faces, features, hair, outfits and recognizable details of the people, creatures and objects "
+           "taken from the reference images")
+COMPOSITION_N = "Follow the composition, pose and framing of image 1"
+
+
+def photos_de(photo, autres=None):
+    """La photo principale (chemin ou None) puis les autres photos (chemins ou fichiers Gradio), 4 au plus ; accepte
+    aussi une liste déjà faite. Vérifie qu'elles existent."""
+    liste = list(photo) if isinstance(photo, (list, tuple)) else ([photo] if photo else [])
+    liste += [getattr(f, "name", f) for f in (autres or []) if f]
+    liste = [str(c) for c in liste]
+    if len(liste) > PHOTOS_MAX:
+        raise gr.Error(f"{len(liste)} photos : {PHOTOS_MAX} au plus (la photo principale et 3 autres).")
+    for c in liste:
+        if not Path(c).is_file():
+            raise gr.Error(f"Photo introuvable : {c}")
+    return liste
 
 EXEMPLES = [
     ("Paysage de montagne", "un lac de montagne au lever du soleil, brume sur l'eau, sapins enneigés"),
@@ -75,10 +95,14 @@ def format_pour(format_label, photo=None):
     return FORMATS["Carré 1:1 (1024×1024)"]
 
 
-def prompt_final(prompt, styles=None, usage=None):
-    """usage : None (sans photo), « modifier », « sujet » ou « composition »."""
+def prompt_final(prompt, styles=None, usage=None, nombre_photos=1):
+    """usage : None (sans photo), « modifier », « sujet » ou « composition » ; plusieurs photos : consignes qui
+    désignent « image 1 »."""
     prompt = (prompt or "").strip().rstrip(".")
-    ajout = {"modifier": GARDER_LE_RESTE, "sujet": SUJET, "composition": COMPOSITION}.get(usage)
+    if nombre_photos > 1:
+        ajout = {"modifier": GARDER_LE_RESTE_N, "sujet": SUJET_N, "composition": COMPOSITION_N}.get(usage)
+    else:
+        ajout = {"modifier": GARDER_LE_RESTE, "sujet": SUJET, "composition": COMPOSITION}.get(usage)
     if ajout:
         prompt = f"{prompt}. {ajout}"
     style = texte(styles)
@@ -91,8 +115,10 @@ def preparer(description, photo=None, usage_label=USAGE_DEFAUT, progress=gr.Prog
     description = (description or "").strip()
     if not description:
         raise gr.Error("Décris l'image à créer, ou la modification à faire sur la photo (en français ou en anglais).")
-    mode = "retouche" if photo and usage_de(usage_label) == "modifier" else "scene"
-    return diffusion.decrire(mode, description, image=photo or None, progress=progress)
+    photos = photos_de(photo)
+    mode = "retouche" if photos and usage_de(usage_label) == "modifier" else "scene"
+    image = _planche(photos, numeros=True) if len(photos) > 1 else (photos[0] if photos else None)
+    return diffusion.decrire(mode, description, image=image, progress=progress, photos=len(photos))
 
 
 def prompt_pret(description, prompt, photo=None, usage_label=USAGE_DEFAUT, progress=gr.Progress()):
@@ -111,22 +137,22 @@ def generer(prompt, photo, usage_label, styles, format_label, variantes, graine,
     prompt = (prompt or "").strip()
     if not prompt:
         raise gr.Error("Il manque le prompt : clique d'abord sur « Préparer le prompt », ou écris-le en anglais.")
-    if photo and not Path(photo).is_file():
-        raise gr.Error(f"Photo introuvable : {photo}")
+    photos = photos_de(photo)
     debut = time.monotonic()
-    usage = usage_de(usage_label) if photo else None
+    usage = usage_de(usage_label) if photos else None
     format_label = format_label if format_label in FORMATS else AUTO
-    largeur, hauteur = format_pour(format_label, photo)
+    largeur, hauteur = format_pour(format_label, photos[0] if photos else None)
     n = max(1, min(4, int(variantes or 1)))
     dossier = nouveau_dossier(cfg.IMAGES_DIR)
-    copie = None
-    if photo:  # copiée dans la création : la recréer ne dépend pas du fichier d'origine
-        copie = dossier / f"photo{Path(photo).suffix.lower() or '.png'}"
-        shutil.copy(photo, copie)
-    final = prompt_final(prompt, styles, usage)
+    copies = []  # copiées dans la création : la recréer ne dépend pas des fichiers d'origine
+    for k, ph in enumerate(photos, 1):
+        copies.append(dossier / (f"photo{Path(ph).suffix.lower() or '.png'}" if k == 1
+                                 else f"photo_{k}{Path(ph).suffix.lower() or '.png'}"))
+        shutil.copy(ph, copies[-1])
+    final = prompt_final(prompt, styles, usage, len(copies))
     sorties = [dossier / f"variante_{i}.png" for i in range(1, n + 1)]
-    if copie:
-        res = diffusion.personnage(final, [copie], sorties, diffusion.graines(n, graine), largeur, hauteur,
+    if copies:
+        res = diffusion.personnage(final, copies, sorties, diffusion.graines(n, graine), largeur, hauteur,
                                    progress=progress)
     else:
         res = diffusion.image(final, sorties, diffusion.graines(n, graine), largeur, hauteur, progress=progress)
@@ -135,13 +161,16 @@ def generer(prompt, photo, usage_label, styles, format_label, variantes, graine,
     ecrire_creation(dossier, {
         "type": "image", "nom": nom, "description": prompt, "description_fr": (description_fr or "").strip() or None,
         "styles": styles, "format": format_label, "largeur": largeur, "hauteur": hauteur, "prompt": final,
-        "photo": copie.name if copie else None, "usage": usage, "temps_s": round(temps), "choisie": 1,
-        "moteur": "FLUX.2 klein 4B" if copie else "Z-Image-Turbo",
+        "photo": copies[0].name if copies else None, "autres_photos": [c.name for c in copies[1:]],
+        "usage": usage, "temps_s": round(temps), "choisie": 1,
+        "moteur": "FLUX.2 klein 4B" if copies else "Z-Image-Turbo",
         "versions": [{"graine": g, "dossier": ".", "fichier": f} for f, g in zip(res["fichiers"], res["graines"])],
     })
     galerie = [(f, f"Variante {i} (graine {g})") for i, (f, g) in enumerate(zip(res["fichiers"], res["graines"]), 1)]
     origine = {"modifier": "photo modifiée", "sujet": "sujet de la photo", "composition": "composition de la photo",
                None: "à partir du texte"}[usage]
+    if len(copies) > 1:
+        origine = f"{len(copies)} photos combinées"
     msg = (f"✅ {len(galerie)} image(s) {largeur}×{hauteur} ({origine}) en {duree_lisible(temps)}, dans {dossier}. "
            f"Graines : {', '.join(str(g) for g in res['graines'])}. Clique sur une variante pour la retoucher ou "
            "l'animer.")
@@ -177,7 +206,8 @@ def recreer(chemin, infos, graine, progress=gr.Progress()):
                                          infos.get("memes_personnages", True), infos["scenes"][0]["graine"],
                                          infos.get("nom"), infos.get("description_fr"), progress=progress)
         return dossier
-    _, _, dossier = generer(infos.get("description"), str(photo) if photo else None, infos.get("usage") or "modifier",
+    photos = ([str(photo)] if photo else []) + [str(Path(chemin) / f) for f in infos.get("autres_photos") or []]
+    _, _, dossier = generer(infos.get("description"), photos, infos.get("usage") or "modifier",
                             infos.get("styles"), infos.get("format") or AUTO, 1, graine, infos.get("nom"),
                             infos.get("description_fr"), progress=progress)
     return dossier
@@ -213,8 +243,9 @@ def images_de_depart(fichiers, photo=None):
     return chemins
 
 
-def _planche(chemins):
-    """Qwen ne reçoit qu'une image : plusieurs images de départ sont posées côte à côte (hauteur 768 px)."""
+def _planche(chemins, numeros=False):
+    """Qwen ne reçoit qu'une image : plusieurs images sont posées côte à côte (hauteur 768 px) ; numeros : « 1 »,
+    « 2 »… écrits en haut à gauche de chacune (photos de l'onglet, désignées par leur numéro dans le texte)."""
     if len(chemins) == 1:
         return chemins[0]
     ims = []
@@ -223,11 +254,17 @@ def _planche(chemins):
             im = ImageOps.exif_transpose(im).convert("RGB")
         ims.append(im.resize((max(1, round(im.width * 768 / im.height)), 768)))
     planche = Image.new("RGB", (sum(i.width for i in ims) + 16 * (len(ims) - 1), 768), "white")
+    from PIL import ImageDraw, ImageFont
+
+    dessin, police = ImageDraw.Draw(planche), ImageFont.load_default(size=72)
     x = 0
-    for im in ims:
+    for k, im in enumerate(ims, 1):
         planche.paste(im, (x, 0))
+        if numeros:
+            dessin.rectangle((x, 0, x + 90, 100), fill="black")
+            dessin.text((x + 45, 50), str(k), fill="white", font=police, anchor="mm")
         x += im.width + 16
-    sortie = cfg.DATA_DIR / "_tmp" / "planche_histoire.jpg"
+    sortie = cfg.DATA_DIR / "_tmp" / ("planche_photos.jpg" if numeros else "planche_histoire.jpg")
     sortie.parent.mkdir(parents=True, exist_ok=True)
     planche.save(sortie, quality=90)
     return str(sortie)

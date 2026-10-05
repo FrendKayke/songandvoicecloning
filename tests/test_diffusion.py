@@ -887,3 +887,44 @@ def test_histoire_avec_images_de_depart(faux_diffusion):
     assert images.images_de_depart(None, depart[0]) == [depart[0]]
     with pytest.raises(gr.Error, match="3 au plus"):
         images.images_de_depart(depart * 2)
+
+
+def test_images_plusieurs_photos(faux_diffusion):
+    """Onglet « Images » avec plusieurs photos : Qwen voit une planche numérotée, klein reçoit les photos dans
+    l'ordre, consignes qui désignent « image 1 », 4 photos au plus, recréation avec toutes les photos."""
+    from PIL import Image
+
+    from studiovoix import galerie, images
+
+    photos = []
+    for k, taille in enumerate([(800, 1000), (1200, 800), (600, 600)], 1):
+        photos.append(str(faux_diffusion / f"p{k}.jpg"))
+        Image.new("RGB", taille, (k * 40, 0, 0)).save(photos[-1])
+    liste = images.photos_de(photos[0], photos[1:])
+    assert liste == photos
+    sujet = next(k for k, v in images.USAGES.items() if v == "sujet")
+    images.preparer("la femme de la photo 1 dans le château de la photo 2", liste, sujet, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["mode"] == "scene" and t["photos"] == 3
+    with Image.open(t["image"]) as planche:
+        assert planche.height == 768 and planche.getpixel((10, 10)) == (0, 0, 0)  # numéro sur fond noir
+    msg, _, dossier = images.generer("the woman from image 1 in the castle from image 2", liste, sujet, [],
+                                     images.AUTO, 1, 4, progress=no_progress)
+    j = _journal()[-1]["tache"]
+    assert [Path(r).name for r in j["references"]] == ["photo.jpg", "photo_2.jpg", "photo_3.jpg"]
+    assert images.SUJET_N in j["prompt"] and images.SUJET not in j["prompt"] and "3 photos combinées" in msg
+    assert j["hauteur"] > j["largeur"]  # format automatique d'après la photo 1 (portrait)
+    assert galerie.lire(dossier)["autres_photos"] == ["photo_2.jpg", "photo_3.jpg"]
+    _, nouveau = galerie.recreer(dossier, progress=no_progress)
+    assert [Path(r).name for r in _journal()[-1]["tache"]["references"]] == ["photo.jpg", "photo_2.jpg", "photo_3.jpg"]
+    # « Modifier » avec 2 photos : retouche de la photo 1 avec un élément de la photo 2
+    images.preparer("mets-lui la veste de la photo 2", photos[:2], images.USAGE_DEFAUT, progress=no_progress)
+    assert _journal()[-1]["tache"]["mode"] == "retouche" and _journal()[-1]["tache"]["photos"] == 2
+    images.generer("Put the jacket from image 2 on the person of image 1", photos[:2], images.USAGE_DEFAUT, [],
+                   images.AUTO, 1, 0, progress=no_progress)
+    assert images.GARDER_LE_RESTE_N in _journal()[-1]["tache"]["prompt"]
+    # une seule photo : rien ne change (pas de planche, consignes d'origine)
+    images.preparer("mets-lui un chapeau", photos[0], images.USAGE_DEFAUT, progress=no_progress)
+    assert _journal()[-1]["tache"]["image"] == photos[0] and "photos" not in _journal()[-1]["tache"]
+    with pytest.raises(gr.Error, match="4 au plus"):
+        images.photos_de(photos[0], photos * 2)

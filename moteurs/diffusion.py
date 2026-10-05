@@ -400,6 +400,11 @@ IMAGE_DE_DEPART = ("The attached image is the first frame of the video. Keep its
 # Image libre d'après une photo (sujet ou composition repris) : Qwen décrit précisément le sujet de la photo.
 IMAGE_REFERENCE = ("The attached image is a reference photo for the picture to create: describe its main subject "
                    "precisely (appearance, clothes, colors) inside the new scene. ")
+# onglet « Images » avec plusieurs photos : une planche, photos numérotées ; FLUX.2 klein reçoit les références
+# dans le même ordre et comprend « image 1 », « image 2 »…
+PHOTOS_NUMEROTEES = ("The attached picture shows {n} reference photos side by side, numbered 1 to {n} from left to "
+                     "right. In your answer, refer to them as image 1, image 2... (for example: the woman from image "
+                     "1, the castle from image 2) and say precisely what to take from each one. ")
 IMAGE_PERSONNAGES = ("The attached image shows the main character(s), creatures or places of the story (several "
                      "reference pictures may be placed side by side): describe their appearance precisely, from "
                      "this image, in every prompt where they appear. ")
@@ -469,6 +474,8 @@ def decrire(chemin_tache):
     if t.get("image") and mode in MODES_TEXTE:  # texte + image : Qwen la voit (vidéo : première image ;
         consigne = {"video": IMAGE_DE_DEPART, "scene": IMAGE_REFERENCE,  # image : modèle)
                     "histoire": IMAGE_PERSONNAGES}.get(mode, "") + consigne
+    if t.get("image") and int(t.get("photos") or 1) > 1:
+        consigne = PHOTOS_NUMEROTEES.format(n=int(t["photos"])) + consigne
     suite = t.get("suite")  # {plans: [textes], indice (1…n), precedent: prompt du plan précédent ou None}
     if suite and mode in MODES_TEXTE:
         plans = suite["plans"]
