@@ -284,7 +284,8 @@ def recreer(chemin, version=1, progress=gr.Progress()):
                                           infos.get("webp", True), infos.get("description_fr"),
                                           personnage=infos.get("personnage"),
                                           photo=str(Path(chemin) / infos["photo_modele"]) if infos.get("photo_modele") else None,
-                                          usage_photo=infos.get("usage_photo") or "sujet", progress=progress)
+                                          usage_photo=infos.get("usage_photo") or "sujet",
+                                          image_1=cartes.description_de_version(infos, graine), progress=progress)
         return f"✅ Illustration recréée avec la graine {graine}.", dossier
     if infos["type"] == "image":
         from . import images

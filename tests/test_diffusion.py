@@ -318,8 +318,10 @@ def test_illustrations_de_cartes(faux_diffusion):
     assert _journal()[-1]["tache"] == {"mode": "carte", "texte": "un chevalier"}
     with pytest.raises(gr.Error, match="Décris la scène"):
         cartes.preparer(" ", progress=no_progress)
-    with pytest.raises(gr.Error, match="prompt de la scène"):
+    with pytest.raises(gr.Error, match="Il manque la scène"):
         cartes.generer("Mon Jeu", "x", "", [], "", None, 1, 0, progress=no_progress)
+    with pytest.raises(gr.Error, match="Il manque la scène"):  # contexte vide : chaque image doit être décrite
+        cartes.generer("Mon Jeu", "x", "", [], "", None, 2, 0, image_1="a ship", progress=no_progress)
     styles = ["16-bit pixel art, limited palette, crisp pixels", "violet et or"]  # un choix de liste + une saisie libre
     msg, images, dossier, projets = cartes.generer("Mon Jeu!", "Chevalier", "a golden knight.", styles, "soft rim light",
                                                    "Carte entière (portrait 2:3)", 3, 42, True, "un chevalier",
@@ -349,6 +351,40 @@ def test_illustrations_de_cartes(faux_diffusion):
     assert nouveau != chemin and _journal()[-1]["tache"]["graines"] == [graine_v2]
     assert galerie.lire(nouveau)["styles"] == styles and len(galerie.lister("Illustrations")) == 2
     assert not any(p.name == "style.json" for p in Path(nouveau).iterdir())  # style au niveau du projet seulement
+
+
+def test_illustrations_une_description_par_image(faux_diffusion):
+    from studiovoix import cartes, galerie
+
+    # contexte commun + une description par image : un prompt par image, envoyé au moteur dans l'ordre des sorties
+    contexte = "Four bearded men, all male, pirates in leather coats."
+    msg, images, dossier, _ = cartes.generer("Mon Jeu", "Équipage", contexte, ["oil painting"], "", None, 3, 5,
+                                             image_1="on the ship deck at dawn", image_2="fighting a kraken.",
+                                             image_3="", image_4="ignored", progress=no_progress)
+    t = _journal()[-1]["tache"]
+    attendu = [f"Four bearded men, all male, pirates in leather coats. {d}. Art style: oil painting. "
+               "No text, no letters, no frame." for d in ("on the ship deck at dawn", "fighting a kraken")]
+    attendu.append("Four bearded men, all male, pirates in leather coats. Art style: oil painting. "
+                   "No text, no letters, no frame.")
+    assert t["prompts"] == attendu and t["prompt"] == attendu[0] and len(images) == 3
+    infos = galerie.lire(dossier)
+    assert infos["images"] == ["on the ship deck at dawn", "fighting a kraken.", ""] and infos["prompts"] == attendu
+    assert infos["description"] == contexte
+    # recréer la 2e image : même contexte, même description, sa graine
+    graine_2 = infos["versions"][1]["graine"]
+    assert cartes.description_de_version(infos, graine_2) == "fighting a kraken."
+    _, nouveau = galerie.recreer(dossier, 2, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["graines"] == [graine_2] and t["prompt"] == attendu[1] and "prompts" not in t
+    # sans description par image : un seul prompt (encodé une fois)
+    cartes.generer("Mon Jeu", "x", contexte, [], "", None, 2, 1, progress=no_progress)
+    assert "prompts" not in _journal()[-1]["tache"]
+    # sans contexte, chaque image décrite suffit ; le prompt n'est alors pas préparé depuis le français
+    assert cartes.prompt_pret("", "", "a ship", "a kraken", progress=no_progress) == ""
+    assert cartes.prompt_pret("", " A group. ", progress=no_progress) == "A group."
+    cartes.generer("Mon Jeu", "x", "", [], "", None, 2, 1, image_1="a ship", image_2="a kraken", progress=no_progress)
+    assert _journal()[-1]["tache"]["prompts"][1].startswith("a kraken. No text")
+    assert [u["visible"] for u in cartes.maj_images(2)] == [True, True, False, False]
 
 
 def test_modele_3d_web_et_allegement(faux_diffusion, monkeypatch):

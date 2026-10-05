@@ -369,9 +369,11 @@ CONSIGNES = {
               "sentences, no artist or existing work. Answer with the prompt only:\n\n"),
     "carte": ("Rewrite the following description into an English prompt for an image generator that will paint "
               "ONE illustration for a fantasy trading card: main subject, pose or action, setting, lighting, colors "
-              "and mood, composition centered on the subject. Do not mention any art style, artist or existing "
-              "work. No text, no letters, no card frame, no border, no user interface. Answer with the prompt "
-              "only:\n\n"),
+              "and mood, composition centered on the subject. Keep exactly the characters of the description: the "
+              "same number of people, their gender and age; never add a character, an animal or a creature that is "
+              "not described. A single image, not a comic page: no panels. Do not mention any art style, artist or "
+              "existing work. No text, no letters, no card frame, no border, no user interface. Answer with the "
+              "prompt only:\n\n"),
     # onglet « Images » : image libre (texte seul, ou nouvelle scène d'après une photo)
     "scene": ("Rewrite the following description into a detailed English prompt for an image generator: main "
               "subject, action, setting, lighting, colors, mood and composition. If the description asks for a "
@@ -592,16 +594,17 @@ def image(chemin_tache):
 
     pipe = _garder(("Z-Image-Turbo", depot, t.get("gguf"), sans_encodeur, device), charger, 16,
                    vers_cpu=lambda p_: _sur_carte(p_))
+    prompts = _prompts(t)
     if sans_encodeur:  # test sans les 8 Go de l'encodeur : plongements de la bonne dimension
-        options = {"prompt_embeds": [torch.randn(24, pipe.transformer.config.cap_feat_dim, dtype=dtype)]}
+        plongements = {p_: [torch.randn(24, pipe.transformer.config.cap_feat_dim, dtype=dtype)] for p_ in prompts}
     else:
         if device == "cuda":
             _sur_carte(pipe, "vae", "text_encoder")
-        options = {"prompt_embeds": _encoder_une_fois(pipe, t["prompt"], do_classifier_free_guidance=False)}
+        plongements = {p_: _encoder_une_fois(pipe, p_, do_classifier_free_guidance=False) for p_ in prompts}
     if device == "cuda":
         _sur_carte(pipe, "vae", "transformer")
-        options["prompt_embeds"] = [e.to(device) for e in options["prompt_embeds"]]
-    _generer(pipe, t, dict(options, guidance_scale=0.0), etapes=9)
+        plongements = {p_: [e.to(device) for e in v] for p_, v in plongements.items()}
+    _generer(pipe, t, {"guidance_scale": 0.0}, etapes=9, plongements=[plongements[p_] for p_ in _prompts(t, tous=True)])
 
 
 def _sur_carte(pipe, *noms):
@@ -642,16 +645,29 @@ def _encoder_une_fois(pipe, prompt, **options):
         return pipe.encode_prompt(prompt=prompt, device=pipe._execution_device, **options)[0]
 
 
-def _generer(pipe, t, options, etapes):
-    """Une image par sortie de la tâche, chacune avec sa graine (générateur sur le processeur : reproductible)."""
+def _prompts(t, tous=False):
+    """Prompts de la tâche : « prompts » (un par sortie : contexte commun + description de chaque image) ou
+    « prompt » (le même pour toutes). tous=False : chacun une seule fois, dans l'ordre (à encoder) ; tous=True :
+    un par sortie."""
+    sorties = t["sorties"]
+    prompts = list(t.get("prompts") or [t["prompt"]] * len(sorties))
+    if len(prompts) != len(sorties):
+        _erreur(f"{len(prompts)} prompt(s) pour {len(sorties)} image(s).")
+    return prompts if tous else list(dict.fromkeys(prompts))
+
+
+def _generer(pipe, t, options, etapes, plongements):
+    """Une image par sortie de la tâche, chacune avec sa graine (générateur sur le processeur : reproductible) et
+    son prompt déjà encodé (plongements : un par sortie)."""
     import torch
 
     largeur, hauteur = int(t.get("largeur", 1024)), int(t.get("hauteur", 1024))
     sorties, graines = t["sorties"], [int(g) for g in t["graines"]]
     print(f"PROGRESSION 2/2 génération de {len(sorties)} image(s)", flush=True)
-    for i, (sortie, graine) in enumerate(zip(sorties, graines), 1):
+    for i, (sortie, graine, plongement) in enumerate(zip(sorties, graines, plongements), 1):
         im = _memoire(pipe)(
-            **options, height=hauteur, width=largeur, num_inference_steps=int(t.get("etapes", etapes)),
+            **options, prompt_embeds=plongement, height=hauteur, width=largeur,
+            num_inference_steps=int(t.get("etapes", etapes)),
             generator=torch.Generator("cpu").manual_seed(graine),
         ).images[0]
         Path(sortie).parent.mkdir(parents=True, exist_ok=True)
@@ -710,17 +726,20 @@ def personnage(chemin_tache):
 
     pipe = _garder(("FLUX.2 klein", depot, depot_encodeur, t.get("gguf"), sans_encodeur, device), charger, 13,
                    vers_cpu=lambda p_: _sur_carte(p_))
+    prompts = _prompts(t)
     if sans_encodeur:  # 3 couches cachées de l'encodeur mises bout à bout
-        options = {"prompt_embeds": torch.randn(1, 24, pipe.transformer.config.joint_attention_dim, dtype=dtype)}
+        plongements = {p_: torch.randn(1, 24, pipe.transformer.config.joint_attention_dim, dtype=dtype)
+                       for p_ in prompts}
     else:
         if device == "cuda":
             _sur_carte(pipe, "vae", "text_encoder")  # encodeur : 8 Go, seul sur la carte
-        options = {"prompt_embeds": _encoder_une_fois(pipe, t["prompt"])}
+        plongements = {p_: _encoder_une_fois(pipe, p_) for p_ in prompts}
     if device == "cuda":
         _sur_carte(pipe, "vae", "transformer")  # transformeur (4,3 Go) et VAE : sur la carte pour toutes les variantes
-        options["prompt_embeds"] = options["prompt_embeds"].to(device)
+        plongements = {p_: v.to(device) for p_, v in plongements.items()}
     print(f"{len(references)} image(s) de référence du personnage.", flush=True)
-    _generer(pipe, t, dict(options, image=references, guidance_scale=1.0), etapes=4)
+    _generer(pipe, t, {"image": references, "guidance_scale": 1.0}, etapes=4,
+             plongements=[plongements[p_] for p_ in _prompts(t, tous=True)])
 
 
 # --- Wan 2.2 : vidéo à partir d'un texte ou d'une image ----------------------------------------------------

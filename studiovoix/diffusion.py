@@ -185,21 +185,33 @@ def graines(n, graine=None):
     return tirage
 
 
+def _prompts(prompt, sorties):
+    """Un prompt pour toutes les images, ou une liste (un par image) : {"prompt"} ou {"prompt", "prompts"}."""
+    if isinstance(prompt, (list, tuple)):
+        if len(prompt) != len(sorties):
+            raise ValueError(f"{len(prompt)} prompts pour {len(sorties)} images")
+        return {"prompt": prompt[0], "prompts": list(prompt)}
+    return {"prompt": prompt}
+
+
 def image(prompt, sorties, graines_, largeur=1024, hauteur=1024, etapes=9, progress=None):
-    """Z-Image-Turbo : une image par chemin de `sorties`, avec la graine correspondante. RESULTAT {fichiers, graines}."""
+    """Z-Image-Turbo : une image par chemin de `sorties`, avec la graine correspondante ; prompt = un texte pour
+    toutes, ou une liste d'un texte par image. RESULTAT {fichiers, graines}."""
     _verifier("zimage")
     sorties = [str(s) for s in sorties]
-    return lancer("image", {"prompt": prompt, "sorties": sorties, "graines": [int(g) for g in graines_],
+    return lancer("image", {**_prompts(prompt, sorties), "sorties": sorties, "graines": [int(g) for g in graines_],
                             "largeur": int(largeur), "hauteur": int(hauteur), "etapes": int(etapes)},
                   Path(sorties[0]).parent, "Z-Image", progress,
                   {1: "chargement de Z-Image-Turbo", 2: f"génération de {len(sorties)} image(s)"})
 
 
 def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024, etapes=4, progress=None):
-    """FLUX.2 klein 4B : images du personnage des `references` (1 à 4 images) dans la scène du prompt."""
+    """FLUX.2 klein 4B : images du personnage des `references` (1 à 4 images) dans la scène du prompt (un texte, ou
+    une liste d'un texte par image)."""
     _verifier("zimage", "personnages")
     sorties = [str(s) for s in sorties]
-    return lancer("personnage", {"prompt": prompt, "references": [str(r) for r in references], "sorties": sorties,
+    return lancer("personnage", {**_prompts(prompt, sorties), "references": [str(r) for r in references],
+                                 "sorties": sorties,
                                  "graines": [int(g) for g in graines_], "largeur": int(largeur),
                                  "hauteur": int(hauteur), "etapes": int(etapes)},
                   Path(sorties[0]).parent, "FLUX.2 klein", progress,

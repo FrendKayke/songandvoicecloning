@@ -95,9 +95,12 @@ MEME_PERSONNAGE = ("The main character is exactly the same character as in the r
 
 
 # Photo modèle : ce qu'on en garde (libellé → consigne ajoutée à la scène)
-PHOTO_SUJET = ("The main subject is the person or object shown in the reference photo: keep their face, features, "
-               "hair, body shape and recognizable details, redrawn as an illustration (not a photograph) in the art "
-               "style below, in a new pose for this scene")
+# Photo de groupe (constaté : quatre hommes sur la photo, des femmes ajoutées dans chaque image avec « the person ») :
+# on demande de garder chaque personne, leur nombre et leur genre, et de n'en ajouter aucune.
+PHOTO_SUJET = ("The subjects are exactly the people or objects shown in the reference photo: keep every person, the same "
+               "number of people, their gender, faces, features, hair, beards and body shapes, redrawn as an "
+               "illustration (not a photograph) in the art style below, in a new pose for this scene. Do not add any "
+               "other person")
 PHOTO_COMPOSITION = ("Follow the composition, pose and framing of the reference photo, redrawn as an illustration "
                      "(not a photograph) in the art style below")
 USAGES_PHOTO = {
@@ -126,19 +129,39 @@ def preparer(description, progress=gr.Progress()):
     return diffusion.decrire("carte", description, progress=progress)
 
 
-def prompt_pret(description, prompt, progress=gr.Progress()):
-    """« Générer » sans avoir préparé le prompt (constaté : erreur « Il manque le prompt ») : le prompt anglais est
-    préparé d'abord depuis la description, puis affiché ; un prompt déjà là (préparé ou retouché) est gardé."""
-    return (prompt or "").strip() or preparer(description, progress=progress)
+def prompt_pret(description, prompt, *images, progress=gr.Progress()):
+    """« Générer » sans avoir préparé le prompt (constaté : erreur « Il manque le prompt ») : le contexte anglais est
+    préparé d'abord depuis la description française, puis affiché ; un contexte déjà là (écrit en anglais, préparé
+    ou retouché) est gardé tel quel. Sans contexte ni scène française, les descriptions de chaque image suffisent."""
+    prompt = (prompt or "").strip()
+    if prompt or (not (description or "").strip() and any((i or "").strip() for i in images)):
+        return prompt
+    return preparer(description, progress=progress)
+
+
+IMAGES_MAX = 4  # variantes d'une génération
+
+
+def scenes_par_image(contexte, descriptions, n):
+    """Scène de chaque image : le contexte commun (personnages, décor, ambiance) suivi de la description propre à
+    l'image (facultative, en anglais). Liste de n scènes."""
+    contexte = (contexte or "").strip().rstrip(".")
+    descriptions = [(d or "").strip() for d in (list(descriptions or []) + [""] * n)[:n]]
+    return [". ".join(x for x in (contexte, d.rstrip(".")) if x) for d in descriptions], descriptions
 
 
 def generer(projet, nom, scene, styles, consignes, format_label, variantes, graine, webp=True, description_fr=None,
-            personnage=None, photo=None, usage_photo=USAGE_PHOTO_DEFAUT, progress=gr.Progress()):
+            personnage=None, photo=None, usage_photo=USAGE_PHOTO_DEFAUT, image_1="", image_2="", image_3="",
+            image_4="", progress=gr.Progress()):
     """Génère les variantes (avec FLUX.2 klein si un personnage ou une photo modèle est donné, Z-Image-Turbo sinon).
+    scene = contexte commun à toutes les images ; image_1… image_4 = ce que montre chaque image (facultatif).
     Renvoie (message, galerie [(image, légende)], dossier, liste des projets)."""
+    n = max(1, min(IMAGES_MAX, int(variantes or 1)))
+    scenes, descriptions = scenes_par_image(scene, [image_1, image_2, image_3, image_4], n)
     scene = (scene or "").strip()
-    if not scene:
-        raise gr.Error("Il manque le prompt de la scène : clique d'abord sur « Préparer le prompt », ou écris-le en anglais.")
+    if not all(scenes):
+        raise gr.Error("Il manque la scène : écris le contexte (en anglais, ou en français puis « Préparer le prompt »), "
+                       "ou décris chaque image.")
     projet = nom_projet(projet)
     personnage = None if personnage in (None, "", personnages.AUCUN) else personnage
     references = personnages.references(projet, personnage) if personnage else []
@@ -149,7 +172,6 @@ def generer(projet, nom, scene, styles, consignes, format_label, variantes, grai
     usage = USAGES_PHOTO.get(usage_photo, usage_photo if usage_photo in USAGES_PHOTO.values() else "sujet")
     format_label = format_label if format_label in FORMATS else FORMAT_DEFAUT
     largeur, hauteur = FORMATS[format_label]
-    n = max(1, min(4, int(variantes or 1)))
     dossier = nouveau_dossier(cfg.CARDS_DIR / projet)
     photo_modele = None
     if photo:  # copiée dans la création : la recréer plus tard ne dépend pas du fichier d'origine
@@ -161,7 +183,9 @@ def generer(projet, nom, scene, styles, consignes, format_label, variantes, grai
     _fichier_style(projet).write_text(json.dumps({"styles": list(styles or []) if not isinstance(styles, str) else [styles],
                                                   "consignes": (consignes or "").strip(), "format": format_label},
                                                  ensure_ascii=False, indent=1), encoding="utf-8")
-    prompt = prompt_final(scene, styles, consignes, personnage=bool(personnage), photo=usage if photo else None)
+    prompts = [prompt_final(s, styles, consignes, personnage=bool(personnage), photo=usage if photo else None)
+               for s in scenes]
+    prompt = prompts[0] if len(set(prompts)) == 1 else prompts  # un seul texte : encodé une fois pour toutes
     sorties = [dossier / f"variante_{i}.png" for i in range(1, n + 1)]
     if klein:
         res = diffusion.personnage(prompt, references, sorties, diffusion.graines(n, graine), largeur, hauteur,
@@ -176,7 +200,9 @@ def generer(projet, nom, scene, styles, consignes, format_label, variantes, grai
     ecrire_creation(dossier, {
         "type": "carte", "projet": projet, "nom": nom, "description": scene,
         "description_fr": (description_fr or "").strip() or None, "styles": styles, "consignes": consignes,
-        "format": format_label, "largeur": largeur, "hauteur": hauteur, "prompt": prompt, "webp": bool(webp), "choisie": 1,
+        "format": format_label, "largeur": largeur, "hauteur": hauteur, "prompt": prompts[0], "webp": bool(webp),
+        "choisie": 1, "images": descriptions if any(descriptions) else None,
+        "prompts": prompts if len(set(prompts)) > 1 else None,
         "personnage": personnage, "references": [str(r) for r in references] or None,
         "photo_modele": photo_modele.name if photo_modele else None, "usage_photo": usage if photo_modele else None,
         "moteur": "FLUX.2 klein 4B" if klein else "Z-Image-Turbo",
@@ -189,6 +215,21 @@ def generer(projet, nom, scene, styles, consignes, format_label, variantes, grai
     msg = (f"✅ {len(galerie)} illustration(s) {largeur}×{hauteur} pour « {nom} » (projet {projet}{avec}) dans {dossier}. "
            f"Graines : {', '.join(str(g) for g in res['graines'])}.")
     return msg, galerie, str(dossier), gr.update(choices=projets(), value=projet)
+
+
+def description_de_version(infos, graine):
+    """Description propre à l'image de cette graine (recréation depuis la galerie), ou ""."""
+    images = infos.get("images") or []
+    for i, v in enumerate(infos.get("versions") or []):
+        if v.get("graine") == graine and i < len(images):
+            return images[i] or ""
+    return ""
+
+
+def maj_images(variantes):
+    """Autant de champs « Image i » que de variantes demandées."""
+    n = max(1, min(IMAGES_MAX, int(variantes or 1)))
+    return [gr.update(visible=i < n) for i in range(IMAGES_MAX)]
 
 
 def choisir(dossier, evt: gr.SelectData):
