@@ -224,7 +224,7 @@ NOMBRE_MAX = 12
 MEMES_PERSONNAGES = ("Same characters as in the reference image(s): same faces, hair, bodies, outfits and colors, "
                      "same art style, shown in this new moment of the story")
 # contexte commun de l'histoire (personnages, lieu) donné à Qwen : il est ajouté devant chaque prompt ensuite
-CONTEXTE_POUR_QWEN = ("Common context, added automatically before every prompt (do not repeat it, never contradict "
+CONTEXTE_POUR_QWEN = ("Common context, added automatically to every prompt (do not repeat it, never contradict "
                       "it: same characters, same number of people, same gender): {contexte}\n\nFor each image, "
                       "describe only what happens in this moment: action, poses, place, lighting.\n\n")
 # images de départ données par l'utilisateur (personnages, créature, lieu, style) : FLUX.2 klein accepte 4
@@ -292,7 +292,7 @@ def scenes_du_texte(texte):
 def decouper(histoire, nombre, photo=None, contexte="", progress=gr.Progress()):
     """Le texte → `nombre` prompts anglais (Qwen3-VL, mode « histoire »), un par ligne, modifiables. Qwen voit les
     images de départ s'il y en a (photo : un chemin ou une liste ; plusieurs = une planche) et le contexte commun
-    (ajouté ensuite devant chaque prompt : Qwen ne décrit que le moment de chaque image, sans le contredire)."""
+    (ajouté ensuite à chaque prompt : Qwen ne décrit que le moment de chaque image, sans le contredire)."""
     histoire = (histoire or "").strip()
     if not histoire:
         raise gr.Error("Écris d'abord l'histoire (en français ou en anglais).")
@@ -339,17 +339,20 @@ def maj_champs_images(nombre):
     return [gr.update(visible=i < n) for i in range(NOMBRE_MAX)]
 
 
-def scenes_avec_contexte(contexte, descriptions):
-    """Prompt de chaque image : le contexte commun (personnages, lieu, ambiance) suivi de la description propre à
-    l'image ; une description vide = le contexte seul."""
+def scenes_avec_contexte(contexte, descriptions, ajout=None):
+    """Prompt de chaque image : d'abord ce qu'elle montre (sa description, puis `ajout`, la consigne des images de
+    référence), ensuite le contexte commun (personnages, lieu, ambiance) ; une description vide = le contexte seul.
+    Dans cet ordre, un texte trop long pour le générateur perd la fin du contexte, jamais l'action de l'image
+    (constaté : contexte de quatre personnages devant, description coupée, même portrait de groupe partout)."""
     contexte = (contexte or "").strip().rstrip(".")
-    return [". ".join(x for x in (contexte, (d or "").strip().rstrip(".")) if x) for d in descriptions]
+    return [". ".join(x for x in ((d or "").strip().rstrip("."), (ajout or "").rstrip("."), contexte) if x)
+            for d in descriptions]
 
 
 def generer_histoire(scenes_texte, photo, styles, format_label, memes_personnages=True, graine=0, nom="",
                      histoire=None, contexte="", progress=gr.Progress()):
     """Une image par scène. scenes_texte : une scène par ligne, ou la liste des descriptions (une par image, vides
-    permises avec un contexte). contexte : texte anglais ajouté devant chaque scène. photo : une image de départ, une
+    permises avec un contexte). contexte : texte anglais ajouté à chaque scène, après sa description. photo : une image de départ, une
     liste (3 au plus : personnages, lieu, style) ou None. Sans image de départ, l'image 1 vient de Z-Image ; avec,
     toutes viennent de FLUX.2 klein et les reprennent. Images suivantes : l'image 1 en plus comme référence si
     « mêmes personnages ». Renvoie (message, galerie, dossier)."""
@@ -393,7 +396,7 @@ def generer_histoire(scenes_texte, photo, styles, format_label, memes_personnage
         suite = [dossier / "scene_1.png"] if i > 1 and memes_personnages and not copies else []
         references = copies + suite
         ajout = MEMES_PERSONNAGES if suite else (DEPART if copies else None)
-        final = prompt_final(scene, styles) if not ajout else prompt_final(f"{scene.rstrip('.')}. {ajout}", styles)
+        final = prompt_final(scenes_avec_contexte(contexte, [descriptions[i - 1]], ajout)[0], styles)
         if references:
             res = diffusion.personnage(final, references, [sortie], [graine + i - 1], largeur, hauteur, progress=suivi)
         else:

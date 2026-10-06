@@ -635,14 +635,36 @@ def _sur_carte(pipe, *noms):
         torch.cuda.synchronize()
 
 
+# Longueur du texte lu par Z-Image et FLUX.2 klein : 512 jetons par défaut dans diffusers, et la suite est COUPÉE
+# sans prévenir (truncation=True). Constaté : un contexte de quatre personnages décrits en détail dépassait 512
+# jetons, la description de chaque image (à la fin) disparaissait et toutes les images montraient le même portrait
+# de groupe. Au-delà de 512, la longueur est portée au multiple de 64 suffisant, jusqu'à TEXTE_MAX (Z-Image prévoit
+# 1536 positions de texte, axes_lens[0] ; klein calcule ses positions à la volée). En dessous, rien ne change.
+TEXTE_DEFAUT, TEXTE_MAX = 512, 1024
+
+
+def _longueur_texte(pipe, prompt):
+    """max_sequence_length pour ce prompt (gabarit de conversation compris) ; avertit s'il faut quand même couper."""
+    jetons = len(pipe.tokenizer.apply_chat_template([{"role": "user", "content": prompt}], tokenize=True,
+                                                    add_generation_prompt=True))
+    if jetons <= TEXTE_DEFAUT:
+        return TEXTE_DEFAUT
+    if jetons > TEXTE_MAX:
+        print(f"AVERTISSEMENT : prompt trop long ({jetons} jetons) : le générateur n'en lit que {TEXTE_MAX}, la fin "
+              f"est ignorée (« …{prompt[-80:]} »). Raccourcis le contexte ou les descriptions.", flush=True)
+        return TEXTE_MAX
+    return -(-jetons // 64) * 64
+
+
 def _encoder_une_fois(pipe, prompt, **options):
     """Le texte est encodé une seule fois pour toutes les variantes. Sinon, sur 12 Go (déchargement vers la mémoire
     vive), chaque variante recharge l'encodeur (8 Go) puis le transformeur sur la carte : la carte attend les
-    transferts au lieu de calculer."""
+    transferts au lieu de calculer. Longueur lue : _longueur_texte (sinon coupé à 512 jetons)."""
     import torch
 
     with torch.no_grad():
-        return pipe.encode_prompt(prompt=prompt, device=pipe._execution_device, **options)[0]
+        return pipe.encode_prompt(prompt=prompt, device=pipe._execution_device,
+                                  max_sequence_length=_longueur_texte(pipe, prompt), **options)[0]
 
 
 def _prompts(t, tous=False):

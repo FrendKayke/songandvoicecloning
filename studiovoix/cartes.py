@@ -143,11 +143,12 @@ IMAGES_MAX = 4  # variantes d'une génération
 
 
 def scenes_par_image(contexte, descriptions, n):
-    """Scène de chaque image : le contexte commun (personnages, décor, ambiance) suivi de la description propre à
-    l'image (facultative, en anglais). Liste de n scènes."""
+    """Scène de chaque image : la description propre à l'image (facultative, en anglais) puis le contexte commun
+    (personnages, décor, ambiance) ; dans cet ordre, un texte trop long pour le générateur perd la fin du contexte,
+    jamais l'action de l'image. Liste de n scènes."""
     contexte = (contexte or "").strip().rstrip(".")
     descriptions = [(d or "").strip() for d in (list(descriptions or []) + [""] * n)[:n]]
-    return [". ".join(x for x in (contexte, d.rstrip(".")) if x) for d in descriptions], descriptions
+    return [". ".join(x for x in (d.rstrip("."), contexte) if x) for d in descriptions], descriptions
 
 
 def generer(projet, nom, scene, styles, consignes, format_label, variantes, graine, webp=True, description_fr=None,

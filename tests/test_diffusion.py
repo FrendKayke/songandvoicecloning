@@ -362,7 +362,8 @@ def test_illustrations_une_description_par_image(faux_diffusion):
                                              image_1="on the ship deck at dawn", image_2="fighting a kraken.",
                                              image_3="", image_4="ignored", progress=no_progress)
     t = _journal()[-1]["tache"]
-    attendu = [f"Four bearded men, all male, pirates in leather coats. {d}. Art style: oil painting. "
+    # description de l'image d'abord, contexte ensuite : un texte trop long perd la fin du contexte, pas l'action
+    attendu = [f"{d}. Four bearded men, all male, pirates in leather coats. Art style: oil painting. "
                "No text, no letters, no frame." for d in ("on the ship deck at dawn", "fighting a kraken")]
     attendu.append("Four bearded men, all male, pirates in leather coats. Art style: oil painting. "
                    "No text, no letters, no frame.")
@@ -918,9 +919,10 @@ def test_histoire_contexte_et_une_description_par_image(faux_diffusion):
     _, gal, dossier = images.generer_histoire(champs[:3], None, [], images.AUTO, True, 5, "Groupe",
                                               contexte=contexte, progress=no_progress)
     j = [e["tache"] for e in _journal() if e["action"] in ("image", "personnage")][-3:]
-    assert j[0]["prompt"].startswith("Four bearded men, all male, medieval adventurers. they leave the village at dawn.")
-    assert j[1]["prompt"].startswith("Four bearded men, all male, medieval adventurers. " + images.MEMES_PERSONNAGES)
-    assert j[2]["prompt"].startswith("Four bearded men, all male, medieval adventurers. they fight a troll. ")
+    # description de l'image, consigne de la référence, puis le contexte (coupé en dernier si trop long)
+    assert j[0]["prompt"].startswith("they leave the village at dawn. Four bearded men, all male, medieval adventurers.")
+    assert j[1]["prompt"].startswith(images.MEMES_PERSONNAGES + ". Four bearded men, all male, medieval adventurers.")
+    assert j[2]["prompt"].startswith("they fight a troll. " + images.MEMES_PERSONNAGES + ". Four bearded men")
     infos = galerie.lire(dossier)
     assert infos["contexte"] == contexte and [s["image"] for s in infos["scenes"]] == [
         "they leave the village at dawn.", "", "they fight a troll"]
@@ -1004,3 +1006,19 @@ def test_images_plusieurs_photos(faux_diffusion):
     assert _journal()[-1]["tache"]["image"] == photos[0] and "photos" not in _journal()[-1]["tache"]
     with pytest.raises(gr.Error, match="4 au plus"):
         images.photos_de(photos[0], photos * 2)
+
+
+def test_longueur_du_texte_lu_par_le_generateur(capsys):
+    """Z-Image / klein coupent le texte à 512 jetons par défaut (sans prévenir) : un prompt plus long est lu jusqu'à
+    TEXTE_MAX (multiple de 64), au-delà un avertissement est écrit ; un prompt court garde 512."""
+    from types import SimpleNamespace
+
+    class Tokeniseur:  # un jeton par mot, plus 10 pour le gabarit de conversation
+        def apply_chat_template(self, messages, tokenize, add_generation_prompt):
+            return list(range(len(messages[0]["content"].split()) + 10))
+
+    pipe = SimpleNamespace(tokenizer=Tokeniseur())
+    assert moteur._longueur_texte(pipe, "a cat") == moteur.TEXTE_DEFAUT == 512
+    assert moteur._longueur_texte(pipe, "w " * 600) == 640 and "AVERTISSEMENT" not in capsys.readouterr().out
+    assert moteur._longueur_texte(pipe, "w " * 2000 + "fin") == moteur.TEXTE_MAX == 1024
+    assert "AVERTISSEMENT : prompt trop long (2011 jetons)" in capsys.readouterr().out
