@@ -201,10 +201,13 @@ def recreer(chemin, infos, graine, progress=gr.Progress()):
         raise gr.Error(f"Photo introuvable : {photo}")
     if infos.get("scenes"):  # histoire : mêmes scènes, même graine de départ (celle de la première image)
         depart = [str(Path(chemin) / f) for f in infos.get("depart") or []] or ([str(photo)] if photo else [])
-        _, _, dossier = generer_histoire("\n".join(s["scene"] for s in infos["scenes"]), depart,
-                                         infos.get("styles"), infos.get("format") or AUTO,
+        # avec un contexte : mêmes descriptions par image ; sinon (créations d'avant) : les scènes complètes
+        scenes = ([s.get("image") or "" for s in infos["scenes"]] if infos.get("contexte")
+                  else [s["scene"] for s in infos["scenes"]])
+        _, _, dossier = generer_histoire(scenes, depart, infos.get("styles"), infos.get("format") or AUTO,
                                          infos.get("memes_personnages", True), infos["scenes"][0]["graine"],
-                                         infos.get("nom"), infos.get("description_fr"), progress=progress)
+                                         infos.get("nom"), infos.get("description_fr"),
+                                         contexte=infos.get("contexte") or "", progress=progress)
         return dossier
     photos = ([str(photo)] if photo else []) + [str(Path(chemin) / f) for f in infos.get("autres_photos") or []]
     _, _, dossier = generer(infos.get("description"), photos, infos.get("usage") or "modifier",
@@ -220,6 +223,10 @@ NOMBRE_MAX = 12
 # décor » ne changeait presque rien et ajoutait parfois un personnage (essais sur la RTX 4070) : ça dépend de la graine
 MEMES_PERSONNAGES = ("Same characters as in the reference image(s): same faces, hair, bodies, outfits and colors, "
                      "same art style, shown in this new moment of the story")
+# contexte commun de l'histoire (personnages, lieu) donné à Qwen : il est ajouté devant chaque prompt ensuite
+CONTEXTE_POUR_QWEN = ("Common context, added automatically before every prompt (do not repeat it, never contradict "
+                      "it: same characters, same number of people, same gender): {contexte}\n\nFor each image, "
+                      "describe only what happens in this moment: action, poses, place, lighting.\n\n")
 # images de départ données par l'utilisateur (personnages, créature, lieu, style) : FLUX.2 klein accepte 4
 # références, la 4ᵉ est l'image 1 de l'histoire (« mêmes personnages »)
 REFERENCES_MAX = 3
@@ -282,15 +289,20 @@ def scenes_du_texte(texte):
             for ligne in texte.splitlines() if ligne.strip()]
 
 
-def decouper(histoire, nombre, photo=None, progress=gr.Progress()):
+def decouper(histoire, nombre, photo=None, contexte="", progress=gr.Progress()):
     """Le texte → `nombre` prompts anglais (Qwen3-VL, mode « histoire »), un par ligne, modifiables. Qwen voit les
-    images de départ s'il y en a (photo : un chemin ou une liste ; plusieurs = une planche)."""
+    images de départ s'il y en a (photo : un chemin ou une liste ; plusieurs = une planche) et le contexte commun
+    (ajouté ensuite devant chaque prompt : Qwen ne décrit que le moment de chaque image, sans le contredire)."""
     histoire = (histoire or "").strip()
     if not histoire:
         raise gr.Error("Écris d'abord l'histoire (en français ou en anglais).")
     n = max(2, min(NOMBRE_MAX, int(nombre or 4)))
     photos = [photo] if isinstance(photo, str) else list(photo or [])
-    texte_ = diffusion.decrire("histoire", f"Number of images: {n}\n\nStory: {histoire}",
+    contexte = (contexte or "").strip()
+    entete = f"Number of images: {n}\n\n"
+    if contexte:
+        entete += CONTEXTE_POUR_QWEN.format(contexte=contexte)
+    texte_ = diffusion.decrire("histoire", f"{entete}Story: {histoire}",
                                image=_planche(photos) if photos else None, progress=progress, nombre=n)
     scenes = [s for s in scenes_du_texte(texte_) if len(s.split()) > 3]
     if not scenes:
@@ -300,22 +312,65 @@ def decouper(histoire, nombre, photo=None, progress=gr.Progress()):
     return "\n".join(scenes[:n])
 
 
-def scenes_pretes(histoire, scenes, nombre, photo=None, progress=gr.Progress()):
-    """Avant « Générer les images » : scènes vides → découpées d'abord depuis l'histoire ; sinon gardées."""
-    return (scenes or "").strip() or decouper(histoire, nombre, photo, progress=progress)
+def scenes_pretes(histoire, scenes, nombre, photo=None, contexte="", progress=gr.Progress()):
+    """Avant « Générer les images » : scènes vides → découpées d'abord depuis l'histoire ; sinon gardées.
+    scenes : un texte (une scène par ligne) ou la liste des champs « Image i » (alors une liste de `nombre` textes ;
+    vides sans histoire mais avec un contexte : chaque image reprend le contexte seul)."""
+    if isinstance(scenes, str) or scenes is None:
+        return (scenes or "").strip() or decouper(histoire, nombre, photo, contexte, progress=progress)
+    n = max(2, min(NOMBRE_MAX, int(nombre or 4)))
+    champs = [(d or "").strip() for d in (list(scenes) + [""] * n)[:n]]
+    if any(champs) or (not (histoire or "").strip() and (contexte or "").strip()):
+        return champs
+    return (scenes_du_texte(decouper(histoire, n, photo, contexte, progress=progress)) + [""] * n)[:n]
+
+
+def champs_images(scenes, nombre=None):
+    """Valeurs des NOMBRE_MAX champs « Image i » (texte d'une scène par ligne, ou liste) ; seuls les `nombre`
+    premiers sont visibles."""
+    liste = scenes_du_texte(scenes) if isinstance(scenes, str) else [(d or "").strip() for d in scenes or []]
+    n = max(2, min(NOMBRE_MAX, int(nombre or len(liste) or 4)))
+    return [gr.update(value=liste[i] if i < len(liste) else "", visible=i < n) for i in range(NOMBRE_MAX)]
+
+
+def maj_champs_images(nombre):
+    """Slider « Nombre d'images » : autant de champs « Image i » visibles."""
+    n = max(2, min(NOMBRE_MAX, int(nombre or 4)))
+    return [gr.update(visible=i < n) for i in range(NOMBRE_MAX)]
+
+
+def scenes_avec_contexte(contexte, descriptions):
+    """Prompt de chaque image : le contexte commun (personnages, lieu, ambiance) suivi de la description propre à
+    l'image ; une description vide = le contexte seul."""
+    contexte = (contexte or "").strip().rstrip(".")
+    return [". ".join(x for x in (contexte, (d or "").strip().rstrip(".")) if x) for d in descriptions]
 
 
 def generer_histoire(scenes_texte, photo, styles, format_label, memes_personnages=True, graine=0, nom="",
-                     histoire=None, progress=gr.Progress()):
-    """Une image par scène. photo : une image de départ, une liste (3 au plus : personnages, lieu, style) ou None.
-    Sans image de départ, l'image 1 vient de Z-Image ; avec, toutes viennent de FLUX.2 klein et les reprennent.
-    Images suivantes : l'image 1 en plus comme référence si « mêmes personnages ». Renvoie (message, galerie,
-    dossier)."""
-    scenes = scenes_du_texte(scenes_texte)
-    if not scenes:
-        raise gr.Error("Il n'y a aucune scène : clique sur « Découper en scènes », ou écris-en une par ligne.")
-    if len(scenes) > NOMBRE_MAX:
-        raise gr.Error(f"{len(scenes)} scènes : {NOMBRE_MAX} au plus.")
+                     histoire=None, contexte="", progress=gr.Progress()):
+    """Une image par scène. scenes_texte : une scène par ligne, ou la liste des descriptions (une par image, vides
+    permises avec un contexte). contexte : texte anglais ajouté devant chaque scène. photo : une image de départ, une
+    liste (3 au plus : personnages, lieu, style) ou None. Sans image de départ, l'image 1 vient de Z-Image ; avec,
+    toutes viennent de FLUX.2 klein et les reprennent. Images suivantes : l'image 1 en plus comme référence si
+    « mêmes personnages ». Renvoie (message, galerie, dossier)."""
+    contexte = (contexte or "").strip()
+    if isinstance(scenes_texte, str) or scenes_texte is None:
+        descriptions = scenes_du_texte(scenes_texte)
+    else:
+        descriptions = [(d or "").strip() for d in scenes_texte]
+        if not contexte:
+            vides = [str(i) for i, d in enumerate(descriptions, 1) if not d]
+            if vides and len(vides) < len(descriptions):
+                raise gr.Error(f"Image(s) {', '.join(vides)} sans description : décris-les, ou écris un contexte "
+                               "commun (il suffit alors pour elles).")
+            if vides:
+                descriptions = []
+    if not descriptions:
+        raise gr.Error("Il n'y a aucune scène : écris un contexte et décris chaque image, ou clique sur « Découper "
+                       "en scènes ».")
+    if len(descriptions) > NOMBRE_MAX:
+        raise gr.Error(f"{len(descriptions)} scènes : {NOMBRE_MAX} au plus.")
+    scenes = scenes_avec_contexte(contexte, descriptions)
     photos = images_de_depart([photo] if isinstance(photo, str) else photo)
     debut = time.monotonic()
     format_label = format_label if format_label in FORMATS else AUTO
@@ -343,14 +398,15 @@ def generer_histoire(scenes_texte, photo, styles, format_label, memes_personnage
             res = diffusion.personnage(final, references, [sortie], [graine + i - 1], largeur, hauteur, progress=suivi)
         else:
             res = diffusion.image(final, [sortie], [graine + i - 1], largeur, hauteur, progress=suivi)
-        details.append({"scene": scene, "prompt": final, "graine": res["graines"][0], "fichier": res["fichiers"][0]})
+        details.append({"scene": scene, "image": descriptions[i - 1], "prompt": final, "graine": res["graines"][0],
+                        "fichier": res["fichiers"][0]})
     temps = time.monotonic() - debut
     nom = "".join(c for c in (nom or "").strip() if c.isalnum() or c in "-_ ").strip() or "histoire"
     ecrire_creation(dossier, {
         "type": "image", "nom": nom, "description": " / ".join(scenes),
         "description_fr": (histoire or "").strip() or None, "styles": styles, "format": format_label,
         "largeur": largeur, "hauteur": hauteur, "photo": None, "depart": [c.name for c in copies], "usage": None,
-        "memes_personnages": bool(memes_personnages), "scenes": details, "temps_s": round(temps), "choisie": 1,
+        "memes_personnages": bool(memes_personnages), "contexte": contexte or None, "scenes": details, "temps_s": round(temps), "choisie": 1,
         "moteur": "FLUX.2 klein 4B" if copies or (memes_personnages and n > 1) else "Z-Image-Turbo",
         "versions": [{"graine": d["graine"], "dossier": ".", "fichier": d["fichier"]} for d in details],
     })

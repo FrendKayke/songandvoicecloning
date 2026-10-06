@@ -893,6 +893,46 @@ def test_histoire_en_images_puis_mini_videos(faux_diffusion):
         videos.generer_depuis_images(None, progress=no_progress)
 
 
+def test_histoire_contexte_et_une_description_par_image(faux_diffusion):
+    """Contexte commun (anglais, tel quel) + un champ par image (jusqu'à 12) : chaque image reçoit « contexte.
+    description » ; champ vide = contexte seul ; Qwen reçoit le contexte pour découper ; recréation identique."""
+    from studiovoix import galerie, images
+
+    contexte = "Four bearded men, all male, medieval adventurers."
+    champs = ["they leave the village at dawn.", "", "they fight a troll"] + [""] * 9
+    # champs remplis : gardés tels quels (pas de découpage), seulement les `nombre` premiers
+    assert images.scenes_pretes("une histoire", champs, 3, contexte=contexte, progress=no_progress) == champs[:3]
+    assert not (faux_diffusion / "journal.jsonl").exists()  # aucun appel au moteur
+    # sans texte, contexte seul : 3 images du contexte
+    assert images.scenes_pretes("", [""] * 12, 3, contexte=contexte, progress=no_progress) == ["", "", ""]
+    # champs vides + texte : découpés par Qwen, qui voit le contexte
+    pretes = images.scenes_pretes("Ils partent puis combattent.", [""] * 12, 3, contexte=contexte,
+                                  progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert len(pretes) == 3 and all(pretes) and contexte in t["texte"] and "do not repeat it" in t["texte"]
+    maj = images.champs_images(pretes, 3)
+    assert len(maj) == images.NOMBRE_MAX == 12 and [u["visible"] for u in maj[:4]] == [True, True, True, False]
+    assert [u["value"] for u in maj[:3]] == pretes and maj[3]["value"] == ""
+    assert [u["visible"] for u in images.maj_champs_images(12)] == [True] * 12
+
+    _, gal, dossier = images.generer_histoire(champs[:3], None, [], images.AUTO, True, 5, "Groupe",
+                                              contexte=contexte, progress=no_progress)
+    j = [e["tache"] for e in _journal() if e["action"] in ("image", "personnage")][-3:]
+    assert j[0]["prompt"].startswith("Four bearded men, all male, medieval adventurers. they leave the village at dawn.")
+    assert j[1]["prompt"].startswith("Four bearded men, all male, medieval adventurers. " + images.MEMES_PERSONNAGES)
+    assert j[2]["prompt"].startswith("Four bearded men, all male, medieval adventurers. they fight a troll. ")
+    infos = galerie.lire(dossier)
+    assert infos["contexte"] == contexte and [s["image"] for s in infos["scenes"]] == [
+        "they leave the village at dawn.", "", "they fight a troll"]
+    _, h2 = galerie.recreer(dossier, progress=no_progress)
+    assert [s["prompt"] for s in galerie.lire(h2)["scenes"]] == [s["prompt"] for s in infos["scenes"]]
+    # sans contexte, un champ vide est une erreur (sauf si tous sont vides : rien à générer)
+    with pytest.raises(gr.Error, match="Image\\(s\\) 2 sans description"):
+        images.generer_histoire(["a", "", "c"], None, [], images.AUTO, progress=no_progress)
+    with pytest.raises(gr.Error, match="aucune scène"):
+        images.generer_histoire(["", ""], None, [], images.AUTO, progress=no_progress)
+
+
 def test_histoire_avec_images_de_depart(faux_diffusion):
     """Images de départ (personnages, lieu) : Qwen les voit en planche, toutes les images les reprennent (klein),
     sans l'image 1 de l'histoire en plus ; 3 au plus ; copiées pour la recréation."""

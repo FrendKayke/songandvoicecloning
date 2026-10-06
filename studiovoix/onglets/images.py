@@ -60,15 +60,30 @@ def construire():
             "la photo de l'onglet sert d'image de départ). Ensuite, « Faire les mini-vidéos » anime chaque "
             "image (Wan 2.2, ~4 à 7 min par mini-vidéo de 3 s sur la RTX 4070)."
         )
+        gr.Markdown(
+            "**Ou écris tout toi-même, en anglais** : un **contexte commun** (envoyé tel quel devant chaque image : "
+            "les personnages, leur nombre et leur genre — « four bearded men, all male » —, leur apparence, le lieu, "
+            "l'époque), puis, pour chaque image, ce qu'elle montre. Une image laissée vide reprend le contexte seul. "
+            "Évite les négations (« no women ») : le générateur a tendance à dessiner le mot nié."
+        )
         with gr.Row():
             with gr.Column():
-                hist_texte = gr.Textbox(label="Ton texte", lines=6,
+                hist_texte = gr.Textbox(label="Ton texte (facultatif si tu décris chaque image)", lines=6,
                                         placeholder="Trois aventuriers quittent leur village à l'aube…")
                 hist_nombre = gr.Slider(2, images.NOMBRE_MAX, value=4, step=1, label="Nombre d'images")
-                btn_hist_decouper = gr.Button("✂️ Découper en scènes")
-            with gr.Column():
-                hist_scenes = gr.Textbox(label="Scènes (une par ligne, anglais, modifiables)", lines=8)
+                btn_hist_decouper = gr.Button("✂️ Découper en scènes (remplit les champs « Image »)")
                 hist_memes = gr.Checkbox(value=True, label="Mêmes personnages d'une image à l'autre")
+            with gr.Column():
+                hist_contexte = gr.Textbox(
+                    label="Contexte commun à toutes les images (anglais, envoyé tel quel)", lines=4,
+                    placeholder="Four bearded men, all male, in their forties, medieval adventurers in leather "
+                                "armor: a tall blond warrior, a bald dwarf-like smith, a red-haired archer, an old "
+                                "grey-bearded wizard. Misty northern forest, autumn.")
+                champs_images = {}  # hist_image_1 … hist_image_12, ajoutés à l'espace de noms
+                for i in range(1, images.NOMBRE_MAX + 1):
+                    champs_images[f"hist_image_{i}"] = gr.Textbox(
+                        label=f"Image {i} (anglais)", lines=2, visible=i <= 4,
+                        placeholder="they leave the village at dawn, seen from behind" if i == 1 else None)
         hist_depart = gr.File(file_count="multiple", file_types=["image"], height=140,
                               label=f"Images de départ (facultatif, {images.REFERENCES_MAX} au plus) : tes personnages, "
                                     "une créature, un lieu ou un style à reprendre dans toutes les images")
@@ -85,7 +100,7 @@ def construire():
         btn_hist_videos = gr.Button("🎬 Faire les mini-vidéos")
         hist_vid_statut = gr.Markdown()
         hist_video = gr.Video(label="Mini-vidéos", height=420)
-    return espace_de_noms(locals())
+    return espace_de_noms({**locals(), **champs_images})
 
 
 def _retoucher(choisie):
@@ -117,19 +132,24 @@ def _generer(prompt, photo, autres, usage, styles, format_label, variantes, grai
                           nom, description, progress=progress)
 
 
-# images de départ de l'histoire : celles du volet, sinon la photo de l'onglet
-def _decouper(histoire, nombre, depart, photo, progress=gr.Progress()):
-    return images.decouper(histoire, nombre, images.images_de_depart(depart, photo), progress=progress)
+# images de départ de l'histoire : celles du volet, sinon la photo de l'onglet ; *champs = les NOMBRE_MAX champs
+# « Image i » (seuls les `nombre` premiers comptent)
+def _decouper(histoire, nombre, depart, photo, contexte, progress=gr.Progress()):
+    scenes = images.decouper(histoire, nombre, images.images_de_depart(depart, photo), contexte, progress=progress)
+    return images.champs_images(scenes, nombre)
 
 
-def _scenes_pretes(histoire, scenes, nombre, depart, photo, progress=gr.Progress()):
-    return images.scenes_pretes(histoire, scenes, nombre, images.images_de_depart(depart, photo), progress=progress)
+def _scenes_pretes(histoire, nombre, depart, photo, contexte, *champs, progress=gr.Progress()):
+    pretes = images.scenes_pretes(histoire, list(champs), nombre, images.images_de_depart(depart, photo), contexte,
+                                  progress=progress)
+    return images.champs_images(pretes, nombre)
 
 
-def _generer_histoire(scenes, depart, photo, styles, format_label, memes, graine, nom, histoire,
+def _generer_histoire(depart, photo, styles, format_label, memes, graine, nom, histoire, contexte, nombre, *champs,
                       progress=gr.Progress()):
-    return images.generer_histoire(scenes, images.images_de_depart(depart, photo), styles, format_label, memes,
-                                   graine, nom, histoire, progress=progress)
+    n = max(2, min(images.NOMBRE_MAX, int(nombre or 4)))
+    return images.generer_histoire(list(champs[:n]), images.images_de_depart(depart, photo), styles, format_label,
+                                   memes, graine, nom, histoire, contexte, progress=progress)
 
 
 def _mini_videos(dossier, duree, etapes, mouvement, assembler, nom, progress=gr.Progress()):
@@ -150,11 +170,16 @@ def brancher(c, demo, o):
     c.btn_img_retoucher.click(_retoucher, c.img_choisie, [c.img_photo, c.img_usage, c.img_texte, c.img_prompt])
     c.btn_img_animer.click(_animer, c.img_choisie, o.videos.vid_image)
     c.btn_img_dossier.click(lambda d: open_folder(d) if d else None, c.img_dossier)
-    c.btn_hist_decouper.click(_decouper, [c.hist_texte, c.hist_nombre, c.hist_depart, c.img_photo], c.hist_scenes)
-    c.btn_hist.click(_scenes_pretes, [c.hist_texte, c.hist_scenes, c.hist_nombre, c.hist_depart, c.img_photo],
-                     c.hist_scenes).success(
-        _generer_histoire, [c.hist_scenes, c.hist_depart, c.img_photo, c.img_styles, c.img_format, c.hist_memes,
-                            c.img_graine, c.img_nom, c.hist_texte], [c.hist_statut, c.hist_galerie, c.hist_dossier])
+    champs = [getattr(c, f"hist_image_{i}") for i in range(1, images.NOMBRE_MAX + 1)]
+    c.hist_nombre.change(images.maj_champs_images, c.hist_nombre, champs)
+    c.btn_hist_decouper.click(_decouper, [c.hist_texte, c.hist_nombre, c.hist_depart, c.img_photo, c.hist_contexte],
+                              champs)
+    # champs vides : découpés d'abord depuis le texte (affichés), puis les images (seulement si c'est prêt)
+    c.btn_hist.click(_scenes_pretes, [c.hist_texte, c.hist_nombre, c.hist_depart, c.img_photo, c.hist_contexte, *champs],
+                     champs).success(
+        _generer_histoire, [c.hist_depart, c.img_photo, c.img_styles, c.img_format, c.hist_memes, c.img_graine,
+                            c.img_nom, c.hist_texte, c.hist_contexte, c.hist_nombre, *champs],
+        [c.hist_statut, c.hist_galerie, c.hist_dossier])
     c.btn_hist_videos.click(_mini_videos,
                             [c.hist_dossier, c.hist_duree, c.hist_etapes, c.hist_mouvement, c.hist_assembler, c.img_nom],
                             [c.hist_vid_statut, c.hist_video])
