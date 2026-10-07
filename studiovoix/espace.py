@@ -32,6 +32,7 @@ LIBELLES = {
     "diffusion:photo_detourage": "BiRefNet (détourage des photos)",
     "diffusion:photo_qualite": "Real-ESRGAN et GFPGAN (qualité des photos)",
     "diffusion:forme3d": "Hunyuan3D-2 : forme",
+    "diffusion:forme3d_vues": "Hunyuan3D-2mv : forme d'après la face et le dos (révisions 3D)",
     "diffusion:texture3d": "Hunyuan3D-2 : texture (le plus gros)",
 }
 
@@ -156,7 +157,8 @@ def inventaire():
 CHOIX_RETRAIT = [(LIBELLES[c], c) for c in ("diffusion:video", "diffusion:texture3d", "diffusion:zimage", "diffusion:personnages",
                                              "diffusion:bruitages", "diffusion:photo_detourage",
                                              "diffusion:photo_qualite",
-                                             "diffusion:qwen", "diffusion:forme3d", "diffusion", "rvc", "chatterbox",
+                                             "diffusion:qwen", "diffusion:forme3d_vues", "diffusion:forme3d",
+                                             "diffusion", "rvc", "chatterbox",
                                              "nettoyage")]
 CHOIX_VIDER = [("Cache de téléchargement (uv) — retéléchargé si besoin", "uv-cache"),
                ("Fichiers d'essai du diagnostic", "diagnostic")]

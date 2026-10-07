@@ -79,7 +79,7 @@ function Test-Done([string]$marker, [string]$signature = '') {
 # Moteurs et modèles retirés pour gagner de la place (Outils → Modèles → Espace disque) : leurs étapes sont sautées,
 # sinon l'installateur les réinstallerait aussitôt. Une clé par ligne : chatterbox, nettoyage, rvc, diffusion,
 # diffusion:<modèle> (qwen, bruitages, zimage, personnages, photo_detourage, photo_qualite, video,
-# forme3d, texture3d).
+# forme3d, forme3d_vues, texture3d).
 function Get-Retires {
     $f = Join-Path $Eng 'moteurs-retires.txt'
     if (-not (Test-Path $f)) { return @() }
@@ -430,9 +430,9 @@ try {
     $m = Join-Path $Dif '.modeles-ok'
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
     # le téléchargement reprend seulement ce qui manque.
-    $ModelesDif = @(@('qwen', 'forme3d', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
+    $ModelesDif = @(@('qwen', 'forme3d', 'forme3d_vues', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
     # Contenu des modèles dans la signature : Qwen3-VL-4B (au lieu du 2B) et forme 3D complète ajoutés
-    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' ') + ' ; qwen 4B ; forme3d turbo + complet')
+    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' ') + ' ; qwen 4B ; forme3d turbo + complet sans ckpt ; forme3d_vues')
     if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif
         # Stable Diffusion XL a été remplacé par Z-Image-Turbo (bien meilleur) : on libère ses 7 Go s'il est là

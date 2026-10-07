@@ -48,6 +48,9 @@ MODELES = {
     "forme3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 forme (image → 3D)",
                 ["hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors",
                  "hunyuan3d-dit-v2-0/model.fp16.safetensors"]),
+    # face + dos (révision d'un modèle : ce qui est porté dans le dos) ; 4,9 Go, même licence que Hunyuan3D-2
+    "forme3d_vues": ("tencent/Hunyuan3D-2mv", "Hunyuan3D-2mv forme à partir de la face et du dos",
+                     ["hunyuan3d-dit-v2-mv-turbo/model.fp16.safetensors"]),
     "texture3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 texture (peinture)",
                   ["hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.safetensors",
                    "hunyuan3d-delight-v2-0/unet/diffusion_pytorch_model.safetensors"]),
@@ -262,15 +265,18 @@ def ameliorer(entree, sortie, echelle=2, rapide=False, visages=True, force=0.7, 
 
 
 def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None, web=False,
-            complet=False):
+            complet=False, dos=None):
     """Image → forme.glb (+ modele.glb texturé si `texture` et carte graphique ; + OBJ si demandé).
     complet : modèle de forme complet (hunyuan3d-dit-v2-0, non distillé : 30 à 50 pas) au lieu du turbo.
+    dos : vue de dos → forme par Hunyuan3D-2mv (face + dos, turbo : 5 pas).
     RESULTAT {forme, faces, graine, texture: chemin ou None, obj: chemin ou None}."""
-    _verifier("forme3d", *(["texture3d"] if texture else []))
+    _verifier("forme3d", *(["forme3d_vues"] if dos else []), *(["texture3d"] if texture else []))
     tache = {"image": str(image_path), "dossier": str(dossier), "etapes": int(etapes), "octree": int(octree),
              "faces": int(faces), "graine": int(graine or 0), "texture": bool(texture), "formats": list(formats),
              "web": bool(web)}
-    if complet:
+    if dos:
+        tache.update(dos=str(dos), etapes=5)  # seul le modèle multi-vues turbo (distillé : 5 pas) est installé
+    elif complet:
         tache["sous_dossier"] = "hunyuan3d-dit-v2-0"
     return lancer("forme3d", tache, dossier,
                   "Hunyuan3D", progress,

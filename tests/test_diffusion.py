@@ -1173,3 +1173,81 @@ def test_noms_de_fichiers_des_images_en_serie(faux_diffusion):
     with Image.open(d / "fond.jpg") as im:
         assert im.format == "JPEG"
     assert (d / "64px" / "fond.jpg").exists()
+
+
+def test_reviser_un_modele_3d(faux_diffusion):
+    """Révision : l'image est corrigée d'après un texte (Qwen « retouche » puis FLUX.2 klein, le reste gardé), une vue
+    de dos est dessinée d'après la face ; avec elle, la forme passe par Hunyuan3D-2mv (dos dans la tâche, 5 pas)."""
+    from PIL import Image
+
+    from studiovoix import galerie
+    from studiovoix.onglets import modeles_3d
+
+    face = faux_diffusion / "archer.png"
+    Image.new("RGB", (600, 900), "white").save(face)
+    msg, glb, _, _, dossier = modele3d.generer(str(face), "Archer", "Normale", True, 0, ["glb"], progress=no_progress)
+    image, dos, graine = modele3d.reprendre_images(dossier)
+    assert dos is None and graine == 555 and Path(image).name == "image.png"
+    assert modeles_3d._graine_du_modele(dossier) == (555, None, None)
+    # correction de la face : consigne de Qwen + « garder le reste », proportions de l'image
+    corrigee, msg, note = modele3d.corriger_image(image, "refais l'arc", progress=no_progress)
+    j = _journal()
+    assert j[-2]["action"] == "decrire" and j[-2]["tache"]["mode"] == "retouche" and j[-2]["tache"]["image"] == image
+    t = j[-1]["tache"]
+    assert j[-1]["action"] == "personnage" and t["references"] == [image] and modele3d.GARDER_OBJET in t["prompt"]
+    assert t["hauteur"] > t["largeur"] and Path(corrigee).name == "revision.png" and note == "refais l'arc"
+    # vue de dos (avec une précision), puis correction de la vue de dos depuis l'onglet
+    vue_dos, msg = modele3d.creer_vue_de_dos(corrigee, "l'arc bien visible", progress=no_progress)
+    assert modele3d.VUE_DE_DOS in _journal()[-1]["tache"]["prompt"] and Path(vue_dos).name == "dos.png"
+    face2, dos2, msg, note, de = modeles_3d._corriger("La vue de dos", corrigee, vue_dos, "corde visible", dossier,
+                                                     progress=no_progress)
+    assert face2 == corrigee and Path(dos2).name == "revision.png" and de == dossier
+    with pytest.raises(gr.Error, match="vue de dos"):
+        modeles_3d._corriger("La vue de dos", corrigee, None, "x", dossier, progress=no_progress)
+    with pytest.raises(gr.Error, match="Écris ce qu'il faut corriger"):
+        modele3d.corriger_image(image, " ", progress=no_progress)
+    # nouveau modèle : face corrigée + dos, même graine, révision notée ; forme multi-vues (5 pas, même en Maximale)
+    msg, glb, _, _, d2 = modele3d.generer(face2, "Archer", "Maximale (modèle complet, 50 étapes, la plus détaillée)",
+                                          True, graine, ["glb"], image_dos=dos2, revision="refais l'arc",
+                                          revision_de=dossier, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["dos"] == str(Path(d2) / "image_dos.png") and t["etapes"] == 5 and "sous_dossier" not in t
+    assert t["graine"] == 555 and "face et le dos" in msg
+    infos = galerie.lire(d2)
+    assert infos["image_dos"] == "image_dos.png" and infos["revision"] == "refais l'arc" and infos["revision_de"] == dossier
+    assert "révision : « refais l'arc »" in galerie.details(d2, 1)[0]
+    assert modele3d.reprendre_images(d2)[1] == str(Path(d2) / "image_dos.png")
+    _, d3 = galerie.recreer(d2, 1, progress=no_progress)  # la recréation garde la vue de dos
+    assert _journal()[-1]["tache"]["dos"] == str(Path(d3) / "image_dos.png")
+
+
+def test_ckpt_de_hunyuan_retires(tmp_path, monkeypatch, capsys):
+    """Les .ckpt de Hunyuan3D (mêmes poids que les .safetensors, jamais chargés) sont supprimés avec leur blob ;
+    ceux du peintre et ceux sans .safetensors à côté sont gardés."""
+    from huggingface_hub import constants
+
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path))
+    depot = tmp_path / "models--tencent--Hunyuan3D-2"
+    blobs, snap = depot / "blobs", depot / "snapshots" / "abc"
+    blobs.mkdir(parents=True)
+    fichiers = {"hunyuan3d-dit-v2-0-turbo/model.fp16.ckpt": 3000, "hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors": 10,
+                "hunyuan3d-vae-v2-0-turbo/model.fp16.ckpt": 2000, "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors": 10,
+                "hunyuan3d-paint-v2-0-turbo/model.ckpt": 5, "hunyuan3d-paint-v2-0-turbo/x.safetensors": 5,
+                "hunyuan3d-dit-v2-0/model.ckpt": 7}
+    for i, (nom, taille) in enumerate(fichiers.items()):
+        (blobs / f"b{i}").write_bytes(b"x" * taille)
+        (snap / nom).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            (snap / nom).symlink_to(blobs / f"b{i}")
+        except OSError:  # Windows sans mode développeur : copies, comme le fait huggingface_hub
+            (snap / nom).write_bytes(b"x" * taille)
+    moteur._retirer_ckpt_inutiles()
+    restants = sorted(str(p.relative_to(snap)).replace("\\", "/") for p in snap.rglob("*") if p.is_file())
+    assert restants == ["hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors", "hunyuan3d-dit-v2-0/model.ckpt",
+                        "hunyuan3d-paint-v2-0-turbo/model.ckpt", "hunyuan3d-paint-v2-0-turbo/x.safetensors",
+                        "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors"]
+    assert "Go libérés" in capsys.readouterr().out
+    assert moteur.MODELES["forme3d"][0][1] == [
+        "hunyuan3d-dit-v2-0-turbo/config.yaml", "hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors",
+        "hunyuan3d-vae-v2-0-turbo/config.yaml", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors",
+        "hunyuan3d-dit-v2-0/config.yaml", "hunyuan3d-dit-v2-0/model.fp16.safetensors"]

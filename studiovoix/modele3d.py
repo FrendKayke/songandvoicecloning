@@ -4,6 +4,9 @@ Texte → 3D : la description française passe par Qwen3-VL (mode « objet » : 
 trois quarts, fond blanc), Z-Image-Turbo en fait une image (data/3d/images/), que l'utilisateur vérifie
 avant de lancer la 3D comme pour une image importée.
 
+Révisions : l'image (face ou dos) est corrigée d'après un texte par FLUX.2 klein, puis le modèle est refait ; une vue
+de dos (image_dos.<ext>) fait passer la forme à Hunyuan3D-2mv (face + dos).
+
 Rangement : data/3d/<horodatage>/ : image.<ext> (image de départ), image_detouree.png (fond retiré par rembg),
 forme.glb (forme blanche), modele.glb (texturé) et, en option, modele.obj + material.mtl + texture PNG ;
 creation.json décrit les réglages et la graine (galerie : réafficher, recréer, supprimer).
@@ -82,13 +85,85 @@ def generer_image(prompt, graine, progress=gr.Progress()):
             "sinon change la graine ou le prompt et regénère.")
 
 
+# --- Révisions : Hunyuan3D ne modifie pas un modèle d'après un texte, il sculpte d'après des images. On corrige donc
+# l'image (FLUX.2 klein, comme « Modifier la photo » de l'onglet Une image), puis on refait le modèle avec la même
+# graine. Ce qui est dans le dos de l'objet (un arc, une cape) n'est presque pas visible de face : le modèle
+# l'invente ; une vue de dos (dessinée par klein d'après la face, corrigeable de la même façon, ou importée) est
+# donnée à Hunyuan3D-2mv avec la face.
+VUES = {"La vue de face": "face", "La vue de dos": "dos"}
+GARDER_OBJET = ("Keep everything else exactly as in the reference image: same object or character, same proportions, "
+                "colors, materials, pose and view angle. Single object, centered, full object visible, plain pure "
+                "white background, soft studio lighting")
+VUE_DE_DOS = ("Show the very same object or character as in the reference image, seen from directly behind (back "
+              "view, turned 180 degrees): same proportions, colors, materials, outfit and equipment, with everything "
+              "worn or attached on the back clearly visible and complete. Single object, centered, full object "
+              "visible, plain pure white background, soft studio lighting, orthographic view")
+
+
+def _image_3d(image, nom, progress):
+    """Vérifie l'image ; renvoie (chemin, largeur, hauteur) au format de klein (proportions de l'image, ~1 Mpx)."""
+    from .images import AUTO, format_pour
+
+    if not image or not Path(image).is_file():
+        raise gr.Error(f"Il manque {nom} : importe-la, ou crée d'abord l'image de l'objet.")
+    largeur, hauteur = format_pour(AUTO, image)
+    return str(image), largeur, hauteur
+
+
+def corriger_image(image, revision, progress=gr.Progress()):
+    """Révision écrite en français (« refais l'arc dans le dos ») → image corrigée par FLUX.2 klein, le reste
+    inchangé. Renvoie (image corrigée, message, révision notée)."""
+    revision = (revision or "").strip()
+    if not revision:
+        raise gr.Error("Écris ce qu'il faut corriger, par exemple « refais l'arc : un long arc en bois, entier ».")
+    image, largeur, hauteur = _image_3d(image, "l'image à corriger", progress)
+    consigne = diffusion.decrire("retouche", revision, image=image, progress=progress)
+    dossier = nouveau_dossier(cfg.MODELS3D_DIR / "images")
+    res = diffusion.personnage(f"{consigne.rstrip('.')}. {GARDER_OBJET}.", [image], [dossier / "revision.png"],
+                               diffusion.graines(1), largeur, hauteur, progress=progress)
+    (dossier / "revision.txt").write_text(f"{revision}\n{consigne}\n", encoding="utf-8")
+    return (res["fichiers"][0],
+            f"✏️ Image corrigée (« {consigne} »). Regarde-la : si elle te convient, « Créer le modèle 3D » (même "
+            "graine pour ne changer que le reste au minimum) ; sinon corrige encore ou reformule.", revision)
+
+
+def creer_vue_de_dos(image, precision="", progress=gr.Progress()):
+    """Vue de dos de l'objet (FLUX.2 klein d'après l'image de face). precision (français, facultatif) : ce qui doit
+    se voir de dos (« l'arc et le carquois bien visibles »). Renvoie (image de dos, message)."""
+    image, largeur, hauteur = _image_3d(image, "l'image de face", progress)
+    prompt = VUE_DE_DOS
+    if (precision or "").strip():
+        prompt += ". " + diffusion.decrire("retouche", precision.strip(), image=image, progress=progress).rstrip(".")
+    dossier = nouveau_dossier(cfg.MODELS3D_DIR / "images")
+    res = diffusion.personnage(prompt + ".", [image], [dossier / "dos.png"], diffusion.graines(1), largeur, hauteur,
+                               progress=progress)
+    return (res["fichiers"][0],
+            "🔙 Vue de dos créée. Vérifie-la (corrige-la si besoin avec « Que corriger : la vue de dos »), puis « Créer "
+            "le modèle 3D » : la forme sera sculptée à partir des deux vues (Hunyuan3D-2mv).")
+
+
+def reprendre_images(dossier):
+    """Images (face, dos) et graine du dernier modèle créé, pour le réviser."""
+    import json
+
+    if not dossier or not (Path(dossier) / "creation.json").exists():
+        raise gr.Error("Crée d'abord un modèle 3D.")
+    infos = json.loads((Path(dossier) / "creation.json").read_text(encoding="utf-8"))
+    dos = Path(dossier) / infos["image_dos"] if infos.get("image_dos") else None
+    graine = (infos.get("versions") or [{}])[0].get("graine") or 0
+    return str(Path(dossier) / infos["image"]), str(dos) if dos else None, graine
+
+
 def generer(image_path, nom, qualite, texture, graine, formats, description=None, description_fr=None,
-            image_graine=None, projet=None, progress=gr.Progress()):
-    """Image → modèle 3D. Renvoie (message, GLB à afficher, image détourée, fichiers à télécharger, dossier)."""
+            image_graine=None, projet=None, image_dos=None, revision=None, revision_de=None, progress=gr.Progress()):
+    """Image (et vue de dos facultative) → modèle 3D. Renvoie (message, GLB à afficher, image détourée, fichiers à
+    télécharger, dossier)."""
     if not image_path or not Path(image_path).is_file():
         raise gr.Error("Importe une image de l'objet (PNG ou JPG : un seul objet, bien visible, fond simple).")
     if Path(image_path).suffix.lower() not in EXTENSIONS_IMAGE:
         raise gr.Error("Format d'image non pris en charge : PNG, JPG, WEBP ou BMP.")
+    if image_dos and Path(image_dos).suffix.lower() not in EXTENSIONS_IMAGE:
+        raise gr.Error("Format de la vue de dos non pris en charge : PNG, JPG, WEBP ou BMP.")
     q = QUALITES.get(qualite) or QUALITES[QUALITE_DEFAUT]
     formats = [f for f in (formats or []) if f in ("glb", "obj")]
     if "glb" not in formats:
@@ -96,8 +171,12 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
     dossier = nouveau_dossier(cfg.MODELS3D_DIR)
     image = dossier / ("image" + Path(image_path).suffix.lower())
     shutil.copy(image_path, image)
+    dos = None
+    if image_dos and Path(image_dos).is_file():
+        dos = dossier / ("image_dos" + Path(image_dos).suffix.lower())
+        shutil.copy(image_dos, dos)
     res = diffusion.forme3d(image, dossier, q["etapes"], q["octree"], q["faces"], graine, texture, formats, progress,
-                            web=q.get("web", False), complet=q.get("complet", False))
+                            web=q.get("web", False), complet=q.get("complet", False), dos=dos)
     fichier = res.get("texture") or res["forme"]
     nom = nettoyer_nom(nom)
     ecrire_creation(dossier, {
@@ -105,7 +184,8 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
         **{k: v for k, v in q.items() if k not in ("web", "complet")}, "web": bool(q.get("web")),
         "complet": bool(q.get("complet")), "texture": bool(texture), "formats": formats, "description": (description or "").strip() or None,
         "description_fr": (description_fr or "").strip() or None, "image_graine": image_graine,
-        "faces_obtenues": res.get("faces"),
+        "faces_obtenues": res.get("faces"), "image_dos": dos.name if dos else None,
+        "revision": (revision or "").strip() or None, "revision_de": revision_de or None,
         "versions": [{"graine": res["graine"], "dossier": ".", "fichier": fichier, "forme": res["forme"],
                       "obj": res.get("obj"), "web": res.get("web")}],
     })
@@ -114,6 +194,8 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
         note = " ; texture non peinte (la peinture demande la carte graphique), forme blanche seulement"
     if res.get("web"):
         note += f" ; version web légère : {Path(res['web']).name}"
+    if dos:
+        note += " ; forme sculptée d'après la face et le dos (Hunyuan3D-2mv)"
     msg = f"✅ Modèle « {nom} » : {res.get('faces')} faces, graine {res['graine']}{note}. Dossier : {dossier}"
     detouree = dossier / "image_detouree.png"
     return (msg, fichier, str(detouree) if detouree.exists() else None, fichiers_produits(dossier, image.name),

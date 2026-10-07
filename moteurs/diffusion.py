@@ -85,6 +85,15 @@ FICHIERS_PHOTOS = {
 HUNYUAN = "tencent/Hunyuan3D-2"
 HUNYUAN_FORME = "hunyuan3d-dit-v2-0-turbo"
 HUNYUAN_TEXTURE = "hunyuan3d-paint-v2-0-turbo"
+# Hunyuan3D-2mv : la forme à partir de plusieurs vues (face, gauche, dos, droite : MVImageProcessorV2 de
+# hy3dgen/shapegen/preprocessors.py) ; même licence que Hunyuan3D-2 ; flashvdm reprend le VAE turbo de Hunyuan3D-2
+HUNYUAN_MV = "tencent/Hunyuan3D-2mv"
+HUNYUAN_MV_FORME = "hunyuan3d-dit-v2-mv-turbo"
+# Seuls les .safetensors fp16 sont chargés (smart_load_model : use_safetensors=True, variant fp16) : les .ckpt du
+# dépôt, mêmes poids, ne sont pas téléchargés (5,3 Go de moins pour la forme turbo et son VAE)
+def _poids(*sous_dossiers):
+    return [f"{d}/{f}" for d in sous_dossiers for f in ("config.yaml", "model.fp16.safetensors")]
+
 # nom → [(dépôt, motifs à télécharger ou None pour tout)]
 MODELES = {
     "qwen": [(QWEN, None)],
@@ -101,8 +110,9 @@ MODELES = {
     "photo_detourage": [(depot, None) for depot, _, _ in BIREFNET.values()],
     "photo_qualite": [("local:photos", list(FICHIERS_PHOTOS))],
     # turbo (5 pas, par défaut) et modèle complet (qualité « Maximale ») ; flashvdm prend le VAE turbo pour les deux
-    "forme3d": [(HUNYUAN, [f"{HUNYUAN_FORME}/*", "hunyuan3d-vae-v2-0-turbo/*", "hunyuan3d-dit-v2-0/config.yaml",
-                           "hunyuan3d-dit-v2-0/model.fp16.safetensors"])],
+    "forme3d": [(HUNYUAN, _poids(HUNYUAN_FORME, "hunyuan3d-vae-v2-0-turbo", "hunyuan3d-dit-v2-0"))],
+    # face + dos (révision d'un modèle 3D : détails cachés dans le dos)
+    "forme3d_vues": [(HUNYUAN_MV, _poids(HUNYUAN_MV_FORME))],
     "texture3d": [(HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"])],
 }
 
@@ -1234,7 +1244,8 @@ def ameliorer(chemin_tache):
 
 # --- Hunyuan3D-2 : image → forme → texture -------------------------------------------------------------
 def forme3d(chemin_tache):
-    """Tâche : {image, dossier, etapes, octree, faces, graine, texture: bool, formats: ["glb", "obj"]}.
+    """Tâche : {image, dos?, dossier, etapes, octree, faces, graine, texture: bool, formats: ["glb", "obj"]}.
+    dos : vue de dos de l'objet → forme par Hunyuan3D-2mv (face + dos) ; la texture est peinte depuis la face.
     Écrit dossier/forme.glb (blanc) et, si texture, dossier/modele.glb (texturé) [+ modele_web.glb si « web »] ; avec « obj », le modèle final
     est aussi écrit en OBJ (+ material.mtl et texture PNG à côté, écrits par trimesh) ; RESULTAT {…}."""
     import torch
@@ -1252,15 +1263,23 @@ def forme3d(chemin_tache):
     graine = int(t.get("graine") or 0) or int(torch.randint(1, 2**31 - 1, (1,)))
 
     print(f"PROGRESSION 1/{total} détourage de l'image", flush=True)
-    im = Image.open(t["image"]).convert("RGB")
     # Comme hy3dgen.rembg.BackgroundRemover, mais avec le modèle u2net (Apache 2.0) : le modèle par défaut
     # de rembg est désormais BRIA RMBG-2.0, à usage non commercial.
-    im = remove(im, session=_garder(("u2net",), lambda: new_session("u2net"), 0.2), bgcolor=[255, 255, 255, 0])
+    session = _garder(("u2net",), lambda: new_session("u2net"), 0.2)
+    im = remove(Image.open(t["image"]).convert("RGB"), session=session, bgcolor=[255, 255, 255, 0])
     im.save(dossier / "image_detouree.png")
+    vues = None
+    if t.get("dos"):  # vue de dos : Hunyuan3D-2mv sculpte aussi ce qui est derrière (un arc porté dans le dos…)
+        dos = remove(Image.open(t["dos"]).convert("RGB"), session=session, bgcolor=[255, 255, 255, 0])
+        dos.save(dossier / "image_dos_detouree.png")
+        vues = {"front": im, "back": dos}
 
     print(f"PROGRESSION 2/{total} chargement du générateur de forme", flush=True)
-    _hors_ligne_si_present(HUNYUAN)
-    depot, sous_dossier = t.get("depot", HUNYUAN), t.get("sous_dossier", HUNYUAN_FORME)
+    _hors_ligne_si_present(HUNYUAN, *([HUNYUAN_MV] if vues else []))
+    if vues:
+        depot, sous_dossier = t.get("depot_vues", HUNYUAN_MV), t.get("sous_dossier_vues", HUNYUAN_MV_FORME)
+    else:
+        depot, sous_dossier = t.get("depot", HUNYUAN), t.get("sous_dossier", HUNYUAN_FORME)
 
     def charger():
         _precharger((depot, sous_dossier))
@@ -1275,7 +1294,7 @@ def forme3d(chemin_tache):
                    vers_cpu=lambda p_: p_.to("cpu"), vers_gpu=lambda p_: p_.to(device))
     print(f"PROGRESSION 3/{total} génération de la forme", flush=True)
     sorties = _memoire(pipe)(
-        image=im, num_inference_steps=int(t.get("etapes", 30)), guidance_scale=float(t.get("guidage", 7.5)),
+        image=vues or im, num_inference_steps=int(t.get("etapes", 30)), guidance_scale=float(t.get("guidage", 7.5)),
         generator=torch.Generator().manual_seed(graine), octree_resolution=int(t.get("octree", 256)),
         num_chunks=int(t.get("morceaux", 20000)), output_type="mesh",
     )
@@ -1544,7 +1563,33 @@ def telecharger(noms):
                         "https://huggingface.co/stabilityai/stable-audio-open-1.0 puis enregistre un jeton "
                         "Hugging Face (voir README).", 4)
             raise
+    if "forme3d" in noms or "forme3d_vues" in noms:
+        _retirer_ckpt_inutiles()
     print("Modèles prêts.", flush=True)
+
+
+def _retirer_ckpt_inutiles():
+    """Les anciennes installations téléchargeaient aussi les .ckpt de Hunyuan3D (mêmes poids que les .safetensors,
+    jamais chargés) : supprimés avec leur blob du cache, s'il y a bien le .safetensors à côté."""
+    from huggingface_hub import constants
+
+    libere = 0
+    for depot in (HUNYUAN, HUNYUAN_MV):
+        racine = Path(constants.HF_HUB_CACHE) / ("models--" + depot.replace("/", "--")) / "snapshots"
+        for ckpt in sorted(racine.glob("*/hunyuan3d-*/*.ckpt")):
+            if not any(ckpt.parent.glob("*.safetensors")) or "paint" in ckpt.parent.name:
+                continue
+            try:
+                blob = ckpt.resolve() if ckpt.is_symlink() else None
+                taille = (blob or ckpt).stat().st_size if (blob or ckpt).exists() else 0
+                ckpt.unlink()
+                if blob is not None and blob.exists():
+                    blob.unlink()
+                libere += taille
+            except OSError as e:
+                print(f"{ckpt.name} non supprimé ({e}).", flush=True)
+    if libere:
+        print(f"{libere / 1e9:.1f} Go libérés : fichiers .ckpt de Hunyuan3D en double des .safetensors.", flush=True)
 
 
 ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,

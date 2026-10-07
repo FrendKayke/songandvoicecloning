@@ -175,7 +175,9 @@ def details(chemin, version=1):
     if infos["type"] == "3d":
         texture = "texturé" if v.get("fichier") and v.get("fichier") != v.get("forme") else "forme seule"
         lignes.append(f"Modèle **{infos.get('nom')}** : qualité {infos.get('qualite')}, {infos.get('faces_obtenues')} "
-                      f"faces, {texture}" + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
+                      f"faces, {texture}" + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else "")
+                      + (", sculpté d'après la face et le dos" if infos.get("image_dos") else "")
+                      + (f", révision : « {infos['revision']} »" if infos.get("revision") else ""))
     elif infos.get("paroles") and infos["paroles"] != INSTRUMENTAL:
         lignes.append("Paroles :\n\n```\n" + infos["paroles"][:1500] + "\n```")
     graines = ", ".join(str(x.get("graine")) for x in infos.get("versions") or [] if x.get("graine") is not None)
@@ -277,6 +279,8 @@ def recreer(chemin, version=1, progress=gr.Progress()):
         *_, dossier = modele3d.generer(str(image), infos.get("nom"), infos.get("qualite"), infos.get("texture", True),
                                        graine, infos.get("formats"), infos.get("description"),
                                        infos.get("description_fr"), infos.get("image_graine"), infos.get("projet"),
+                                       image_dos=str(Path(chemin) / infos["image_dos"]) if infos.get("image_dos") else None,
+                                       revision=infos.get("revision"), revision_de=infos.get("revision_de"),
                                        progress=progress)
         return f"✅ Modèle 3D recréé avec la graine {graine}.", dossier
     if infos["type"] == "carte":
