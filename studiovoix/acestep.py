@@ -145,6 +145,31 @@ def graines(versions, graine=None):
     return tirage
 
 
+# Longueurs lues par ACE-Step (acestep/core/generation/handler/conditioning_text.py, tokeniseur Qwen3, coupure sans
+# prévenir) : 256 jetons pour la consigne + la description + les métadonnées (55 jetons hors description, mesuré),
+# 2048 jetons pour les paroles. Estimation sans tokeniseur (l'application n'en a pas) : ~4,4 caractères par jeton
+# pour une description anglaise, ~3,1 pour des paroles françaises (mesurés avec le vrai tokeniseur) ; marge prise.
+DESCRIPTION_MAX_CAR = 700
+PAROLES_MAX_CAR = 5500
+
+
+def longueurs_trop_grandes(params):
+    """Avertissements (textes) si la description ou les paroles dépassent ce qu'ACE-Step lit."""
+    avertissements = []
+    description = params.get("prompt") or ""
+    if len(description) > DESCRIPTION_MAX_CAR:
+        avertissements.append(
+            f"Description de {len(description)} caractères : ACE-Step n'en lit qu'environ {DESCRIPTION_MAX_CAR} "
+            f"(256 jetons) ; la fin (« …{description[-60:]} ») et le tempo / la tonalité demandés sont ignorés. "
+            "Raccourcis la description.")
+    paroles = params.get("lyrics") or ""
+    if len(paroles) > PAROLES_MAX_CAR:
+        avertissements.append(
+            f"Paroles de {len(paroles)} caractères : ACE-Step n'en lit qu'environ {PAROLES_MAX_CAR} (2048 jetons) ; "
+            f"la fin (« …{paroles[-60:].strip()} ») ne sera pas chantée. Raccourcis les paroles ou fais deux chansons.")
+    return avertissements
+
+
 def generer(params, dests, progress, etape="1/1", fichiers=None, graine=None):
     """Lance une tâche ACE-Step (/release_task), attend le résultat et écrit une version par fichier de dests.
 
@@ -154,6 +179,11 @@ def generer(params, dests, progress, etape="1/1", fichiers=None, graine=None):
                chemins absolus hors de son dossier temporaire (release_task_audio_paths.validate_audio_path) ;
     Renvoie [(chemin, graine), …] dans l'ordre des versions (l'ordre des graines est celui des fichiers).
     """
+    for avertissement in longueurs_trop_grandes(params):
+        try:
+            gr.Warning(avertissement, duration=None)
+        except Exception:  # noqa: BLE001 - hors d'un événement Gradio
+            pass
     wait_acestep(progress)
     seeds = graines(len(dests), graine)
     payload = {

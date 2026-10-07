@@ -224,7 +224,16 @@ def generer_depuis_images(dossier_images, duree_label="3 s", etapes=20, mouvemen
         if not infos.get("scenes"):
             raise gr.Error("Cette création n'est pas une histoire en plusieurs images.")
         geste = (mouvement or "").strip() or MOUVEMENT_DEFAUT
-        plans = [{"image": s["fichier"], "prompt": f"{s['scene'].rstrip('.')}. {geste}"} for s in infos["scenes"]]
+        # description de l'image, puis le mouvement, puis le contexte commun : Wan lit 512 jetons, et un long contexte
+        # (quatre personnages détaillés) placé avant aurait fait sauter le mouvement
+        contexte = (infos.get("contexte") or "").strip().rstrip(".")
+
+        def prompt_plan(s):
+            if contexte and s.get("image") is not None:
+                return ". ".join(x for x in (s["image"].strip().rstrip("."), geste.rstrip("."), contexte) if x) + "."
+            return f"{s['scene'].rstrip('.')}. {geste}"
+
+        plans = [{"image": s["fichier"], "prompt": prompt_plan(s)} for s in infos["scenes"]]
     debut = time.monotonic()
     images = DUREES.get(duree_label, DUREES["3 s"])
     largeur, hauteur = format_pour(AUTO, plans[0]["image"])

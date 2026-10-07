@@ -137,3 +137,10 @@ def test_plusieurs_voix():
     # « Refrain : tous ensemble » (deux mots) n'est pas un chanteur connu : laissé tel quel, comme une parole
     assert acestep.baliser_paroles("Refrain (ensemble)\nOn chante\n\nRefrain (ensemble)").splitlines() == [
         "[Chorus - duet, harmonies]", "On chante", "", "[Chorus - duet, harmonies]", "On chante"]
+
+
+def test_longueurs_lues_par_ace_step():
+    """ACE-Step coupe sans prévenir la description (256 jetons avec ses consignes) et les paroles (2048 jetons)."""
+    assert acestep.longueurs_trop_grandes({"prompt": "pop, piano", "lyrics": "[Verse]\nla"}) == []
+    a = acestep.longueurs_trop_grandes({"prompt": "epic orchestral, " * 60 + "FIN", "lyrics": "la la\n" * 1000})
+    assert len(a) == 2 and "Description de" in a[0] and "FIN" in a[0] and "ne sera pas chantée" in a[1]

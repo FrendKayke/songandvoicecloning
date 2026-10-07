@@ -930,6 +930,13 @@ def test_histoire_contexte_et_une_description_par_image(faux_diffusion):
         "they leave the village at dawn.", "", "they fight a troll"]
     _, h2 = galerie.recreer(dossier, progress=no_progress)
     assert [s["prompt"] for s in galerie.lire(h2)["scenes"]] == [s["prompt"] for s in infos["scenes"]]
+    # mini-vidéos : description, mouvement, puis contexte (Wan lit 512 jetons : le mouvement ne doit pas sauter)
+    from studiovoix import videos
+
+    videos.generer_depuis_images(dossier, "2 s", 10, "slow pan", False, "g", progress=no_progress)
+    clips = [e["tache"]["prompt"] for e in _journal() if e["action"] == "video"][-3:]
+    assert clips[0] == "they leave the village at dawn. slow pan. Four bearded men, all male, medieval adventurers."
+    assert clips[1] == "slow pan. Four bearded men, all male, medieval adventurers."
     # sans contexte, un champ vide est une erreur (sauf si tous sont vides : rien à générer)
     with pytest.raises(gr.Error, match="Image\\(s\\) 2 sans description"):
         images.generer_histoire(["a", "", "c"], None, [], images.AUTO, progress=no_progress)
@@ -1122,3 +1129,20 @@ def test_images_en_serie_liste_csv_style_et_reprise(faux_diffusion, monkeypatch)
         serie.entrees(liste=" \n ")
     with pytest.raises(gr.Error, match="Aucun lot"):
         serie.reprendre(None, progress=no_progress)
+
+
+def test_textes_coupes_par_les_moteurs(capsys):
+    """Stable Audio (T5, 128 jetons) et Wan (umT5, 512) coupent sans prévenir : avertissement ; réponse de Qwen
+    arrêtée par sa limite : phrase inachevée retirée."""
+    from types import SimpleNamespace
+
+    tokeniseur = lambda texte: SimpleNamespace(input_ids=texte.split())  # noqa: E731 - un jeton par mot
+    assert moteur._avertir_si_coupe(tokeniseur, "a door creaks", 128, "Stable Audio") == 3
+    assert "AVERTISSEMENT" not in capsys.readouterr().out
+    moteur._avertir_si_coupe(tokeniseur, "w " * 600 + "camera pans left", 512, "Wan 2.2")
+    sortie = capsys.readouterr().out
+    assert "AVERTISSEMENT : prompt trop long pour Wan 2.2 (603 jetons" in sortie and "camera pans left" in sortie
+    assert moteur._phrases_completes("A knight rides. The dragon roars. The sky tur", "video") == \
+        "A knight rides. The dragon roars."
+    assert moteur._phrases_completes("1. a\n2. b\n3. c is cu", "histoire") == "1. a\n2. b"
+    assert moteur.JETONS_QWEN >= 320

@@ -500,16 +500,34 @@ def decrire(chemin_tache):
     _sans_gqa_sdpa()
     with torch.inference_mode():
         # « histoire » : un prompt par image (jusqu'à 12, 40 à 70 mots chacun ; 120 jetons par image coupaient la
-        # réponse à la 9ᵉ sur 12) ; 160 jetons suffisent pour un seul prompt
-        jetons = 160 if mode != "histoire" else 180 * max(1, int(t.get("nombre", 4))) + 100
+        # réponse à la 9ᵉ sur 12) ; un seul prompt : JETONS_QWEN (160 pouvait couper une description de vidéo ou de
+        # scène détaillée en pleine phrase)
+        jetons = JETONS_QWEN if mode != "histoire" else 180 * max(1, int(t.get("nombre", 4))) + 100
         sortie = _memoire(modele.generate)(**entrees, max_new_tokens=jetons, do_sample=False)
-    texte = processeur.batch_decode(sortie[:, entrees["input_ids"].shape[1]:], skip_special_tokens=True)[0]
+    produits = sortie[:, entrees["input_ids"].shape[1]:]
+    texte = processeur.batch_decode(produits, skip_special_tokens=True)[0]
+    if produits.shape[1] >= jetons:  # réponse arrêtée par la limite, pas par Qwen : coupée en pleine phrase
+        texte = _phrases_completes(texte, mode)
+        print(f"AVERTISSEMENT : la réponse de Qwen a atteint sa longueur maximale ({jetons} jetons) ; la dernière "
+              "phrase inachevée a été retirée. Relis le prompt avant de générer.", flush=True)
     if mode == "histoire":  # une scène par ligne : les retours à la ligne sont gardés
         texte = "\n".join(" ".join(ligne.split()) for ligne in texte.strip().splitlines() if ligne.strip())
     else:
         texte = " ".join(texte.strip().strip('"').split())
     _resultat({"texte": texte})
     print("TERMINE -", flush=True)
+
+
+JETONS_QWEN = 320  # longueur maximale d'une réponse de Qwen (un prompt)
+
+
+def _phrases_completes(texte, mode):
+    """Retire la fin inachevée d'une réponse coupée : jusqu'au dernier point (une ligne entière pour « histoire »)."""
+    if mode == "histoire":
+        lignes = texte.rstrip().splitlines()
+        return "\n".join(lignes[:-1]) if len(lignes) > 1 else texte
+    fin = max(texte.rfind(". "), texte.rfind("."), texte.rfind("! "), texte.rfind("? "))
+    return texte[:fin + 1] if fin > len(texte) // 3 else texte
 
 
 # --- Stable Audio Open : bruitages ----------------------------------------------------------------------
@@ -546,6 +564,7 @@ def bruitage(chemin_tache):
     graines = [int(t.get("graine") or 0) or int(torch.randint(1, 2**31 - 1, (1,)))]
     graines += [int(x) for x in torch.randint(1, 2**31 - 1, (variantes - 1,))]
     generateurs = [torch.Generator(device).manual_seed(g) for g in graines]
+    _avertir_si_coupe(pipe.tokenizer, t["prompt"], pipe.tokenizer.model_max_length, "Stable Audio")
     print("PROGRESSION 2/2 génération", flush=True)
     sortie = _memoire(pipe)(
         prompt=[t["prompt"]] * variantes, negative_prompt=[t.get("negatif") or "Low quality."] * variantes,
@@ -654,6 +673,17 @@ def _longueur_texte(pipe, prompt):
               f"est ignorée (« …{prompt[-80:]} »). Raccourcis le contexte ou les descriptions.", flush=True)
         return TEXTE_MAX
     return -(-jetons // 64) * 64
+
+
+def _avertir_si_coupe(tokeniseur, texte, maximum, generateur):
+    """Les encodeurs de texte coupent sans prévenir au-delà de leur longueur (Stable Audio : T5, 128 jetons ; Wan :
+    umT5, 512 jetons) : ligne AVERTISSEMENT (bandeau de l'interface) si c'est le cas. Renvoie le nombre de jetons."""
+    jetons = len(tokeniseur(texte).input_ids)
+    if jetons > maximum:
+        mots = texte.split()
+        print(f"AVERTISSEMENT : prompt trop long pour {generateur} ({jetons} jetons, il n'en lit que {maximum}) : "
+              f"la fin est ignorée (« …{' '.join(mots[-12:])} »). Raccourcis le prompt.", flush=True)
+    return jetons
 
 
 def _encoder_une_fois(pipe, prompt, **options):
@@ -778,6 +808,7 @@ def _encoder_texte_video(t, device, dtype):
         g = torch.Generator("cpu").manual_seed(0)
         return (torch.randn(1, 512, 4096, generator=g).to(dtype), torch.randn(1, 512, 4096, generator=g).to(dtype))
     tokeniseur = AutoTokenizer.from_pretrained(depot, subfolder="tokenizer")
+    _avertir_si_coupe(tokeniseur, t["prompt"], 512, "Wan 2.2")  # max_sequence_length=512 (text_len de Wan)
     _precharger((depot, "text_encoder"))  # relu à chaque vidéo : depuis le cache de Windows s'il l'a gardé
     encodeur = UMT5EncoderModel.from_pretrained(depot, subfolder="text_encoder", torch_dtype=torch.bfloat16)
     cible = "cpu"
