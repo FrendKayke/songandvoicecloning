@@ -177,6 +177,24 @@ def test_deux_versions_avec_ma_voix(fake_acestep, fake_engines):
     assert creation["versions"][0]["graine"] == 42 and "Graines : 42, " in msg
 
 
+def test_plusieurs_chansons_d_un_coup(fake_acestep, fake_engines):
+    """5 chansons : ACE-Step en compose 2 à la fois (12 Go), donc 3 passes (2 + 2 + 1), graines qui se suivent ;
+    l'onglet liste toutes les chansons pour les écouter."""
+    from studiovoix.onglets import chanson
+
+    srv = fake_acestep()
+    res = chanson._creer(None, "pop", "", "", "", "", "Automatique", "", "Français", 60, 0, False, 0, 40, 1.0, 1.0,
+                         MODE_INSTRU, "", [], 5, 42, "seedvc", progress=no_progress)
+    assert [p["batch_size"] for p in srv.payloads] == [2, 2, 1]
+    assert [p["seed"].split(",")[0] for p in srv.payloads] == ["42", "44", "46"]
+    workdir = next(cfg.SONGS_DIR.iterdir())
+    creation = json.loads((workdir / "creation.json").read_text(encoding="utf-8"))
+    assert [v["dossier"] for v in creation["versions"]] == [f"version_{i}" for i in range(1, 6)]
+    visible, liste, ecoute = res[5:]
+    assert visible["visible"] and len(liste["choices"]) == 5 and liste["choices"][0][0] == "Chanson 1 (graine 42)"
+    assert ecoute == creation["versions"][0]["fichier"] and "5 versions" in res[4]
+
+
 def test_une_version_reste_a_la_racine(fake_acestep, fake_engines):
     fake_acestep()
     final, *_, final2 = _call(None, "", mode=MODE_INSTRU, graine=7, versions=1)

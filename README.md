@@ -270,7 +270,7 @@ Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de
 
 ## Réglages utiles
 
-- **Plusieurs versions et graine** : « Versions : 2 » génère deux versions d'un coup (plus long) pour garder la meilleure. Après chaque création, la **graine** s'affiche : remets-la dans « Graine » avec les mêmes réglages pour obtenir un résultat proche (0 = aléatoire). Tout est noté dans `creation.json`, dans le dossier de la création.
+- **Plusieurs chansons d'un coup et graine** : « Nombre de chansons » (1 à 8) crée plusieurs chansons avec les mêmes réglages et des graines différentes, pour garder la meilleure ; ACE-Step en compose 2 à la fois (limite des 12 Go), les suivantes à la suite. La liste « Écouter les autres chansons » les fait entendre une à une. Après chaque création, la **graine** s'affiche : remets-la dans « Graine » avec les mêmes réglages pour obtenir un résultat proche (0 = aléatoire). Tout est noté dans `creation.json`, dans le dossier de la création.
 - **Style pas respecté ?** La description est transmise telle quelle à ACE-Step. Si le résultat reste trop « pop », décoche le **mode réflexion** : le générateur suit alors la description seule. Pour un style peu courant, répète les mots importants (« 8-bit chiptune, chiptune, retro video game music »).
 - **Exclure un instrument** : ne l'écris pas dans la description, même précédé de « sans » ou « no » : le mot suffit à l'ajouter. Utilise plutôt **« Retirer de la musique »** (basse, batterie) : la chanson est séparée en pistes par Demucs et l'instrument est supprimé du mix, c'est garanti (environ 1 minute de plus). Les pistes séparées restent dans le dossier de la chanson (`demucs4\`).
 

@@ -22,7 +22,8 @@ RETRAITS = {"bass": "basse", "drums": "batterie"}
 NEGATIFS = {"bass": "bass, bass guitar, sub-bass", "drums": "drums, drum kit, percussion"}
 PISTES_INSTRU = ("drums", "bass", "other")
 INSTRUMENTAL = "[Instrumental]"  # paroles reconnues par ACE-Step comme « sans voix » (server_utils.is_instrumental)
-MAX_VERSIONS = 2  # au-delà, la mémoire graphique (12 Go) risque de manquer
+MAX_VERSIONS = 2  # versions générées ensemble par ACE-Step : au-delà, la mémoire graphique (12 Go) risque de manquer
+MAX_CHANSONS = 8  # chansons d'un coup : par passes de MAX_VERSIONS
 SEEDVC = "seedvc"  # conversion sans entraînement ; « rvc:<nom> » = modèle RVC entraîné
 
 
@@ -56,12 +57,13 @@ def creer_chanson(
 ):
     """« description » : description finale (modifiable dans l'interface) ; vide = construite depuis les listes.
     « retirer » : pistes à supprimer du mix (« bass », « drums »), garanti par une séparation Demucs en 4 pistes.
-    « versions » : 1 ou 2 versions générées d'un coup ; « graine » : 0 = aléatoire, sinon graine de la version 1.
+    « versions » : 1 à MAX_CHANSONS chansons (mêmes réglages, graines différentes), générées par passes de
+    MAX_VERSIONS ; « graine » : 0 = aléatoire, sinon graine de la version 1.
     « moteur » : conversion de voix, SEEDVC (échantillon « voix » de la bibliothèque) ou « rvc:<nom> ».
     Renvoie (finale, brute, voix convertie, instrumental, message, finale de la version 2 ou None).
     """
     retirer = [p for p in (retirer or []) if p in RETRAITS]
-    versions = max(1, min(MAX_VERSIONS, int(versions or 1)))
+    versions = max(1, min(MAX_CHANSONS, int(versions or 1)))
     mode = mode or MODE_MA_VOIX
     if mode not in MODES:
         raise gr.Error(f"Mode inconnu : {mode}")
@@ -97,8 +99,12 @@ def creer_chanson(
     progress(0.05, desc=f"1/{total} — Génération (ACE-Step)…")
     negatif = ", ".join(NEGATIFS[p] for p in retirer) or None
     params = acestep.text2music_params(prompt, lyrics, cfg.LANGUES[langue_label], duree, bpm, thinking, negatif)
-    generes = acestep.generer(params, [d / "chanson_brute.wav" for d in dossiers], progress, f"1/{total}",
-                              graine=graine)
+    generes = []
+    for p0 in range(0, versions, MAX_VERSIONS):  # ACE-Step en fait MAX_VERSIONS à la fois
+        passe = dossiers[p0:p0 + MAX_VERSIONS]
+        etape = f"1/{total}" if versions <= MAX_VERSIONS else f"1/{total} (chansons {p0 + 1}–{p0 + len(passe)} sur {versions})"
+        generes += acestep.generer(params, [d / "chanson_brute.wav" for d in passe], progress, etape,
+                                   graine=(int(graine) + p0) if graine and int(graine) > 0 else None)
 
     resultats = []
     for n, ((song, seed), dossier) in enumerate(zip(generes, dossiers), 1):

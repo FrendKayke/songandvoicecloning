@@ -3,7 +3,7 @@ import gradio as gr
 
 from .. import acestep, export, rvc
 from .. import config as cfg
-from ..pipeline import MODE_INSTRU, MODE_MA_VOIX, MODES, RETRAITS, creer_chanson
+from ..pipeline import MAX_CHANSONS, MODE_INSTRU, MODE_MA_VOIX, MODES, RETRAITS, creer_chanson
 from ..voix import list_voices
 from .commun import espace_de_noms, liste_style
 
@@ -99,8 +99,9 @@ def construire():
         langue = gr.Dropdown(list(cfg.LANGUES), value="Français", label="Langue des paroles")
         duree = gr.Slider(30, 240, value=120, step=10, label="Durée (s)")
         bpm = gr.Number(value=0, precision=0, label="BPM (0 = auto)")
-        versions = gr.Radio([1, 2], value=1, label="Versions",
-                            info="2 versions d'un coup pour garder la meilleure (plus long).")
+        versions = gr.Slider(1, MAX_CHANSONS, value=1, step=1, label="Nombre de chansons",
+                             info="Plusieurs chansons d'un coup (mêmes réglages, graines différentes) pour garder "
+                                  "la meilleure : ACE-Step en compose 2 à la fois, les suivantes à la suite.")
         graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)",
                            info="Reprends une graine affichée après une création pour obtenir un résultat proche.")
         thinking = gr.Checkbox(value=True, label="Mode réflexion (LM) — meilleure structure",
@@ -119,7 +120,9 @@ def construire():
     btn = gr.Button("🎵 Créer la chanson", variant="primary")
     statut = gr.Markdown()
     final = gr.Audio(label="Chanson finale (avec ta voix)", type="filepath")
-    final_2 = gr.Audio(label="Version 2", type="filepath", visible=False)
+    with gr.Row(visible=False) as autres_versions:
+        liste_versions = gr.Dropdown([], label="Écouter les autres chansons")
+        ecoute_version = gr.Audio(label="Chanson choisie", type="filepath")
     with gr.Row():
         chanson_cible = gr.Dropdown(list(export.CIBLES), value=list(export.CIBLES)[0], label="Volume de l'export")
         btn_export_chanson = gr.Button("💾 Exporter la chanson en MP3")
@@ -132,16 +135,36 @@ def construire():
     return espace_de_noms(locals())
 
 
+def _creer(*args, progress=gr.Progress()):
+    """creer_chanson, plus la liste de toutes les chansons créées (lue dans creation.json) pour les écouter."""
+    import json
+    from pathlib import Path
+
+    final, brute, conv, instru, msg, _ = creer_chanson(*args, progress=progress)
+    racine = Path(final).parent
+    racine = racine.parent if racine.name.startswith("version_") else racine
+    try:
+        infos = json.loads((racine / "creation.json").read_text(encoding="utf-8"))
+        choix = [(f"Chanson {i} (graine {v['graine']})", v["fichier"]) for i, v in enumerate(infos["versions"], 1)]
+    except (OSError, ValueError, KeyError):
+        choix = []
+    plusieurs = len(choix) > 1
+    return (final, brute, conv, instru, msg, gr.update(visible=plusieurs),
+            gr.update(choices=choix, value=choix[0][1] if plusieurs else None),
+            choix[0][1] if plusieurs else None)
+
+
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     c.btn.click(
-        creer_chanson,
+        _creer,
         [c.voix, c.genre, c.style, c.instruments, c.ambiance, c.extra, c.voix_base, c.paroles, c.langue, c.duree, c.bpm,
          c.thinking, c.semitones, c.steps, c.gain_voix, c.gain_instru, c.mode, c.description, c.retirer, c.versions, c.graine,
          c.conversion],
-        [c.final, c.brute, c.voix_conv, c.instru_out, c.statut, c.final_2],
+        [c.final, c.brute, c.voix_conv, c.instru_out, c.statut, c.autres_versions, c.liste_versions,
+         c.ecoute_version],
     )
-    c.versions.change(lambda v: gr.update(visible=int(v) > 1), c.versions, c.final_2)
+    c.liste_versions.input(lambda f: f, c.liste_versions, c.ecoute_version)
     c.btn_export_chanson.click(export.exporter_fichier, [c.final, c.chanson_cible], [c.chanson_mp3, c.chanson_export_msg])
 
     champs_style = [c.genre, c.style, c.instruments, c.ambiance, c.extra, c.voix_base, c.mode]
