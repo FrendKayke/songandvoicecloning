@@ -165,7 +165,8 @@ def _normal(texte_):
     import re
     import unicodedata
 
-    t = unicodedata.normalize("NFKD", texte_ or "").encode("ascii", "ignore").decode().lower()
+    t = (texte_ or "").replace("œ", "oe").replace("Œ", "Oe").replace("æ", "ae").replace("Æ", "Ae")  # « chœur »
+    t = unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode().lower()
     return " ".join(re.sub(r"[^a-z0-9]+", " ", t).split())
 
 

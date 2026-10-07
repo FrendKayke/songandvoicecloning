@@ -31,7 +31,22 @@ def maj_mode(mode):
         *[gr.update(visible=ma_voix)] * 4,              # décalage, étapes Seed-VC, volumes
         gr.update(label=label),                         # lecteur du résultat
         gr.update(visible=ma_voix),                     # étapes intermédiaires
+        gr.update(visible=not instru),                  # voix chantées
     )
+
+
+def aide_voix(voix_base, mode):
+    """Aide affichée quand plusieurs voix chantent : comment dire qui chante quoi, et la limite du mode « ma voix »."""
+    if voix_base not in acestep.PLUSIEURS_VOIX or mode == MODE_INSTRU:
+        return gr.update(visible=False)
+    texte = ("**Plusieurs voix** : dans les paroles, écris qui chante chaque partie après son titre, par exemple "
+             "« Couplet 1 (homme) », « Couplet 2 (femme) », « Refrain (ensemble) », « Pont (chœur) ». Entre "
+             "parenthèses dans une ligne, « (oh oh) », les mots sont chantés en chœur derrière la voix principale.")
+    if mode == MODE_MA_VOIX:
+        texte += ("\n\n⚠️ En mode « Chanson avec ma voix », la conversion transforme **toutes** les voix en la "
+                  "tienne : tu obtiens des harmonies avec toi-même, pas un duo avec une autre personne. Pour un vrai "
+                  "duo homme / femme, choisis le mode « Chanson avec la voix d'ACE-Step ».")
+    return gr.update(value=texte, visible=True)
 
 
 def apercu_description(genre, style, instruments, ambiance, extra, voix_base, mode):
@@ -56,9 +71,17 @@ def construire():
             ambiance = liste_style("ambiance", "Ambiance")
             extra = liste_style("extra", "Autres consignes (facultatif)")
         with gr.Column():
+            voix_base = gr.Dropdown(
+                list(acestep.VOIX_CHANTEES), value="Automatique", label="Voix chantées",
+                info="Une voix (homme ou femme), un duo, une voix principale avec des chœurs, ou un chœur. En mode "
+                     "« ma voix », choisis le genre le plus proche de ta voix : moins de décalage à corriger.",
+            )
+            aide_plusieurs_voix = gr.Markdown(visible=False)
             paroles = gr.Textbox(
-                label="Paroles (avec [Verse], [Chorus], [Bridge]…)", lines=16,
-                placeholder="[Verse 1]\nTes paroles…\n\n[Chorus]\nLe refrain…",
+                label="Paroles (titres de parties : Couplet 1, Refrain, Pont… ; qui chante : « Refrain (ensemble) »)",
+                lines=16,
+                placeholder="Couplet 1 (homme)\nTes paroles…\n\nCouplet 2 (femme)\n…\n\nRefrain (ensemble)\n"
+                            "Le refrain… (oh oh)",
             )
     description = gr.Textbox(
         label="Description envoyée à ACE-Step (modifiable)", lines=2,
@@ -84,11 +107,6 @@ def construire():
                                info="Si le style demandé n'est pas respecté, décoche-le : le générateur "
                                     "suivra alors la description seule.")
     with gr.Accordion("Réglages voix (avancé)", open=False) as reglages:
-        voix_base = gr.Dropdown(
-            ["Automatique", "Voix masculine", "Voix féminine"], value="Automatique",
-            label="Voix chantée de base générée par ACE-Step",
-            info="Choisis le genre le plus proche de ta voix : moins de décalage à corriger.",
-        )
         conversion = gr.Dropdown(choix_conversion(), value="seedvc", label="Conversion de ta voix",
                                  info="Un modèle RVC entraîné sur 10 à 30 min de ta voix est plus fidèle "
                                       "(onglet « Entraîner ma voix »).")
@@ -131,5 +149,8 @@ def brancher(c, demo, o):
         champ.change(apercu_description, champs_style, c.description)
     c.mode.change(
         maj_mode, c.mode,
-        [c.voix, c.paroles, c.reglages, c.semitones, c.steps, c.gain_voix, c.gain_instru, c.final, c.intermediaires],
+        [c.voix, c.paroles, c.reglages, c.semitones, c.steps, c.gain_voix, c.gain_instru, c.final, c.intermediaires,
+         c.voix_base],
     )
+    for champ in (c.voix_base, c.mode):
+        champ.change(aide_voix, [c.voix_base, c.mode], c.aide_plusieurs_voix)

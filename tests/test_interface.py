@@ -26,9 +26,9 @@ def test_affichage_selon_le_mode():
     from studiovoix.pipeline import MODE_INSTRU, MODE_MA_VOIX, MODE_VOIX_ACE
 
     vis = lambda mode: [u.get("visible") for u in maj_mode(mode)]  # noqa: E731
-    assert vis(MODE_MA_VOIX) == [True, True, True, True, True, True, True, None, True]
-    assert vis(MODE_VOIX_ACE) == [False, True, True, False, False, False, False, None, False]
-    assert vis(MODE_INSTRU) == [False, False, False, False, False, False, False, None, False]
+    assert vis(MODE_MA_VOIX) == [True, True, True, True, True, True, True, None, True, True]
+    assert vis(MODE_VOIX_ACE) == [False, True, True, False, False, False, False, None, False, True]
+    assert vis(MODE_INSTRU) == [False, False, False, False, False, False, False, None, False, False]
     assert maj_mode(MODE_INSTRU)[7]["label"] == "Instrumental"
 
 

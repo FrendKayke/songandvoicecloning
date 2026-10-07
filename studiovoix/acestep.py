@@ -17,13 +17,25 @@ from .styles import musique
 ACESTEP_COMPONENTS = ["acestep-v15-turbo", "vae", "Qwen3-Embedding-0.6B", "acestep-5Hz-lm-1.7B"]
 
 
+# Voix chantées (liste « Voix chantées » de l'onglet) → termes de la description. Vocabulaire de la documentation
+# d'ACE-Step 1.5 (docs/en/Tutorial.md : « female vocal, male vocal… choir », balise [harmonies]) ; qui chante quelle
+# partie se précise dans les paroles (« Couplet 1 (homme) », voir baliser_paroles).
+VOIX_CHANTEES = {
+    "Automatique": "",
+    "Voix masculine": "male vocals",
+    "Voix féminine": "female vocals",
+    "Duo homme et femme": "male and female duet, male vocals, female vocals, vocal harmonies",
+    "Duo de deux hommes": "male duet, two male vocalists, vocal harmonies",
+    "Duo de deux femmes": "female duet, two female vocalists, vocal harmonies",
+    "Voix principale et chœurs": "lead vocals with backing vocals, vocal harmonies",
+    "Chœur (tout le monde chante ensemble)": "choir, group vocals, layered vocal harmonies",
+}
+PLUSIEURS_VOIX = [v for v in VOIX_CHANTEES if v not in ("Automatique", "Voix masculine", "Voix féminine")]
+
+
 def build_prompt(genre, style, instruments, ambiance, voix_base, extra):
     """Description (« caption ») envoyée à ACE-Step. Chaque champ est un texte ou une sélection de liste."""
-    parts = [musique(genre), musique(style), musique(instruments), musique(ambiance)]
-    if voix_base == "Voix masculine":
-        parts.append("male vocals")
-    elif voix_base == "Voix féminine":
-        parts.append("female vocals")
+    parts = [musique(genre), musique(style), musique(instruments), musique(ambiance), VOIX_CHANTEES.get(voix_base, "")]
     parts.append(musique(extra))
     termes = []  # un même terme demandé dans plusieurs champs (genre et ambiance « médiéval »…) n'est écrit qu'une fois
     for t in ", ".join(p.strip() for p in parts if p and p.strip()).split(","):
@@ -43,11 +55,21 @@ SECTIONS = [
     (r"(outro|fin|final|conclusion)", "Outro"),
     (r"(solo|instrumental|interlude)", "Instrumental"),
 ]
+# Qui chante une section, écrit après son titre : « Couplet 1 (homme) », « Refrain - ensemble », « Pont : chœur »
+# → [Verse 1 - male vocal]… (forme « [Section - précision] » de la documentation d'ACE-Step, « [Chorus - anthemic] »)
+CHANTEURS = [
+    (r"(homme|masculin|masculine|garcon|lui|il|chanteur|male|man)", "male vocal"),
+    (r"(femme|feminin|feminine|fille|elle|chanteuse|female|woman)", "female vocal"),
+    (r"(ensemble|tous|toutes|duo|les deux|both|together|duet)", "duet, harmonies"),
+    (r"(choeur|choeurs|chorale|choir|groupe)", "choir"),
+    (r"(reponse|question reponse|call and response)", "call and response"),
+]
 
 
 def baliser_paroles(paroles):
-    """« Couplet 2 », « Refrain : », « [Pont] »… seuls sur leur ligne → [Verse 2], [Chorus], [Bridge]. Une section
-    laissée vide (« Refrain » sans texte) reprend le texte de la dernière section du même nom."""
+    """« Couplet 2 », « Refrain : », « [Pont] »… seuls sur leur ligne → [Verse 2], [Chorus], [Bridge] ; avec qui
+    chante (« Couplet 1 (homme) », « Refrain - ensemble ») → [Verse 1 - male vocal], [Chorus - duet, harmonies]. Une
+    section laissée vide (« Refrain » sans texte) reprend le texte de la dernière section du même nom."""
     import re
 
     from .styles import _normal
@@ -57,10 +79,17 @@ def baliser_paroles(paroles):
         n = _normal(brute.strip().strip("[]()").rstrip(":"))
         balise = None
         for motif, nom in SECTIONS:
-            m = re.fullmatch(motif + r"(?: (\d+))?", n)
-            if m and len(brute.strip()) <= 40:
-                balise = nom + (f" {m.group(m.lastindex)}" if m.group(m.lastindex) and m.lastindex > 1 else "")
-                break
+            m = re.fullmatch(motif + r"(?: (\d+))?(?: (.+))?", n)
+            if not m or len(brute.strip()) > 40:
+                continue
+            numero, suite = m.group(2), m.group(3)
+            chanteur = None
+            if suite:  # seul un chanteur est accepté après le titre (sinon c'est une parole : « Refrain de ma vie »)
+                chanteur = next((v for motif_c, v in CHANTEURS if re.fullmatch(motif_c, suite)), None)
+                if not chanteur:
+                    continue
+            balise = nom + (f" {numero}" if numero else "") + (f" - {chanteur}" if chanteur else "")
+            break
         if balise:
             _reprendre(lignes, sections, courante, vues)
             courante, vues = balise.split(" ")[0], set()

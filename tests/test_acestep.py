@@ -119,3 +119,21 @@ def test_titres_de_section_en_balises():
         "[Verse 4]", "Déjà balisé"]
     # une vraie phrase qui commence par un mot de section n'est pas touchée
     assert acestep.baliser_paroles("Refrain de ma vie, tu chantes encore") == "Refrain de ma vie, tu chantes encore"
+
+
+def test_plusieurs_voix():
+    """Duo, chœur : termes de la documentation d'ACE-Step dans la description ; qui chante chaque partie, écrit
+    après son titre, devient une précision de la balise ([Verse 1 - male vocal])."""
+    p = acestep.build_prompt("pop", "", "", "", "Duo homme et femme", "")
+    assert p == "pop, male and female duet, male vocals, female vocals, vocal harmonies"
+    assert "choir" in acestep.build_prompt("", "", "", "", "Chœur (tout le monde chante ensemble)", "")
+    assert set(acestep.PLUSIEURS_VOIX) == set(acestep.VOIX_CHANTEES) - {"Automatique", "Voix masculine", "Voix féminine"}
+    b = acestep.baliser_paroles("Couplet 1 (homme)\nJe pars\n\nCouplet 2 - femme\nJe reste\n\nRefrain : tous ensemble"
+                                "\nOn chante (oh oh)\n\nPont (chœur)\nLa la\n\nRefrain (ensemble)\n\n[Chorus - anthemic]\nx")
+    assert b.splitlines() == [
+        "[Verse 1 - male vocal]", "Je pars", "", "[Verse 2 - female vocal]", "Je reste", "",
+        "Refrain : tous ensemble", "On chante (oh oh)", "", "[Bridge - choir]", "La la", "",
+        "[Chorus - duet, harmonies]", "", "[Chorus - anthemic]", "x"]
+    # « Refrain : tous ensemble » (deux mots) n'est pas un chanteur connu : laissé tel quel, comme une parole
+    assert acestep.baliser_paroles("Refrain (ensemble)\nOn chante\n\nRefrain (ensemble)").splitlines() == [
+        "[Chorus - duet, harmonies]", "On chante", "", "[Chorus - duet, harmonies]", "On chante"]
