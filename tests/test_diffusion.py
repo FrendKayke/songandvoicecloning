@@ -1070,11 +1070,14 @@ def test_images_en_serie_depuis_un_tableau_excel(faux_diffusion):
         serie.valeur_case(str(f), "Icônes", "deux")
 
     lot = serie.entrees(str(f), "Icônes", True, "B", "A", "C")
-    assert len(lot) == 10 and lot[0]["fichier"] == "001_Panier.png" and lot[4]["fichier"] == "005_Panier_2.png"
-    assert lot[1]["fichier"] == "002_Icone_2.png" and lot[2]["contexte_ligne"] == "red"
+    # la colonne des noms donne exactement le nom du fichier (accents gardés) ; un doublon reçoit « _2 »
+    assert len(lot) == 10 and lot[0]["fichier"] == "Panier.png" and lot[4]["fichier"] == "Panier_2.png"
+    assert lot[4]["doublon"] and lot[1]["fichier"] == "Icône 2.png" and lot[2]["contexte_ligne"] == "red"
+    assert serie.entrees(str(f), "Icônes", True, "B", "A", "C", numeroter=True)[0]["fichier"] == "001_Panier.png"
+    assert serie.entrees(str(f), "Icônes", True, "B", None, None)[0]["fichier"] == "001_a_shopping_cart.png"
     tableau, info = serie.apercu_prompts(str(f), "Icônes", True, "B", "A", "C", "E2", "", "flat colors",
                                          [serie.STYLES[0][1]], None)
-    assert "10 image(s)" in info and "Z-Image" in info
+    assert "10 image(s)" in info and "Z-Image" in info and "1 nom(s) de fichier en double" in info
     assert tableau["data"][2][2] == ("icon number 3. red. cooking app icons. flat colors. Style: "
                                      + serie.STYLES[0][1] + ".")
 
@@ -1086,10 +1089,10 @@ def test_images_en_serie_depuis_un_tableau_excel(faux_diffusion):
     assert taches[0]["prompts"][2].startswith("icon number 3. red. cooking app icons") and taches[0]["graines"] == [7] * 8
     d = Path(dossier)
     assert d.parent == cfg.SERIES_DIR and d.name.endswith("_Mes_icones") and "10/10" in msg and len(galerie) == 10
-    assert (d / "32px" / "001_Panier.png").exists() and (d / "512px" / "010_Icone_10.png").exists()
+    assert (d / "32px" / "Panier.png").exists() and (d / "512px" / "Icône 10.png").exists()
     with zipfile.ZipFile(archive) as z:
         noms = z.namelist()
-    assert "001_Panier.png" in noms and "32px/001_Panier.png" in noms and "lot.csv" in noms
+    assert "Panier.png" in noms and "32px/Panier.png" in noms and "Icône 10.png" in noms and "lot.csv" in noms
     texte_csv = (d / "lot.csv").read_text(encoding="utf-8-sig")
     lignes = list(csv_.reader(texte_csv.splitlines(), delimiter=";"))
     assert lignes[0][:3] == ["numero", "ligne", "nom"] and lignes[1][2] == "Panier" and lignes[1][6] == "oui"
@@ -1146,3 +1149,27 @@ def test_textes_coupes_par_les_moteurs(capsys):
         "A knight rides. The dragon roars."
     assert moteur._phrases_completes("1. a\n2. b\n3. c is cu", "histoire") == "1. a\n2. b"
     assert moteur.JETONS_QWEN >= 320
+
+
+def test_noms_de_fichiers_des_images_en_serie(faux_diffusion):
+    """Le nom écrit dans le tableau devient le nom du fichier : caractères interdits par Windows remplacés,
+    extension .jpg / .webp respectée (format de l'image), noms réservés de Windows évités."""
+    from PIL import Image
+
+    from studiovoix import serie
+
+    assert serie.nom_de_fichier("icone maison") == "icone maison.png"
+    assert serie.nom_de_fichier("  ic/ône:1?  ") == "ic_ône_1_.png"
+    assert serie.nom_de_fichier("fond.JPEG") == "fond.jpg" and serie.nom_de_fichier("logo.webp") == "logo.webp"
+    assert serie.nom_de_fichier("v1.2") == "v1.2.png" and serie.nom_de_fichier("CON") == "CON_.png"
+    assert serie.nom_de_fichier(" ... ") == "" and serie.nom_de_fichier("") == ""
+    c = cfg.DATA_DIR.parent / "noms.csv"
+    c.write_text("fichier;prompt\nfond.jpg;a sunset\nLOGO;a fox\nlogo;a cat\n;a dog\n", encoding="utf-8")
+    *_, dossier = serie.generer(str(c), "CSV", True, "B", "A", None, "", "", "", [], None, "Carré 1:1 (1024×1024)",
+                                [64], 0, True, "", 0, progress=no_progress)
+    d = Path(dossier)
+    assert sorted(p.name for p in d.glob("*.*") if p.suffix in (".png", ".jpg")) == [
+        "004_a_dog.png", "LOGO.png", "fond.jpg", "logo_2.png"]
+    with Image.open(d / "fond.jpg") as im:
+        assert im.format == "JPEG"
+    assert (d / "64px" / "fond.jpg").exists()

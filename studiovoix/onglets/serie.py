@@ -12,7 +12,8 @@ def construire():
         "**Beaucoup d'images d'un coup, dans le même style** : par exemple 250 icônes carrées pour une application. "
         "Une image par ligne de ton tableau.\n\n"
         "1. **Dépose ton fichier Excel** (.xlsx) ou CSV, puis choisis la **colonne des prompts** (en anglais de "
-        "préférence) ; facultatif : une colonne de **noms** (noms des fichiers) et une colonne de **contexte** propre "
+        "préférence) ; facultatif : une colonne de **noms de fichiers** (chaque image porte exactement ce nom) et "
+        "une colonne de **contexte** propre "
         "à chaque ligne. Pas de fichier ? Colle tes prompts, un par ligne.\n"
         "2. **Contexte commun** : écris-le, ou indique la case du fichier qui le contient (par exemple B1).\n"
         "3. **Style** : choisis-le dans la liste (styles d'icônes en tête) ; pour un rendu encore plus uniforme, "
@@ -31,8 +32,11 @@ def construire():
                 ser_entetes = gr.Checkbox(value=True, label="La première ligne contient les titres des colonnes")
             ser_col_prompt = gr.Dropdown([], label="Colonne des prompts")
             with gr.Row():
-                ser_col_nom = gr.Dropdown([], label="Colonne des noms (facultatif)")
+                ser_col_nom = gr.Dropdown([], label="Colonne des noms de fichiers (facultatif)",
+                                          info="Chaque image porte exactement ce nom (« icone_maison » → "
+                                               "icone_maison.png ; « fond.jpg » → JPEG).")
                 ser_col_contexte = gr.Dropdown([], label="Colonne de contexte par ligne (facultatif)")
+            ser_numeroter = gr.Checkbox(value=False, label="Ajouter le numéro de ligne devant le nom (001_…)")
             ser_info = gr.Markdown("Dépose un fichier, ou colle tes prompts ci-dessous (un par ligne).")
             ser_liste = gr.Textbox(label="Ou colle tes prompts (un par ligne, sans fichier)", lines=5,
                                    placeholder="a red heart\na shopping cart\na gear wheel")
@@ -81,9 +85,10 @@ def brancher(c, demo, o):
     c.ser_entetes.input(serie.analyser, [c.ser_fichier, c.ser_feuille, c.ser_entetes], sorties_analyse)
     reglages = [c.ser_fichier, c.ser_feuille, c.ser_entetes, c.ser_col_prompt, c.ser_col_nom, c.ser_col_contexte,
                 c.ser_case_contexte, c.ser_liste, c.ser_contexte, c.ser_styles, c.ser_images_style]
-    c.btn_ser_prompts.click(serie.apercu_prompts, reglages + [c.ser_limite], [c.ser_apercu, c.ser_statut])
+    c.btn_ser_prompts.click(serie.apercu_prompts, reglages + [c.ser_limite, c.ser_numeroter], [c.ser_apercu, c.ser_statut])
     c.btn_ser.click(serie.generer,
-                    reglages + [c.ser_format, c.ser_tailles, c.ser_graine, c.ser_meme_graine, c.ser_nom, c.ser_limite],
+                    reglages + [c.ser_format, c.ser_tailles, c.ser_graine, c.ser_meme_graine, c.ser_nom, c.ser_limite,
+                                c.ser_numeroter],
                     [c.ser_statut, c.ser_galerie, c.ser_zip, c.ser_dossier])
     c.btn_ser_reprendre.click(lambda texte, dernier, progress=gr.Progress(): serie.reprendre(
         (texte or "").strip().strip('"') or dernier, progress=progress), [c.ser_dossier_lot, c.ser_dossier],

@@ -1,12 +1,12 @@
 """Images en série : une image par ligne d'un tableau (Excel, CSV) ou d'une liste collée, avec un contexte et un style
 communs — par exemple 250 icônes carrées pour une application.
 
-Le tableau : choix de la feuille, de la colonne des prompts, d'une colonne de noms (noms de fichiers) et du contexte
+Le tableau : choix de la feuille, de la colonne des prompts, d'une colonne de noms de fichiers (le fichier porte exactement ce nom) et du contexte
 (écrit, dans une case du fichier, ou une colonne : un contexte par ligne). Chaque image reçoit « prompt. contexte de
 la ligne. contexte commun » puis le style. Style imposé : la liste des styles, et/ou des images de style (FLUX.2 klein
 les reçoit en référence et ne garde que leur rendu) ; sans image de style : Z-Image-Turbo.
 Les images partent au moteur par paquets (PAQUET) : un paquet en échec n'arrête pas le lot, et « Reprendre » refait
-seulement les images manquantes (lot.json). Sortie : data/series/<horodatage>_<nom>/ avec 001_<nom>.png…, les copies
+seulement les images manquantes (lot.json). Sortie : data/series/<horodatage>_<nom>/ avec les fichiers nommés comme dans le tableau (sinon 001_<prompt>.png…), les copies
 réduites (<taille>px/), lot.csv (pour Excel), lot.json et une archive zip.
 """
 import csv
@@ -250,10 +250,32 @@ def _slug(t, defaut):
     return t or defaut
 
 
+EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}  # format choisi par le nom du fichier (Pillow suit l'extension)
+_INTERDITS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
+
+
+def nom_de_fichier(nom):
+    """Le nom écrit dans le tableau, gardé tel quel (accents compris) : seuls les caractères interdits par Windows
+    sont remplacés, les points et espaces de fin retirés ; extension .png ajoutée sauf .png/.jpg/.jpeg/.webp déjà
+    écrite (l'image est alors enregistrée dans ce format). "" si rien d'utilisable."""
+    nom = _INTERDITS.sub("_", (nom or "").strip())
+    racine, ext = (nom[:-len(Path(nom).suffix)], Path(nom).suffix.lower()) if Path(nom).suffix.lower() in EXTENSIONS \
+        else (nom, ".png")
+    racine = racine.strip().rstrip(". ")[:120]
+    if not racine.strip("_"):
+        return ""
+    if racine.split(".")[0].lower() in _RESERVES:  # CON, NUL, COM1… : refusés par Windows
+        racine += "_"
+    return racine + (".jpg" if ext == ".jpeg" else ext)
+
+
 def entrees(fichier=None, feuille=None, entetes=True, col_prompt=None, col_nom=None, col_contexte=None,
-            liste=""):
-    """Lignes à générer : [{numero, nom, prompt, contexte_ligne}] depuis le tableau (lignes dont la case du prompt
-    est remplie) ou depuis la liste collée (un prompt par ligne)."""
+            liste="", numeroter=False):
+    """Lignes à générer : [{numero, nom, prompt, contexte_ligne, fichier}] depuis le tableau (lignes dont la case du
+    prompt est remplie) ou depuis la liste collée (un prompt par ligne). Avec une colonne de noms, le fichier porte
+    exactement ce nom (nom_de_fichier) ; numeroter : « 001_ » devant. Sans nom : 001_<début du prompt>.png. Un nom
+    déjà pris (sans tenir compte de la casse, comme Windows) reçoit « _2 », « _3 »… (e["doublon"])."""
     resultat = []
     if fichier:
         if not col_prompt:
@@ -279,12 +301,22 @@ def entrees(fichier=None, feuille=None, entetes=True, col_prompt=None, col_nom=N
         raise gr.Error("Aucun prompt : la colonne choisie est vide, ou la liste est vide.")
     if len(resultat) > SERIE_MAX:
         raise gr.Error(f"{len(resultat)} prompts : {SERIE_MAX} au plus par lot (découpe le fichier).")
-    vus = {}
+    pris = set()
     for i, e in enumerate(resultat, 1):
-        base = _slug(e["nom"] or e["prompt"][:30], f"image_{i}")
-        vus[base] = vus.get(base, 0) + 1
         e["numero"] = i
-        e["fichier"] = f"{i:03d}_{base}" + (f"_{vus[base]}" if vus[base] > 1 else "") + ".png"
+        voulu = nom_de_fichier(e["nom"])
+        if voulu:
+            nom = f"{i:03d}_{voulu}" if numeroter else voulu
+        else:
+            nom = f"{i:03d}_{_slug(e['prompt'][:30], f'image_{i}')}.png"
+        racine, ext = nom[:-len(Path(nom).suffix)], Path(nom).suffix
+        candidat, k = nom, 1
+        while candidat.lower() in pris:
+            k += 1
+            candidat = f"{racine}_{k}{ext}"
+        e["doublon"] = candidat != nom
+        pris.add(candidat.lower())
+        e["fichier"] = candidat
     return resultat
 
 
@@ -301,19 +333,24 @@ def prompt_image(entree, contexte, styles, avec_images_de_style=False):
 
 
 def apercu_prompts(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte,
-                   styles, images_style, limite=0):
+                   styles, images_style, limite=0, numeroter=False):
     """Tableau des prompts qui seront envoyés (pour vérifier avant de lancer 250 images)."""
     lot, contexte = _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste,
-                              contexte, limite)
+                              contexte, limite, numeroter)
     avec = bool(_images_de_style(images_style))
     data = [[e["numero"], e["fichier"], prompt_image(e, contexte, styles, avec)] for e in lot]
-    return ({"headers": ["N°", "Fichier", "Prompt envoyé"], "data": data},
-            f"{len(lot)} image(s) à générer" + (" (FLUX.2 klein, avec les images de style)." if avec
-                                                 else " (Z-Image-Turbo)."))
+    doublons = [e for e in lot if e["doublon"]]
+    msg = f"{len(lot)} image(s) à générer" + (" (FLUX.2 klein, avec les images de style)." if avec
+                                               else " (Z-Image-Turbo).")
+    if doublons:
+        msg += (f"\n\n⚠️ {len(doublons)} nom(s) de fichier en double : renommés « _2 », « _3 »… (lignes "
+                + ", ".join(str(e["ligne"]) for e in doublons[:10]) + ("…" if len(doublons) > 10 else "") + ").")
+    return {"headers": ["N°", "Fichier", "Prompt envoyé"], "data": data}, msg
 
 
-def _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte, limite):
-    lot = entrees(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, liste)
+def _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte, limite,
+              numeroter=False):
+    lot = entrees(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, liste, numeroter)
     limite = int(limite or 0)
     if limite > 0:
         lot = lot[:limite]
@@ -335,10 +372,11 @@ def _images_de_style(fichiers):
 
 # --- Génération ------------------------------------------------------------------------------------------------------
 def generer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte, styles,
-            images_style, format_label, tailles, graine, meme_graine, nom="", limite=0, progress=gr.Progress()):
+            images_style, format_label, tailles, graine, meme_graine, nom="", limite=0, numeroter=False,
+            progress=gr.Progress()):
     """Prépare le lot (lot.json) puis le génère. Renvoie (message, galerie, archive zip, dossier)."""
     lot, contexte = _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste,
-                              contexte, limite)
+                              contexte, limite, numeroter)
     format_label = format_label if format_label in FORMATS else FORMAT_DEFAUT
     largeur, hauteur = FORMATS[format_label]
     nom = _slug(nom, "serie")
