@@ -15,9 +15,9 @@ def has_weights(folder: Path) -> bool:
     return folder.is_dir() and any(f.suffix in WEIGHT_SUFFIXES for f in folder.rglob("*") if f.is_file())
 
 
-def nouveau_dossier(parent: Path) -> Path:
-    """Crée parent/<horodatage> (suffixé _2, _3… si deux travaux démarrent dans la même seconde)."""
-    base = datetime.now().strftime("%Y%m%d_%H%M%S")
+def nouveau_dossier(parent: Path, nom: str = "") -> Path:
+    """Crée parent/<horodatage>[_<nom>] (suffixé _2, _3… si deux travaux démarrent dans la même seconde)."""
+    base = datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_{nom}" if nom else "")
     for i in range(1, 1000):
         d = parent / (base if i == 1 else f"{base}_{i}")
         try:

@@ -110,3 +110,12 @@ def test_liste_collee_sans_traduction_et_deux_versions(env, fake_acestep, monkey
         serie_musique.entrees(liste=" \n ")
     with pytest.raises(gr.Error, match="Aucun lot"):
         serie_musique.reprendre(None, progress=no_progress)
+
+
+def test_deux_lots_du_meme_nom_dans_la_meme_seconde(env):
+    """Le dossier <horodatage>_<nom> est créé directement : le renommer après coup échouait quand deux lots du même
+    nom partaient dans la même seconde (constaté par la vérification automatique)."""
+    from studiovoix.outils import nouveau_dossier
+
+    a, b = nouveau_dossier(env / "lots", "x"), nouveau_dossier(env / "lots", "x")
+    assert a != b and a.name.endswith("_x") and a.is_dir() and b.is_dir()

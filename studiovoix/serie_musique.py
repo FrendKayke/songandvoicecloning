@@ -258,8 +258,7 @@ def generer(fichier, feuille, entetes, col_desc, col_nom, col_paroles, col_duree
         else:
             note = ("ℹ️ Descriptions envoyées telles quelles : Qwen3-VL (traduction) n'est pas installé "
                     "(Outils → Modèles et diagnostic).")
-    dossier = nouveau_dossier(cfg.MUSIQUES_SERIE_DIR)
-    dossier = dossier.rename(dossier.with_name(f"{dossier.name}_{nom}"))
+    dossier = nouveau_dossier(cfg.MUSIQUES_SERIE_DIR, nom)
     if reference:  # copiée : la reprise ne dépend pas de l'original
         copie = dossier / f"reference{Path(reference).suffix.lower() or '.wav'}"
         shutil.copy(reference, copie)

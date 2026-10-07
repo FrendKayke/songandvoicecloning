@@ -434,8 +434,7 @@ def generer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_c
     format_label = format_label if format_label in FORMATS else FORMAT_DEFAUT
     largeur, hauteur = FORMATS[format_label]
     nom = _slug(nom, "serie")
-    dossier = nouveau_dossier(cfg.SERIES_DIR)
-    dossier = dossier.rename(dossier.with_name(f"{dossier.name}_{nom}"))
+    dossier = nouveau_dossier(cfg.SERIES_DIR, nom)
     images = _images_de_style(images_style)
     style_lu = (style_lu or "").strip()
     if images and not style_lu:
