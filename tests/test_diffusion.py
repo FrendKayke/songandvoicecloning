@@ -31,7 +31,8 @@ FAUX_MOTEUR = textwrap.dedent("""
                                         "u2net": os.environ.get("U2NET_HOME")}) + chr(10))
     if action == "decrire":
         print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
-        if t.get("image"): texte = "metal clink on a table"
+        if t["mode"] == "style": texte = "watercolor painting, soft washes, paper texture"
+        elif t.get("image"): texte = "metal clink on a table"
         else: texte = "wooden door creaking then slamming" if t["mode"] == "bruitage" else "a red potion bottle"
         print("RESULTAT " + json.dumps({"texte": texte}), flush=True)
     elif action == "bruitage":
@@ -152,7 +153,7 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style"}
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
     assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
@@ -1089,15 +1090,16 @@ def test_images_en_serie_depuis_un_tableau_excel(faux_diffusion):
     tableau, info = serie.apercu_prompts(str(f), "Icônes", True, "B", "A", "C", "E2", "", "flat colors",
                                          [serie.STYLES[0][1]], None)
     assert "10 image(s)" in info and "Z-Image" in info and "1 nom(s) de fichier en double" in info
-    assert tableau["data"][2][2] == ("icon number 3. red. cooking app icons. flat colors. Style: "
-                                     + serie.STYLES[0][1] + ".")
+    style = serie.STYLES[0][1]  # le style en tête et rappelé à la fin
+    assert tableau["data"][2][2] == f"Art style: {style}. icon number 3. red. cooking app icons. flat colors. " \
+                                    f"Art style: {style}."
 
     msg, galerie, archive, dossier = serie.generer(str(f), "Icônes", True, "B", "A", "C", "E2", "", "flat colors",
                                                   [serie.STYLES[0][1]], None, "Carré 1:1 (1024×1024)", [32, 512],
                                                   7, True, "Mes icônes", 0, progress=no_progress)
     taches = [e["tache"] for e in _journal() if e["action"] == "image"]
     assert [len(t["sorties"]) for t in taches] == [8, 2]  # paquets de serie.PAQUET
-    assert taches[0]["prompts"][2].startswith("icon number 3. red. cooking app icons") and taches[0]["graines"] == [7] * 8
+    assert "icon number 3. red. cooking app icons" in taches[0]["prompts"][2] and taches[0]["graines"] == [7] * 8
     d = Path(dossier)
     assert d.parent == cfg.SERIES_DIR and d.name.endswith("_Mes_icones") and "10/10" in msg and len(galerie) == 10
     assert (d / "32px" / "Panier.png").exists() and (d / "512px" / "Icône 10.png").exists()
@@ -1111,7 +1113,7 @@ def test_images_en_serie_depuis_un_tableau_excel(faux_diffusion):
 
 
 def test_images_en_serie_liste_csv_style_et_reprise(faux_diffusion, monkeypatch):
-    """Liste collée, CSV en cp1252 avec « ; », images de style (FLUX.2 klein), paquet en échec puis reprise."""
+    """Liste collée, CSV en cp1252 avec « ; », images de style données à FLUX.2 klein, paquet en échec puis reprise."""
     from PIL import Image
 
     from studiovoix import serie
@@ -1124,7 +1126,8 @@ def test_images_en_serie_liste_csv_style_et_reprise(faux_diffusion, monkeypatch)
     style = cfg.DATA_DIR.parent / "style.png"
     Image.new("RGB", (40, 40), "blue").save(style)
     msg, galerie, archive, dossier = serie.generer(str(c), "CSV", True, "B", "A", None, "", "", "", [], [str(style)],
-                                                  "Carré 1:1 (1024×1024)", [], 0, False, "", 0, progress=no_progress)
+                                                  "Carré 1:1 (1024×1024)", [], 0, False, "", 0, avec_klein=True,
+                                                  progress=no_progress)
     j = [e for e in _journal() if e["action"] == "personnage"]
     assert j[0]["tache"]["references"][0].endswith("style_1.png") and serie.STYLE_DES_IMAGES in j[0]["tache"]["prompts"][0]
     assert "1/3" in msg and "⚠️ images 1–2" in msg and "Reprendre" in msg and len(galerie) == 1
@@ -1143,6 +1146,44 @@ def test_images_en_serie_liste_csv_style_et_reprise(faux_diffusion, monkeypatch)
         serie.entrees(liste=" \n ")
     with pytest.raises(gr.Error, match="Aucun lot"):
         serie.reprendre(None, progress=no_progress)
+
+
+def test_style_des_images_en_serie(faux_diffusion):
+    """Le style est respecté : rien de coché par défaut qui le contredise, « dessin » ou « aquarelle » tapés en
+    français traduits, style en tête du prompt ; les images de style sont décrites en mots par Qwen (mode « style »)
+    et Z-Image génère chaque image seule (FLUX.2 klein recopiait des éléments des images) ; graines différentes."""
+    from PIL import Image
+
+    from studiovoix import serie, styles
+
+    assert "hand-drawn" in styles.image(["dessin"]) and "watercolor" in styles.image("Aquarelle")
+    assert styles.image(["dessin animé"]).startswith("cartoon") and styles.image(["portrait"]) == "portrait"
+    assert styles.image(["Aquarelle"], [("Aquarelle", "watercolor X")]) == "watercolor X"  # libellé du catalogue
+    assert serie.texte_du_style(["dessin"]).startswith("hand-drawn")
+    p_ = serie.prompt_image({"prompt": "a cat"}, "", ["dessin"])
+    assert p_.startswith("Art style: hand-drawn") and p_.endswith("sketchy drawing style.") and "a cat." in p_
+    # images d'aquarelle : style décrit par Qwen puis ajouté à chaque prompt, sans les donner au générateur
+    aquarelle = cfg.DATA_DIR.parent / "aquarelle.png"
+    Image.new("RGB", (40, 40), "teal").save(aquarelle)
+    assert "watercolor" in serie.lire_style([str(aquarelle)], progress=no_progress)
+    *_, dossier = serie.generer(None, None, True, None, None, None, "", "a fox\na bear\n", "", [], [str(aquarelle)],
+                                "Carré 1:1 (1024×1024)", [], 7, False, "x", 0, progress=no_progress)
+    j = _journal()
+    assert [e["tache"]["mode"] for e in j if e["action"] == "decrire"] == ["style", "style"]
+    taches = [e["tache"] for e in j if e["action"] == "image"]
+    assert not [e for e in j if e["action"] == "personnage"] and taches[-1]["graines"] == [7, 8]
+    assert all(p_.startswith("Art style: watercolor painting") for p_ in taches[-1]["prompts"])
+    infos = json.loads((Path(dossier) / "lot.json").read_text(encoding="utf-8"))
+    assert infos["style_lu"].startswith("watercolor") and infos["images_style"] == ["style_1.png"]
+    assert infos["references"] == [] and (Path(dossier) / "style_1.png").exists()
+    # style déjà lu (et retouché) : Qwen n'est pas relancé
+    n = len(_journal())
+    serie.generer(None, None, True, None, None, None, "", "a fox", "", [], [str(aquarelle)], "Carré 1:1 (1024×1024)",
+                  [], 7, False, "x", 0, style_lu="ink wash, grey tones", progress=no_progress)
+    assert [e["action"] for e in _journal()[n:]] == ["image"]
+    assert _journal()[-1]["tache"]["prompts"][0].startswith("Art style: ink wash, grey tones.")
+    tableau, info = serie.apercu_prompts(None, None, True, None, None, None, "", "a fox", "", [], [str(aquarelle)])
+    assert "pas encore lu" in info
 
 
 def test_textes_coupes_par_les_moteurs(capsys):

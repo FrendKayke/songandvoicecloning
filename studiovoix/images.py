@@ -16,7 +16,7 @@ from . import cartes
 from . import config as cfg
 from . import diffusion
 from .outils import ecrire_creation, nouveau_dossier
-from .styles import texte
+from .styles import image as style_image
 from .videos import MOTS_PROMPT_COURT, duree_lisible
 
 AUTO = "Automatique (proportions de la photo, sinon carré)"
@@ -105,7 +105,7 @@ def prompt_final(prompt, styles=None, usage=None, nombre_photos=1):
         ajout = {"modifier": GARDER_LE_RESTE, "sujet": SUJET, "composition": COMPOSITION}.get(usage)
     if ajout:
         prompt = f"{prompt}. {ajout}"
-    style = texte(styles)
+    style = style_image(styles, STYLES)  # « dessin », « aquarelle » tapés en français : termes anglais
     return f"{prompt}. Style: {style}." if style else f"{prompt}."
 
 

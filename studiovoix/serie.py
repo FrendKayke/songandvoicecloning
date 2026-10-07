@@ -30,7 +30,7 @@ from . import diffusion
 from .images import FORMATS as FORMATS_IMAGES
 from .images import STYLES as STYLES_IMAGES
 from .outils import nouveau_dossier
-from .styles import texte
+from .styles import image as style_image
 from .videos import duree_lisible
 
 SERIE_MAX = 1000
@@ -337,30 +337,44 @@ def entrees(fichier=None, feuille=None, entetes=True, col_prompt=None, col_nom=N
     return resultat
 
 
-def prompt_image(entree, contexte, styles, avec_images_de_style=False, transparent=False):
-    """« prompt. contexte de la ligne. contexte commun. [fond uni.] [consigne des images de style.] Style: … » — le
-    prompt d'abord : un texte trop long pour le générateur perd la fin du contexte, pas le sujet de l'image."""
+def texte_du_style(styles, style_lu=""):
+    """Style choisi dans la liste (saisies libres françaises traduites : « dessin », « aquarelle »…) puis style lu
+    dans les images de style par Qwen."""
+    return ", ".join(x for x in (style_image(styles, STYLES), (style_lu or "").strip().rstrip(".")) if x)
+
+
+def prompt_image(entree, contexte, styles, avec_images_de_style=False, transparent=False, style_lu=""):
+    """« Art style: … prompt. contexte de la ligne. contexte commun. [fond uni.] [consigne des images de style.]
+    Art style: … » — le style en tête et rappelé à la fin : à la fin seulement, derrière un long contexte, il pesait
+    peu (« dessin », images d'aquarelle sans effet, constaté) ; puis le prompt avant le contexte : un texte trop long
+    pour le générateur perd la fin du contexte, pas le sujet de l'image."""
     ligne = entree.get("contexte_ligne")
     if ligne and contexte and _normal(ligne) in _normal(contexte):  # même texte que le contexte commun : une fois
         ligne = None
     morceaux = [entree["prompt"], ligne, contexte, FOND_UNI if transparent else None,
                 STYLE_DES_IMAGES if avec_images_de_style else None]
     corps = ". ".join(m.strip().rstrip(".") for m in morceaux if m and m.strip())
-    style = texte(styles)
-    return f"{corps}. Style: {style}." if style else f"{corps}."
+    style = texte_du_style(styles, style_lu)
+    return f"Art style: {style}. {corps}. Art style: {style}." if style else f"{corps}."
 
 
 def apercu_prompts(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte,
-                   styles, images_style, limite=0, numeroter=False, transparent=False):
+                   styles, images_style, limite=0, numeroter=False, transparent=False, style_lu="", avec_klein=False):
     """Tableau des prompts qui seront envoyés (pour vérifier avant de lancer 250 images)."""
     lot, contexte = _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste,
                               contexte, limite, numeroter, transparent)
-    avec = bool(_images_de_style(images_style))
-    data = [[e["numero"], e["fichier"], prompt_image(e, contexte, styles, avec, transparent)] for e in lot]
+    images = _images_de_style(images_style)
+    klein = bool(images) and bool(avec_klein)
+    data = [[e["numero"], e["fichier"], prompt_image(e, contexte, styles, klein, transparent, style_lu)] for e in lot]
     doublons = [e for e in lot if e["doublon"]]
-    msg = f"{len(lot)} image(s) à générer" + (" (FLUX.2 klein, avec les images de style" if avec
+    msg = f"{len(lot)} image(s) à générer" + (" (FLUX.2 klein, avec les images de style" if klein
                                                else " (Z-Image-Turbo")
     msg += ", puis fond retiré par BiRefNet)." if transparent else ")."
+    if images and not (style_lu or "").strip():
+        msg += ("\n\nℹ️ Le style de tes images n'est pas encore lu : il sera décrit par Qwen3-VL au lancement et "
+                "ajouté à chaque prompt (ou clique sur « Lire le style des images » pour le voir et le retoucher).")
+    if not texte_du_style(styles, style_lu) and not images:
+        msg += "\n\nℹ️ Aucun style choisi : chaque image prendra le style que le générateur imagine."
     en_png = [e for e in lot if e["en_png"]]
     if en_png:
         msg += (f"\n\nℹ️ {len(en_png)} nom(s) en .jpg enregistré(s) en .png : le JPEG ne garde pas la transparence.")
@@ -392,12 +406,26 @@ def _images_de_style(fichiers):
     return chemins
 
 
+def lire_style(images_style, progress=gr.Progress()):
+    """Style des images de style décrit par Qwen3-VL (mots-clés anglais : technique, trait, couleurs, textures),
+    sans leur sujet. Plusieurs images : posées côte à côte (Qwen n'en reçoit qu'une)."""
+    from .images import _planche
+
+    images = _images_de_style(images_style)
+    if not images:
+        raise gr.Error("Ajoute d'abord 1 à 3 images de style (une image dont tu veux le rendu).")
+    return diffusion.decrire("style", image=_planche(images), progress=progress)
+
+
 # --- Génération ------------------------------------------------------------------------------------------------------
 def generer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte, styles,
             images_style, format_label, tailles, graine, meme_graine, nom="", limite=0, numeroter=False,
-            transparent=False, progress=gr.Progress()):
+            transparent=False, style_lu="", avec_klein=False, progress=gr.Progress()):
     """Prépare le lot (lot.json) puis le génère. Renvoie (message, galerie, archive zip, dossier).
-    transparent : fond uni demandé puis retiré par BiRefNet (fichiers PNG/WebP transparents)."""
+    transparent : fond uni demandé puis retiré par BiRefNet (fichiers PNG/WebP transparents).
+    Images de style : leur style est décrit par Qwen (style_lu, s'il n'est pas déjà écrit) et ajouté à chaque prompt
+    pour Z-Image ; avec_klein : elles sont aussi données à FLUX.2 klein (rendu plus proche, mais klein peut reprendre
+    des éléments de ces images dans chaque image)."""
     transparent = bool(transparent)
     lot, contexte = _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste,
                               contexte, limite, numeroter, transparent)
@@ -408,16 +436,22 @@ def generer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_c
     nom = _slug(nom, "serie")
     dossier = nouveau_dossier(cfg.SERIES_DIR)
     dossier = dossier.rename(dossier.with_name(f"{dossier.name}_{nom}"))
-    references = []
-    for k, c in enumerate(_images_de_style(images_style), 1):  # copiées : la reprise ne dépend pas des originaux
-        references.append(dossier / f"style_{k}{Path(c).suffix.lower() or '.png'}")
-        shutil.copy(c, references[-1])
+    images = _images_de_style(images_style)
+    style_lu = (style_lu or "").strip()
+    if images and not style_lu:
+        style_lu = lire_style(images, progress=progress)
+    copies = []
+    for k, c in enumerate(images, 1):  # copiées : la reprise ne dépend pas des originaux
+        copies.append(dossier / f"style_{k}{Path(c).suffix.lower() or '.png'}")
+        shutil.copy(c, copies[-1])
+    references = copies if avec_klein else []
     graine = int(graine or 0) or diffusion.graines(1)[0]
-    for e in lot:
+    for e in lot:  # graines différentes par défaut : chaque image a son propre cadrage, sans rien reprendre des autres
         e["graine"] = graine if meme_graine else graine + e["numero"] - 1
-        e["prompt_final"] = prompt_image(e, contexte, styles, bool(references), transparent)
-    infos = {"nom": nom, "contexte": contexte, "styles": styles, "format": format_label, "largeur": largeur,
-             "hauteur": hauteur, "tailles": sorted({int(t) for t in tailles or []}, reverse=True),
+        e["prompt_final"] = prompt_image(e, contexte, styles, bool(references), transparent, style_lu)
+    infos = {"nom": nom, "contexte": contexte, "styles": styles, "style_lu": style_lu, "format": format_label,
+             "largeur": largeur, "hauteur": hauteur, "tailles": sorted({int(t) for t in tailles or []}, reverse=True),
+             "images_style": [c.name for c in copies],
              "references": [r.name for r in references], "graine": graine, "meme_graine": bool(meme_graine),
              "source": Path(str(getattr(fichier, "name", fichier))).name if fichier else "liste",
              "moteur": ("FLUX.2 klein 4B" if references else "Z-Image-Turbo") + (" + BiRefNet" if transparent else ""),
@@ -489,6 +523,8 @@ def _executer(dossier, progress):
            f"en {duree_lisible(temps)}, dans {dossier}.")
     if transparent:
         msg += f" Fond transparent ; les images avant détourage sont dans « {OPAQUE} »."
+    if infos.get("style_lu"):
+        msg += f"\n\nStyle lu dans tes images de style : « {infos['style_lu']} »."
     if infos.get("tailles"):
         msg += f" Copies réduites : {', '.join(f'{t} px' for t in infos['tailles'])}."
     if erreurs:

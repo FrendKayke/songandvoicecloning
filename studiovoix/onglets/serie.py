@@ -16,8 +16,9 @@ def construire():
         "une colonne de **contexte** propre "
         "à chaque ligne. Pas de fichier ? Colle tes prompts, un par ligne.\n"
         "2. **Contexte commun** : écris-le, ou indique la case du fichier qui le contient (par exemple B1).\n"
-        "3. **Style** : choisis-le dans la liste (styles d'icônes en tête) ; pour un rendu encore plus uniforme, "
-        "ajoute 1 à 3 **images de style** (une icône que tu aimes) : chaque image en reprend le rendu, pas le sujet.\n"
+        "3. **Style** : choisis-le dans la liste (styles d'icônes en tête) ou écris-le, même en français "
+        "(« dessin », « aquarelle », « BD »… sont traduits). Tu peux aussi ajouter 1 à 3 **images de style** : "
+        "leur style est décrit en mots (« Lire le style des images », modifiable) et ajouté à chaque image.\n"
         "4. **Fond transparent** (facultatif) : coche-le pour des icônes sans fond blanc (PNG transparents).\n"
         "5. « Voir les prompts » pour vérifier, puis « Générer ». Essaie d'abord sur 5 lignes (« Seulement les N "
         "premières ») pour régler le style.\n\n"
@@ -45,12 +46,21 @@ def construire():
             ser_contexte = gr.Textbox(label="Contexte commun (anglais, ajouté à chaque image)", lines=3,
                                       placeholder="icons for a cooking app, warm orange and cream palette, friendly")
             ser_case_contexte = gr.Textbox(label="Ou case du fichier qui contient le contexte (ex. B1, Feuil1!B1)")
-            ser_styles = gr.Dropdown([(lib, val) for lib, val in serie.STYLES], value=[serie.STYLES[0][1]],
+            ser_styles = gr.Dropdown([(lib, val) for lib, val in serie.STYLES], value=[],
                                      multiselect=True, allow_custom_value=True,
-                                     label="Style (plusieurs choix ou le tien en anglais)")
+                                     label="Style (choisis-en un, ou écris le tien, en français ou en anglais)",
+                                     info="Un seul style de préférence : deux styles différents se mélangent.")
             ser_images_style = gr.File(file_count="multiple", file_types=["image"], height=110,
                                        label=f"Images de style (facultatif, {serie.STYLES_IMAGES_MAX} au plus) : "
                                              "leur rendu est repris, pas leur sujet")
+            with gr.Row():
+                ser_style_lu = gr.Textbox(label="Style lu dans les images (anglais, modifiable)", lines=2, scale=3,
+                                          placeholder="vide : lu automatiquement au lancement")
+                btn_ser_lire_style = gr.Button("🔍 Lire le style des images", scale=1)
+            ser_klein = gr.Checkbox(
+                value=False, label="Donner aussi les images de style au générateur (FLUX.2 klein)",
+                info="Rendu parfois plus proche, mais il peut recopier des éléments de ces images dans chaque image. "
+                     "Décoché : seul le style décrit en mots est utilisé (Z-Image), chaque image reste indépendante.")
             ser_transparent = gr.Checkbox(
                 value=False, label="Fond transparent (PNG)",
                 info="L'image est créée sur un fond uni, puis le fond est retiré (BiRefNet, quelques secondes de "
@@ -61,7 +71,10 @@ def construire():
                                           label="Copies réduites (px, pour des icônes)")
             with gr.Row():
                 ser_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
-                ser_meme_graine = gr.Checkbox(value=True, label="Même graine pour toutes (rendu plus homogène)")
+                ser_meme_graine = gr.Checkbox(value=False, label="Même graine pour toutes",
+                                              info="Images plus semblables entre elles (même cadrage, mêmes couleurs, "
+                                                   "éléments repris d'une image à l'autre). Décoché : chaque image "
+                                                   "est indépendante.")
             with gr.Row():
                 ser_nom = gr.Textbox(label="Nom du lot", value="icones")
                 ser_limite = gr.Number(value=0, precision=0, label="Seulement les N premières (0 = toutes)")
@@ -90,11 +103,14 @@ def brancher(c, demo, o):
     c.ser_entetes.input(serie.analyser, [c.ser_fichier, c.ser_feuille, c.ser_entetes], sorties_analyse)
     reglages = [c.ser_fichier, c.ser_feuille, c.ser_entetes, c.ser_col_prompt, c.ser_col_nom, c.ser_col_contexte,
                 c.ser_case_contexte, c.ser_liste, c.ser_contexte, c.ser_styles, c.ser_images_style]
-    c.btn_ser_prompts.click(serie.apercu_prompts, reglages + [c.ser_limite, c.ser_numeroter, c.ser_transparent],
+    c.btn_ser_lire_style.click(serie.lire_style, c.ser_images_style, c.ser_style_lu)
+    c.ser_images_style.change(lambda _: "", c.ser_images_style, c.ser_style_lu)  # autres images : style à relire
+    c.btn_ser_prompts.click(serie.apercu_prompts, reglages + [c.ser_limite, c.ser_numeroter, c.ser_transparent,
+                                                              c.ser_style_lu, c.ser_klein],
                             [c.ser_apercu, c.ser_statut])
     c.btn_ser.click(serie.generer,
                     reglages + [c.ser_format, c.ser_tailles, c.ser_graine, c.ser_meme_graine, c.ser_nom, c.ser_limite,
-                                c.ser_numeroter, c.ser_transparent],
+                                c.ser_numeroter, c.ser_transparent, c.ser_style_lu, c.ser_klein],
                     [c.ser_statut, c.ser_galerie, c.ser_zip, c.ser_dossier])
     c.btn_ser_reprendre.click(lambda texte, dernier, progress=gr.Progress(): serie.reprendre(
         (texte or "").strip().strip('"') or dernier, progress=progress), [c.ser_dossier_lot, c.ser_dossier],

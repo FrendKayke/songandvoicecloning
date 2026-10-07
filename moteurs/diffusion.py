@@ -372,6 +372,14 @@ CONSIGNES = {
                  "only:\n\n"),
     "image": ("Describe this image in English in two sentences, as a prompt for an image generator: the main "
               "object, its materials and colors. No introduction."),
+    # images en série : style d'images d'exemple (aquarelle…) décrit en mots, ajouté à chaque prompt de Z-Image ;
+    # données seules en référence à FLUX.2 klein, elles ne donnaient pas leur rendu (constaté chez l'utilisateur)
+    "style": ("The attached image shows the art style to reproduce (several example images may be placed side by "
+              "side). Describe ONLY this art style, in English, as style keywords for an image generator: medium "
+              "and technique (for example watercolor painting, pencil drawing, flat vector, 3D render, pixel art), "
+              "line work, shading, color palette, textures, background treatment and level of detail. Never mention "
+              "the subjects, objects, characters or scene. Answer with one line of comma-separated keywords, at most "
+              "40 words, nothing else."),
     "video": ("Translate and rewrite the following description into an English prompt for a text-to-video "
               "generator. Keep EVERY element of the description: each character and how many there are, what each "
               "one does, the creatures, the setting and the camera movement, in the same order. Do not invent "

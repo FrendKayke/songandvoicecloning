@@ -211,3 +211,69 @@ def texte(selection) -> str:
     if isinstance(selection, str):
         return selection.strip()
     return ", ".join(s.strip() for s in selection if s and s.strip())
+
+
+# Styles d'image tapés en français (saisie libre des listes « Style ») → termes anglais. « dessin » passait tel quel
+# derrière le style coché par défaut (« flat vector app icon… ») et les images n'avaient rien d'un dessin (constaté
+# chez l'utilisateur). Motifs cherchés dans l'ordre dans le texte normalisé (sans accents) ; un passage reconnu est
+# retiré avant les motifs suivants (« dessin animé » n'est ni « dessin » ni « animé »).
+SYNONYMES_IMAGE = [
+    (r"(dessin anime|cartoon)", "cartoon style, bold clean outlines, simple shapes, bright flat colors"),
+    (r"aquarel", "watercolor painting, soft washes of color, visible paper texture, bleeding edges"),
+    (r"gouache", "gouache painting, flat opaque colors, visible brush strokes"),
+    (r"(peinture a l ?huile|huile)", "oil painting, visible brush strokes, rich textured paint"),
+    (r"acryl", "acrylic painting, bold brush strokes"),
+    (r"pastel", "soft pastel drawing, chalky texture, pastel colors"),
+    (r"fusain", "charcoal drawing, smudged shading, rough strokes"),
+    (r"(crayon de couleur|crayons de couleur)", "colored pencil drawing, visible pencil strokes, paper texture"),
+    (r"(crayon|graphite|croquis|esquisse)", "pencil sketch, hand-drawn graphite lines, cross-hatching shading"),
+    (r"(encre|plume)", "ink drawing, bold black ink lines, hatching"),
+    (r"(bande dessinee|^bd\b| bd\b|comic)", "comic book illustration, bold ink outlines, flat colors"),
+    (r"(manga|anime)", "anime manga style, clean line art, cel shading"),
+    (r"(kawaii|mignon)", "cute kawaii style, rounded shapes, pastel colors"),
+    (r"(\btraits?\b|contour|line ?art)", "clean line art, uniform outlines"),
+    (r"(dessin|dessine|illustration a la main)", "hand-drawn illustration, visible pencil and ink lines, sketchy "
+                                                  "drawing style"),
+    (r"(icone|icon)", "app icon, single centered subject"),
+    (r"(vectoriel|\bplate?s?\b|flat)", "flat vector illustration, simple shapes, solid colors"),
+    (r"pixel", "pixel art, crisp pixels, limited palette"),
+    (r"low ?poly", "low poly 3D, faceted geometric shapes"),
+    (r"(isometrique|isometric)", "isometric view"),
+    (r"(^3d|\b3d\b|rendu 3d)", "3D render, soft lighting"),
+    (r"(photo|realiste|photorealiste)", "photorealistic photograph, natural light, sharp focus"),
+    (r"noir et blanc", "black and white, monochrome"),
+    (r"(vitrail)", "stained glass art, lead lines, glowing colored glass"),
+    (r"(papier decoupe|papercut)", "paper cut-out art, layered paper, soft shadows"),
+    (r"(neon)", "neon glow, dark background, glowing lines"),
+    (r"(retro|vintage)", "vintage retro illustration, muted colors, grain"),
+]
+
+
+def image(selection, catalogue=()) -> str:
+    """Comme texte(), pour un prompt d'image : une saisie libre égale à un libellé de `catalogue` (couples libellé
+    → termes ; accents et casse ignorés) est remplacée par ses termes, et un style tapé en français (« dessin »,
+    « aquarelle »…) par ses termes anglais (SYNONYMES_IMAGE). Le reste passe tel quel."""
+    import re
+
+    if selection is None:
+        return ""
+    valeurs = [selection] if isinstance(selection, str) else list(selection)
+    libelles = {_normal(lib): termes for lib, termes in catalogue}
+    anglais = {termes for _, termes in catalogue}
+    sortie = []
+    for v in valeurs:
+        v = (v or "").strip()
+        if not v:
+            continue
+        if v not in anglais:
+            n = _normal(v)
+            trouves, reste = [], n
+            for motif, en in SYNONYMES_IMAGE:
+                m = re.search(motif, reste)
+                if m:
+                    trouves.append(en)
+                    reste = reste[:m.start()] + " " + reste[m.end():]
+            v = libelles.get(n) or ", ".join(dict.fromkeys(trouves)) or v
+        if v not in sortie:
+            sortie.append(v)
+    return ", ".join(sortie)

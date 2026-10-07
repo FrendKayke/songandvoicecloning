@@ -21,7 +21,7 @@ from PIL import Image
 from . import config as cfg
 from . import diffusion, personnages
 from .outils import ecrire_creation, nouveau_dossier
-from .styles import texte
+from .styles import image as style_image
 
 # (libellé français, termes anglais) : listes multiselect + saisie libre, comme l'onglet « Créer une chanson »
 STYLES = [
@@ -117,7 +117,7 @@ def prompt_final(scene, styles, consignes, personnage=False, photo=None):
         scene = f"{scene}. {MEME_PERSONNAGE}"
     if photo:
         scene = f"{scene}. {PHOTO_COMPOSITION if personnage or photo == 'composition' else PHOTO_SUJET}"
-    style = ", ".join(x for x in (texte(styles), (consignes or "").strip()) if x)
+    style = ", ".join(x for x in (style_image(styles, STYLES), (consignes or "").strip()) if x)
     return f"{scene}. Art style: {style}. No text, no letters, no frame." if style else f"{scene}. No text, no letters."
 
 
