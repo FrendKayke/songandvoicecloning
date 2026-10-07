@@ -406,6 +406,13 @@ CONSIGNES = {
                  "to its end. Keep the same characters, places and visual style from one image to the next. "
                  "No artist names, no text in the images. Answer with exactly that many lines, numbered 1., 2., "
                  "3. and so on, one prompt per line, nothing else:\n\n"),
+    # onglet « Musiques en série » : une description de musique par ligne (souvent en français) → description
+    # anglaise pour ACE-Step, qui comprend mieux l'anglais ; le texte reçu commence par « Number of lines: N »
+    "musiques": ("Translate each numbered line below into a short English description for a music generator: what "
+                 "the music sounds like and the feeling it gives (keep every instrument, tempo, mood, place and "
+                 "situation mentioned). No song titles, no artist or existing work, no lyrics. Answer with exactly "
+                 "the same number of lines, numbered 1., 2., 3. and so on, one description per line, nothing "
+                 "else:\n\n"),
     # onglet « Images », « Modifier la photo » : consigne de retouche pour FLUX.2 klein (image de référence)
     "retouche": ("The attached image must be edited. Rewrite the following edit request into ONE short, precise "
                  "English instruction for an image editing model: say exactly what to change, and keep the people, "
@@ -432,6 +439,9 @@ IMAGE_PERSONNAGES = ("The attached image shows the main character(s), creatures 
 # français, constaté avec une histoire de 27 000 caractères sur la RTX 4070).
 RAPPEL_HISTOIRE = ("\n\nEnd of the story. Now write exactly {n} numbered prompts, one per line, IN ENGLISH (translate "
                    "everything except the characters' names), nothing else.")
+RAPPEL_MUSIQUES = "\n\nEnd of the lines. Now write exactly {n} numbered lines, IN ENGLISH, nothing else."
+# Modes qui répondent par une liste numérotée (une ligne par élément) : jetons par élément, rappel ajouté au texte
+LISTES_NUMEROTEES = {"histoire": (180, RAPPEL_HISTOIRE), "musiques": (50, RAPPEL_MUSIQUES)}
 
 # Plan d'une suite (plusieurs plans enchaînés) : chaque plan était reformulé seul, sans les autres ; « A kraken
 # appears » devenait un océan sans les aventuriers, « They are fighting him » une ruelle à néons avec d'autres
@@ -508,8 +518,8 @@ def decrire(chemin_tache):
         if not texte_:
             _erreur("description vide : écris ce que tu veux obtenir.")
         consigne += texte_
-        if mode == "histoire":
-            consigne += RAPPEL_HISTOIRE.format(n=max(1, int(t.get("nombre", 4))))
+        if mode in LISTES_NUMEROTEES:
+            consigne += LISTES_NUMEROTEES[mode][1].format(n=max(1, int(t.get("nombre", 4))))
     contenu.append({"type": "text", "text": consigne})
     entrees = processeur.apply_chat_template([{"role": "user", "content": contenu}], tokenize=True,
                                              add_generation_prompt=True, return_dict=True, return_tensors="pt")
@@ -520,7 +530,8 @@ def decrire(chemin_tache):
         # « histoire » : un prompt par image (jusqu'à 12, 40 à 70 mots chacun ; 120 jetons par image coupaient la
         # réponse à la 9ᵉ sur 12) ; un seul prompt : JETONS_QWEN (160 pouvait couper une description de vidéo ou de
         # scène détaillée en pleine phrase)
-        jetons = JETONS_QWEN if mode != "histoire" else 180 * max(1, int(t.get("nombre", 4))) + 100
+        jetons = (LISTES_NUMEROTEES[mode][0] * max(1, int(t.get("nombre", 4))) + 100 if mode in LISTES_NUMEROTEES
+                  else JETONS_QWEN)
         sortie = _memoire(modele.generate)(**entrees, max_new_tokens=jetons, do_sample=False)
     produits = sortie[:, entrees["input_ids"].shape[1]:]
     texte = processeur.batch_decode(produits, skip_special_tokens=True)[0]
@@ -528,7 +539,7 @@ def decrire(chemin_tache):
         texte = _phrases_completes(texte, mode)
         print(f"AVERTISSEMENT : la réponse de Qwen a atteint sa longueur maximale ({jetons} jetons) ; la dernière "
               "phrase inachevée a été retirée. Relis le prompt avant de générer.", flush=True)
-    if mode == "histoire":  # une scène par ligne : les retours à la ligne sont gardés
+    if mode in LISTES_NUMEROTEES:  # un élément par ligne : les retours à la ligne sont gardés
         texte = "\n".join(" ".join(ligne.split()) for ligne in texte.strip().splitlines() if ligne.strip())
     else:
         texte = " ".join(texte.strip().strip('"').split())
@@ -541,7 +552,7 @@ JETONS_QWEN = 320  # longueur maximale d'une réponse de Qwen (un prompt)
 
 def _phrases_completes(texte, mode):
     """Retire la fin inachevée d'une réponse coupée : jusqu'au dernier point (une ligne entière pour « histoire »)."""
-    if mode == "histoire":
+    if mode in LISTES_NUMEROTEES:
         lignes = texte.rstrip().splitlines()
         return "\n".join(lignes[:-1]) if len(lignes) > 1 else texte
     fin = max(texte.rfind(". "), texte.rfind("."), texte.rfind("! "), texte.rfind("? "))

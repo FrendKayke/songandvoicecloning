@@ -176,7 +176,7 @@ class FakeAceStep:
                         if part.get_filename():
                             fichiers[nom] = (part.get_filename(), part.get_payload(decode=True))
                         else:
-                            body[nom] = part.get_content()
+                            body[nom] = part.get_payload(decode=True).decode("utf-8")  # requests : UTF-8
                 else:
                     body = json.loads(brut or b"{}")
                 if self.path == "/release_task":
