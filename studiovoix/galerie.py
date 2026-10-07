@@ -19,10 +19,10 @@ from .pipeline import INSTRUMENTAL, finaliser_depuis_infos
 
 TYPES = {"chanson": "🎵 Chanson", "jeu": "🎮 Bande-son", "tts": "🗣️ Lecture", "bruitage": "🔊 Bruitage",
          "3d": "🧊 Modèle 3D", "carte": "🃏 Illustration", "photo": "🖼️ Photo",
-         "video": "🎬 Vidéo", "image": "🎨 Image"}
+         "video": "🎬 Vidéo", "image": "🎨 Image", "remix": "🎛️ Remix"}
 FILTRES = {"Tout": None, "Chansons": "chanson", "Bande-son de jeu": "jeu", "Synthèse vocale": "tts",
            "Bruitages": "bruitage", "Modèles 3D": "3d", "Illustrations": "carte", "Photos": "photo",
-           "Vidéos": "video", "Images": "image"}
+           "Vidéos": "video", "Images": "image", "Remix": "remix"}
 # repaint_mode d'ACE-Step (release_task_models.py : conservative / balanced / aggressive)
 FORCES = {
     "Légère (garde au maximum l'original)": "conservative",
@@ -34,7 +34,7 @@ FORCES = {
 def _racines():
     return {"chanson": cfg.SONGS_DIR, "jeu": cfg.GAMES_DIR, "tts": cfg.TTS_DIR, "bruitage": cfg.SFX_DIR,
             "3d": cfg.MODELS3D_DIR, "carte": cfg.CARDS_DIR, "photo": cfg.PHOTOS_DIR,
-            "video": cfg.VIDEOS_DIR, "image": cfg.IMAGES_DIR}
+            "video": cfg.VIDEOS_DIR, "image": cfg.IMAGES_DIR, "remix": cfg.REMIX_DIR}
 
 
 def lire(dossier):
@@ -69,6 +69,7 @@ def _dossiers():
     yield from (d for d in r["photo"].glob("*") if d.is_dir())
     yield from (d for d in r["video"].glob("*") if d.is_dir())
     yield from (d for d in r["image"].glob("*") if d.is_dir())
+    yield from (d for d in r["remix"].glob("*") if d.is_dir())
 
 
 _ACTIONS_PHOTO = {"ameliorer": "améliorée", "detourer": "détourée", "personne": "personne isolée"}
@@ -81,6 +82,8 @@ def _resume(infos):
         return f"{infos.get('projet')} — {infos.get('nom')} — {infos.get('description_fr') or infos.get('description')}"
     if infos["type"] == "photo":
         return f"{infos.get('nom')} — {_ACTIONS_PHOTO.get(infos.get('action'), '')}"
+    if infos["type"] == "remix":
+        return f"{infos.get('nom')} — {infos.get('description')}"
     if infos["type"] in ("bruitage", "3d", "video", "image"):
         return f"{infos.get('nom')} — {infos.get('description_fr') or infos.get('description') or 'depuis une image'}"
     txt = infos.get("texte") if infos["type"] == "tts" else infos.get("description")
@@ -299,6 +302,10 @@ def recreer(chemin, version=1, progress=gr.Progress()):
         from . import photos
 
         return "✅ Photo traitée à nouveau.", photos.recreer(chemin, infos, progress=progress)
+    if infos["type"] == "remix":
+        from . import remix
+
+        return f"✅ Remix refait avec la graine {graine}.", str(remix.recreer(chemin, infos, graine, progress=progress))
     reg = infos.get("reglages") or {}
     fichier, _ = chatterbox.synthese(infos.get("voix"), infos.get("texte"), infos.get("langue"),
                                      reg.get("exaggeration", 0.5), reg.get("cfg_weight", 0.5),
