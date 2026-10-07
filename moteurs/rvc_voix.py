@@ -70,7 +70,7 @@ def _lancer(cmd, etape, suivi=None):
         if any("CUDA out of memory" in l_ or "OutOfMemoryError" in l_ for l_ in dernieres):
             _erreur(f"{etape} : mémoire de la carte graphique insuffisante. Baisse la taille de lot. Ferme "
                      f"les autres programmes qui utilisent la carte (jeux, vidéos) ; si tu as désactivé la "
-                     f"libération automatique, arrête ACE-Step dans l'onglet Modèles, puis relance.", 3)
+                     f"libération automatique, arrête ACE-Step dans Outils → Modèles et diagnostic, puis relance.", 3)
         _erreur(f"{etape} a échoué (voir les lignes ci-dessus).")
 
 

@@ -8,39 +8,43 @@ from types import SimpleNamespace
 
 import gradio as gr
 
-from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, illustrations, images,
-                      modeles, modeles_3d, photos, synthese, videos)
+from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, histoire,
+                      illustrations, images, modeles, modeles_3d, photos, plans, serie, synthese, videos)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
 
 # apercu_description, maj_mode et synthese_puis_rvc sont réexportés pour les tests
 __all__ = ["GROUPES", "ONGLETS", "build_ui", "apercu_description", "maj_mode", "synthese_puis_rvc"]
 
-# Cinq groupes, chacun avec ses onglets : (titre du groupe, [(clé dans o, module, titre de l'onglet)])
+# Cinq groupes, chacun avec ses onglets : (titre du groupe, [(clé dans o, module, titre de l'onglet)]). Un onglet =
+# une chose à faire, nommée par ce qu'on y fait (demande de l'utilisateur : « un onglet avec ce que je peux faire »).
 GROUPES = [
     ("🎤 Voix", [
-        ("bibliotheque", bibliotheque, "Bibliothèque de voix"),
-        ("synthese", synthese, "Synthèse vocale"),
-        ("rvc", entrainement, "Entraîner ma voix (RVC)"),
+        ("bibliotheque", bibliotheque, "🎙️ Mes voix (enregistrer, nettoyer)"),
+        ("synthese", synthese, "🗣️ Lire un texte avec une voix"),
+        ("rvc", entrainement, "🧠 Entraîner un modèle de ma voix"),
     ]),
     ("🎵 Musique", [
-        ("chanson", chanson, "Créer une chanson"),
+        ("chanson", chanson, "🎵 Créer une chanson ou une musique"),
     ]),
     ("🖼️ Image et vidéo", [
-        ("images", images, "Images"),
-        ("photos", photos, "Photos"),
-        ("videos", videos, "Vidéos"),
+        ("images", images, "🖼️ Une image (texte ou photo)"),
+        ("serie", serie, "🗂️ Images en série (Excel, liste)"),
+        ("histoire", histoire, "📖 Histoire en images"),
+        ("videos", videos, "🎬 Une vidéo"),
+        ("plans", plans, "🎞️ Vidéo en plusieurs plans"),
+        ("photos", photos, "📷 Retoucher une photo"),
     ]),
     ("🎮 Jeu", [
-        ("bande_son", bande_son, "Bande-son de jeu"),
-        ("bruitages", bruitages, "Bruitages"),
-        ("illustrations", illustrations, "Illustrations de cartes"),
-        ("modeles_3d", modeles_3d, "Modèles 3D"),
+        ("bande_son", bande_son, "🎼 Musiques de jeu"),
+        ("bruitages", bruitages, "🔊 Bruitages"),
+        ("illustrations", illustrations, "🃏 Illustrations de cartes"),
+        ("modeles_3d", modeles_3d, "🧊 Modèles 3D"),
     ]),
     ("🧰 Outils", [
-        ("galerie", galerie, "Galerie"),
-        ("modeles", modeles, "Modèles"),
-        ("espace", espace, "Espace disque"),
+        ("galerie", galerie, "🗃️ Galerie (toutes mes créations)"),
+        ("modeles", modeles, "⚙️ Modèles et diagnostic"),
+        ("espace", espace, "💽 Espace disque"),
     ]),
 ]
 ONGLETS = [onglet for _, onglets in GROUPES for onglet in onglets]

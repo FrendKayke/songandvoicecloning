@@ -87,7 +87,7 @@ def choix_modeles():
 def modele(nom):
     m = next((m for m in modeles() if m["nom"] == nom), None)
     if not m:
-        raise gr.Error(f"Modèle RVC introuvable : {nom}. Entraîne-le dans l'onglet « Entraîner ma voix ».")
+        raise gr.Error(f"Modèle RVC introuvable : {nom}. Entraîne-le dans l'onglet « Entraîner un modèle de ma voix ».")
     return m
 
 
@@ -173,7 +173,7 @@ def entrainer(nom, fichiers, voix_biblio, duree_label, lot, progress=gr.Progress
     if not nom:
         raise gr.Error("Donne un nom au modèle (lettres, chiffres, espaces, - et _).")
     if missing_components():
-        raise gr.Error("Modèles de base de RVC absents : télécharge-les dans l'onglet « Modèles ».")
+        raise gr.Error("Modèles de base de RVC absents : télécharge-les dans l'onglet « Outils → Modèles et diagnostic ».")
     epoques = DUREES.get(duree_label, 300)
     dossier, total = preparer_jeu(nom, fichiers, voix_biblio)
     if total < DUREE_MIN:

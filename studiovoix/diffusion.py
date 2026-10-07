@@ -118,8 +118,8 @@ def _verifier(*noms):
         raise gr.Error(", ".join(retires) + " : " + retraits.CONSEIL_REINSTALLER)
     manquants = [MODELES[n][1] for n in noms if not _present(n)]
     if manquants:
-        raise gr.Error("Modèle(s) à télécharger dans l'onglet « Modèles » : " + ", ".join(manquants)
-                       + (". Pour Stable Audio Open, il faut d'abord un jeton Hugging Face (voir l'onglet Modèles)."
+        raise gr.Error("Modèle(s) à télécharger dans l'onglet « Outils → Modèles et diagnostic » : " + ", ".join(manquants)
+                       + (". Pour Stable Audio Open, il faut d'abord un jeton Hugging Face (voir Outils → Modèles et diagnostic)."
                           if "bruitages" in noms and not _present("bruitages") else "."))
 
 

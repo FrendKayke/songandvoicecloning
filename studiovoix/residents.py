@@ -10,7 +10,7 @@ garde ses modèles en mémoire vive ; seule la génération est refaite. Règles
     mémoire graphique, l'état de CUDA n'est pas fiable) ;
   - il se ferme de lui-même après GARDER_MIN minutes sans tâche, ou quand l'application s'arrête (son entrée
     standard se ferme ; sous Windows il est aussi rattaché au « job » qui tue les processus de l'application).
-Réglage : STUDIOVOIX_GARDER_MODELES (minutes, 0 = désactivé) ou la case de l'onglet Modèles.
+Réglage : STUDIOVOIX_GARDER_MODELES (minutes, 0 = désactivé) ou la case de l'onglet « Modèles et diagnostic ».
 """
 import atexit
 import json

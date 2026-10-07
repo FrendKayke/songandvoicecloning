@@ -151,7 +151,7 @@ def _memoire(action):
         except torch.cuda.OutOfMemoryError:
             _erreur("mémoire de la carte graphique insuffisante. Ferme les autres programmes qui utilisent la "
                     "carte (jeux, vidéos) ; si tu as désactivé la libération automatique, arrête ACE-Step "
-                    "dans l'onglet Modèles, puis relance.", 3)
+                    "dans Outils → Modèles et diagnostic, puis relance.", 3)
     return enveloppe
 
 
@@ -538,7 +538,7 @@ def bruitage(chemin_tache):
         except Exception as e:  # accès refusé : licence non acceptée ou jeton absent
             if "401" in str(e) or "403" in str(e) or "gated" in str(e).lower() or "Access" in str(e):
                 _erreur("Stable Audio Open n'est pas téléchargé : accepte sa licence sur Hugging Face et enregistre "
-                        "ton jeton (onglet Modèles → Télécharger les bruitages).", 4)
+                        "ton jeton (Outils → Modèles et diagnostic → Télécharger les bruitages).", 4)
             raise
 
     pipe = _garder(("Stable Audio Open", depot, device), charger, 3.5, vers_cpu=lambda p_: p_.to("cpu"),

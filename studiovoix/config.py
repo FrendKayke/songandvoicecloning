@@ -42,6 +42,7 @@ CARDS_DIR = DATA_DIR / "cartes"  # illustrations : cartes/<projet>/<horodatage>/
 PHOTOS_DIR = DATA_DIR / "photos"  # photos améliorées ou détourées : photos/<horodatage>/
 VIDEOS_DIR = DATA_DIR / "videos"  # vidéos (Wan 2.2) : videos/<horodatage>/
 IMAGES_DIR = DATA_DIR / "images"  # images libres (Z-Image, FLUX.2 klein) : images/<horodatage>/
+SERIES_DIR = DATA_DIR / "series"  # images en série (tableau Excel / liste) : series/<horodatage>_<nom>/
 for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR, GAMES_DIR, SFX_DIR, MODELS3D_DIR, CARDS_DIR, PHOTOS_DIR, VIDEOS_DIR,
           IMAGES_DIR):
     d.mkdir(parents=True, exist_ok=True)

@@ -109,7 +109,7 @@ def construire():
     with gr.Accordion("Réglages voix (avancé)", open=False) as reglages:
         conversion = gr.Dropdown(choix_conversion(), value="seedvc", label="Conversion de ta voix",
                                  info="Un modèle RVC entraîné sur 10 à 30 min de ta voix est plus fidèle "
-                                      "(onglet « Entraîner ma voix »).")
+                                      "(onglet « Entraîner un modèle de ma voix »).")
         semitones = gr.Slider(-12, 12, value=0, step=1, label="Décalage de hauteur (demi-tons)",
                               info="Voix de base féminine → voix masculine : essaie -12. L'inverse : +12.")
         steps = gr.Slider(25, 50, value=40, step=5, label="Étapes de diffusion Seed-VC (30–50 conseillé pour le chant)")

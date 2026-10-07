@@ -35,7 +35,7 @@ def convertisseur(moteur, voix, semitones, steps):
         return (f"ton modèle RVC « {nom} »",
                 lambda vocals, workdir: rvc.convertir(vocals, nom, semitones, workdir / "voix_convertie_rvc.wav"))
     if not voix:
-        raise gr.Error("Choisis (ou enregistre) d'abord une voix dans l'onglet « Bibliothèque de voix ».")
+        raise gr.Error("Choisis (ou enregistre) d'abord une voix dans l'onglet « Voix → Mes voix ».")
     voice_ref = cfg.VOICES_DIR / f"{voix}.wav"
     if not voice_ref.exists():
         raise gr.Error(f"Voix introuvable : {voix} (supprimée ou renommée ?)")

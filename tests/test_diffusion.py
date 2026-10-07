@@ -46,6 +46,8 @@ FAUX_MOTEUR = textwrap.dedent("""
         print("RESULTAT " + json.dumps({"fichiers": fichiers, "graines": graines, "frequence": 44100}), flush=True)
     elif action in ("image", "personnage"):
         if action == "personnage": assert all(Path(r).exists() for r in t["references"])
+        if "ECHEC" in json.dumps(t.get("prompts") or t["prompt"]):
+            print("ERREUR : carte graphique saturée", flush=True); sys.exit(2)
         print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
         from PIL import Image
         for s, g in zip(t["sorties"], t["graines"]):  # vrais PNG (gr.Image relit les fichiers), taille demandée / 16
@@ -1022,3 +1024,101 @@ def test_longueur_du_texte_lu_par_le_generateur(capsys):
     assert moteur._longueur_texte(pipe, "w " * 600) == 640 and "AVERTISSEMENT" not in capsys.readouterr().out
     assert moteur._longueur_texte(pipe, "w " * 2000 + "fin") == moteur.TEXTE_MAX == 1024
     assert "AVERTISSEMENT : prompt trop long (2011 jetons)" in capsys.readouterr().out
+
+
+def test_images_en_serie_depuis_un_tableau_excel(faux_diffusion):
+    """Excel : feuille non vide choisie, colonnes devinées (prompts, noms, contexte), contexte d'une case + écrit,
+    paquets envoyés au moteur, copies réduites, lot.csv pour Excel, archive."""
+    import csv as csv_
+    import zipfile
+
+    import openpyxl
+
+    from studiovoix import serie
+
+    f = cfg.DATA_DIR.parent / "icones.xlsx"
+    classeur = openpyxl.Workbook()
+    classeur.active.title = "Vide"
+    ws = classeur.create_sheet("Icônes")
+    ws.append(["Nom", "Prompt", "Contexte", "", "Contexte global"])
+    ws.append(["Panier", "a shopping cart", "", "", "cooking app icons"])
+    for i in range(2, 11):
+        ws.append([f"Icône {i}" if i != 5 else "Panier", f"icon number {i}", "red" if i == 3 else None])
+    ws.append(["sans prompt", None])
+    classeur.save(f)
+
+    feuille, col_p, col_n, col_c, apercu, msg = serie.analyser(str(f))
+    assert feuille["value"] == "Icônes" and feuille["visible"] and feuille["choices"] == ["Vide", "Icônes"]
+    # « Contexte » (C) n'est remplie que sur une ligne sur dix : pas proposée comme contexte par ligne (choisie à la
+    # main plus bas) ; une case « contexte global » seule ne doit pas être répétée dans chaque image
+    assert (col_p["value"], col_n["value"], col_c["value"]) == ("B", "A", serie.AUCUNE) and "10 case(s)" in msg
+    assert ("B — Prompt", "B") in col_p["choices"] and apercu["value"]["headers"][0] == "A Nom"
+    assert serie.prompt_image({"prompt": "x", "contexte_ligne": "Cooking app icons"}, "cooking app icons", []) == \
+        "x. cooking app icons."
+    assert serie.valeur_case(str(f), "Icônes", "e2") == "cooking app icons"
+    assert serie.valeur_case(str(f), "Vide", "Icônes!E2") == "cooking app icons"
+    with pytest.raises(gr.Error, match="vide"):
+        serie.valeur_case(str(f), "Icônes", "Z9")
+    with pytest.raises(gr.Error, match="comme B2"):
+        serie.valeur_case(str(f), "Icônes", "deux")
+
+    lot = serie.entrees(str(f), "Icônes", True, "B", "A", "C")
+    assert len(lot) == 10 and lot[0]["fichier"] == "001_Panier.png" and lot[4]["fichier"] == "005_Panier_2.png"
+    assert lot[1]["fichier"] == "002_Icone_2.png" and lot[2]["contexte_ligne"] == "red"
+    tableau, info = serie.apercu_prompts(str(f), "Icônes", True, "B", "A", "C", "E2", "", "flat colors",
+                                         [serie.STYLES[0][1]], None)
+    assert "10 image(s)" in info and "Z-Image" in info
+    assert tableau["data"][2][2] == ("icon number 3. red. cooking app icons. flat colors. Style: "
+                                     + serie.STYLES[0][1] + ".")
+
+    msg, galerie, archive, dossier = serie.generer(str(f), "Icônes", True, "B", "A", "C", "E2", "", "flat colors",
+                                                  [serie.STYLES[0][1]], None, "Carré 1:1 (1024×1024)", [32, 512],
+                                                  7, True, "Mes icônes", 0, progress=no_progress)
+    taches = [e["tache"] for e in _journal() if e["action"] == "image"]
+    assert [len(t["sorties"]) for t in taches] == [8, 2]  # paquets de serie.PAQUET
+    assert taches[0]["prompts"][2].startswith("icon number 3. red. cooking app icons") and taches[0]["graines"] == [7] * 8
+    d = Path(dossier)
+    assert d.parent == cfg.SERIES_DIR and d.name.endswith("_Mes_icones") and "10/10" in msg and len(galerie) == 10
+    assert (d / "32px" / "001_Panier.png").exists() and (d / "512px" / "010_Icone_10.png").exists()
+    with zipfile.ZipFile(archive) as z:
+        noms = z.namelist()
+    assert "001_Panier.png" in noms and "32px/001_Panier.png" in noms and "lot.csv" in noms
+    texte_csv = (d / "lot.csv").read_text(encoding="utf-8-sig")
+    lignes = list(csv_.reader(texte_csv.splitlines(), delimiter=";"))
+    assert lignes[0][:3] == ["numero", "ligne", "nom"] and lignes[1][2] == "Panier" and lignes[1][6] == "oui"
+    assert (d / "lot.csv").read_bytes().startswith(b"\xef\xbb\xbf")  # BOM : Excel lit les accents
+
+
+def test_images_en_serie_liste_csv_style_et_reprise(faux_diffusion, monkeypatch):
+    """Liste collée, CSV en cp1252 avec « ; », images de style (FLUX.2 klein), paquet en échec puis reprise."""
+    from PIL import Image
+
+    from studiovoix import serie
+
+    monkeypatch.setattr(serie, "PAQUET", 2)
+    c = cfg.DATA_DIR.parent / "liste.csv"
+    c.write_bytes("titre;texte\nun;épée dorée\ndeux;ECHEC bouclier\ntrois;arc\n".encode("cp1252"))
+    feuille, col_p, *_ = serie.analyser(str(c))
+    assert feuille["value"] == "CSV" and not feuille["visible"] and col_p["value"] == "B"
+    style = cfg.DATA_DIR.parent / "style.png"
+    Image.new("RGB", (40, 40), "blue").save(style)
+    msg, galerie, archive, dossier = serie.generer(str(c), "CSV", True, "B", "A", None, "", "", "", [], [str(style)],
+                                                  "Carré 1:1 (1024×1024)", [], 0, False, "", 0, progress=no_progress)
+    j = [e for e in _journal() if e["action"] == "personnage"]
+    assert j[0]["tache"]["references"][0].endswith("style_1.png") and serie.STYLE_DES_IMAGES in j[0]["tache"]["prompts"][0]
+    assert "1/3" in msg and "⚠️ images 1–2" in msg and "Reprendre" in msg and len(galerie) == 1
+    # le prompt est corrigé dans lot.json (ou la cause de l'échec a disparu) : seules les images manquantes repartent
+    lot = Path(dossier) / "lot.json"
+    lot.write_text(lot.read_text(encoding="utf-8").replace("ECHEC ", ""), encoding="utf-8")
+    n = len(_journal())
+    msg, galerie, archive, _ = serie.reprendre(dossier, progress=no_progress)
+    nouvelles = [e["tache"] for e in _journal()[n:]]
+    assert len(nouvelles) == 1 and len(nouvelles[0]["sorties"]) == 2 and "3/3" in msg and archive.endswith("serie.zip")
+    # liste collée, sans fichier ; graines qui se suivent sans « même graine »
+    serie.generer(None, None, True, None, None, None, "", "a\n\nb\n", "", [], None, "Carré 1:1 (1024×1024)", [],
+                  5, False, "x", 0, progress=no_progress)
+    assert _journal()[-1]["tache"]["graines"] == [5, 6] and _journal()[-1]["tache"]["prompts"] == ["a.", "b."]
+    with pytest.raises(gr.Error, match="Aucun prompt"):
+        serie.entrees(liste=" \n ")
+    with pytest.raises(gr.Error, match="Aucun lot"):
+        serie.reprendre(None, progress=no_progress)
