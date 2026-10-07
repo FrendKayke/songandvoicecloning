@@ -18,7 +18,8 @@ def construire():
         "2. **Contexte commun** : écris-le, ou indique la case du fichier qui le contient (par exemple B1).\n"
         "3. **Style** : choisis-le dans la liste (styles d'icônes en tête) ; pour un rendu encore plus uniforme, "
         "ajoute 1 à 3 **images de style** (une icône que tu aimes) : chaque image en reprend le rendu, pas le sujet.\n"
-        "4. « Voir les prompts » pour vérifier, puis « Générer ». Essaie d'abord sur 5 lignes (« Seulement les N "
+        "4. **Fond transparent** (facultatif) : coche-le pour des icônes sans fond blanc (PNG transparents).\n"
+        "5. « Voir les prompts » pour vérifier, puis « Générer ». Essaie d'abord sur 5 lignes (« Seulement les N "
         "premières ») pour régler le style.\n\n"
         "Compte environ 15 à 20 s par image 1024×1024 sur la RTX 4070 (250 images ≈ 1 h 15). Si le lot s'arrête, "
         "« Reprendre le lot » refait seulement les images manquantes."
@@ -50,6 +51,10 @@ def construire():
             ser_images_style = gr.File(file_count="multiple", file_types=["image"], height=110,
                                        label=f"Images de style (facultatif, {serie.STYLES_IMAGES_MAX} au plus) : "
                                              "leur rendu est repris, pas leur sujet")
+            ser_transparent = gr.Checkbox(
+                value=False, label="Fond transparent (PNG)",
+                info="L'image est créée sur un fond uni, puis le fond est retiré (BiRefNet, quelques secondes de "
+                     "plus par image). Un nom en .jpg devient .png ; .webp garde aussi la transparence.")
             with gr.Row():
                 ser_format = gr.Dropdown(list(serie.FORMATS), value=serie.FORMAT_DEFAUT, label="Format")
                 ser_tailles = gr.Dropdown(serie.TAILLES, value=[], multiselect=True,
@@ -85,10 +90,11 @@ def brancher(c, demo, o):
     c.ser_entetes.input(serie.analyser, [c.ser_fichier, c.ser_feuille, c.ser_entetes], sorties_analyse)
     reglages = [c.ser_fichier, c.ser_feuille, c.ser_entetes, c.ser_col_prompt, c.ser_col_nom, c.ser_col_contexte,
                 c.ser_case_contexte, c.ser_liste, c.ser_contexte, c.ser_styles, c.ser_images_style]
-    c.btn_ser_prompts.click(serie.apercu_prompts, reglages + [c.ser_limite, c.ser_numeroter], [c.ser_apercu, c.ser_statut])
+    c.btn_ser_prompts.click(serie.apercu_prompts, reglages + [c.ser_limite, c.ser_numeroter, c.ser_transparent],
+                            [c.ser_apercu, c.ser_statut])
     c.btn_ser.click(serie.generer,
                     reglages + [c.ser_format, c.ser_tailles, c.ser_graine, c.ser_meme_graine, c.ser_nom, c.ser_limite,
-                                c.ser_numeroter],
+                                c.ser_numeroter, c.ser_transparent],
                     [c.ser_statut, c.ser_galerie, c.ser_zip, c.ser_dossier])
     c.btn_ser_reprendre.click(lambda texte, dernier, progress=gr.Progress(): serie.reprendre(
         (texte or "").strip().strip('"') or dernier, progress=progress), [c.ser_dossier_lot, c.ser_dossier],

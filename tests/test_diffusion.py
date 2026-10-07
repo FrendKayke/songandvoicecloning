@@ -87,6 +87,17 @@ FAUX_MOTEUR = textwrap.dedent("""
         Path(t["sortie"]).write_bytes(b"".join(Path(c).read_bytes() for c in t["clips"]))
         print("RESULTAT " + json.dumps({"sortie": t["sortie"], "images": 49 * len(t["clips"]),
                                         "duree": 2.0 * len(t["clips"])}), flush=True)
+    elif action == "detourer" and "entrees" in t:  # lot : fond retiré (alpha nul) partout sauf au centre
+        from PIL import Image
+        n = len(t["entrees"]) + 1
+        for i, (e, s) in enumerate(zip(t["entrees"], t["sorties"]), 2):
+            print(f"PROGRESSION {i}/{n} x", flush=True)
+            if "DETOURAGE_IMPOSSIBLE" in e:
+                print("ERREUR : image illisible.", flush=True); sys.exit(3)
+            im = Image.open(e).convert("RGBA"); alpha = Image.new("L", im.size, 0)
+            alpha.paste(255, (im.width // 4, im.height // 4, 3 * im.width // 4, 3 * im.height // 4))
+            im.putalpha(alpha); im.save(s)
+        print("RESULTAT " + json.dumps({"sorties": t["sorties"], "couvertures": [0.25] * len(t["sorties"])}), flush=True)
     elif action == "detourer":
         from PIL import Image
         for i in (1, 2, 3): print(f"PROGRESSION {i}/3 x", flush=True)
@@ -1173,6 +1184,56 @@ def test_noms_de_fichiers_des_images_en_serie(faux_diffusion):
     with Image.open(d / "fond.jpg") as im:
         assert im.format == "JPEG"
     assert (d / "64px" / "fond.jpg").exists()
+
+
+def test_images_en_serie_a_fond_transparent(faux_diffusion, monkeypatch):
+    """Fond transparent : fond uni demandé dans le prompt, image générée dans opaque/, puis détourée (un appel de
+    BiRefNet par paquet) vers le fichier final ; .jpg → .png ; la reprise ne refait que ce qui manque."""
+    import zipfile
+
+    from PIL import Image
+
+    from studiovoix import serie
+
+    monkeypatch.setattr(serie, "PAQUET", 2)
+    c = cfg.DATA_DIR.parent / "icones.csv"
+    c.write_text("fichier;prompt\nfond.jpg;a sunset\ncoeur;a heart\nlogo.webp;a fox\n", encoding="utf-8")
+    tableau, info = serie.apercu_prompts(str(c), "CSV", True, "B", "A", None, "", "", "", [], None, 0, False, True)
+    assert [ligne[1] for ligne in tableau["data"]] == ["fond.png", "coeur.png", "logo.webp"]
+    assert serie.FOND_UNI in tableau["data"][0][2] and "BiRefNet" in info and "1 nom(s) en .jpg" in info
+    assert serie.entrees(liste="a", transparent=False)[0]["en_png"] is False
+    # deux noms qui ne diffèrent que par l'extension : même image dans opaque/, donc renommés
+    c2 = cfg.DATA_DIR.parent / "doubles.csv"
+    c2.write_text("fichier;prompt\nx.png;a\nx.webp;b\n", encoding="utf-8")
+    assert [e["fichier"] for e in serie.entrees(str(c2), "CSV", True, "B", "A", transparent=True)] == \
+        ["x.png", "x_2.webp"]
+    assert [e["fichier"] for e in serie.entrees(str(c2), "CSV", True, "B", "A")] == ["x.png", "x.webp"]
+
+    msg, galerie, archive, dossier = serie.generer(str(c), "CSV", True, "B", "A", None, "", "", "", [], None,
+                                                  "Carré 1:1 (1024×1024)", [32], 0, True, "", 0, False, True,
+                                                  progress=no_progress)
+    d = Path(dossier)
+    j = _journal()
+    images = [e["tache"] for e in j if e["action"] == "image"]
+    lots = [e["tache"] for e in j if e["action"] == "detourer"]
+    assert all(Path(s).parent.name == serie.OPAQUE for t in images for s in t["sorties"])
+    assert [len(t["entrees"]) for t in lots] == [2, 1] and lots[0]["modele"] == "general"
+    assert "3/3" in msg and "Fond transparent" in msg and "BiRefNet" in msg
+    for nom in ("fond.png", "coeur.png", "logo.webp", "32px/fond.png"):
+        with Image.open(d / nom) as im:
+            assert im.mode == "RGBA" and im.getpixel((0, 0))[3] == 0, nom
+    assert not (d / "fond.jpg").exists() and (d / serie.OPAQUE / "fond.png").exists()
+    with zipfile.ZipFile(archive) as z:
+        noms = z.namelist()
+    assert "fond.png" in noms and not any(n.startswith(serie.OPAQUE) for n in noms)
+    assert json.loads((d / "lot.json").read_text(encoding="utf-8"))["transparent"] is True
+    # reprise : une image détourée perdue est seulement redétourée (pas regénérée)
+    (d / "coeur.png").unlink()
+    n = len(_journal())
+    msg, *_ = serie.reprendre(dossier, progress=no_progress)
+    nouvelles = _journal()[n:]
+    assert [e["action"] for e in nouvelles] == ["detourer"] and nouvelles[0]["tache"]["sorties"] == [str(d / "coeur.png")]
+    assert "3/3" in msg
 
 
 def test_reviser_un_modele_3d(faux_diffusion):

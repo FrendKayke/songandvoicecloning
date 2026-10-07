@@ -8,6 +8,9 @@ les reçoit en référence et ne garde que leur rendu) ; sans image de style : Z
 Les images partent au moteur par paquets (PAQUET) : un paquet en échec n'arrête pas le lot, et « Reprendre » refait
 seulement les images manquantes (lot.json). Sortie : data/series/<horodatage>_<nom>/ avec les fichiers nommés comme dans le tableau (sinon 001_<prompt>.png…), les copies
 réduites (<taille>px/), lot.csv (pour Excel), lot.json et une archive zip.
+Fond transparent : les générateurs dessinent toujours un fond ; l'image est demandée sur un fond uni (FOND_UNI),
+enregistrée dans opaque/, puis détourée par BiRefNet (diffusion.detourer_lot, un appel par paquet) vers le fichier
+final (PNG, ou WebP qui garde aussi la transparence ; un nom en .jpg devient .png).
 """
 import csv
 import io
@@ -53,6 +56,11 @@ STYLES = [
 STYLE_DES_IMAGES = ("Use only the art style of the reference image(s): same rendering technique, colors, line work, "
                     "shading, lighting and level of detail. Do not copy their subject, objects or composition")
 STYLES_IMAGES_MAX = 3
+# Fond transparent : sujet seul sur un fond uni, que BiRefNet retire ensuite (une ombre portée ou un sol resteraient
+# collés au sujet)
+FOND_UNI = ("Single isolated subject on a plain uniform light grey background, no cast shadow, no floor, no scenery "
+            "around the subject")
+OPAQUE = "opaque"  # images avant détourage
 
 
 # --- Lecture du tableau --------------------------------------------------------------------------------------------
@@ -271,11 +279,13 @@ def nom_de_fichier(nom):
 
 
 def entrees(fichier=None, feuille=None, entetes=True, col_prompt=None, col_nom=None, col_contexte=None,
-            liste="", numeroter=False):
+            liste="", numeroter=False, transparent=False):
     """Lignes à générer : [{numero, nom, prompt, contexte_ligne, fichier}] depuis le tableau (lignes dont la case du
     prompt est remplie) ou depuis la liste collée (un prompt par ligne). Avec une colonne de noms, le fichier porte
     exactement ce nom (nom_de_fichier) ; numeroter : « 001_ » devant. Sans nom : 001_<début du prompt>.png. Un nom
-    déjà pris (sans tenir compte de la casse, comme Windows) reçoit « _2 », « _3 »… (e["doublon"])."""
+    déjà pris (sans tenir compte de la casse, comme Windows) reçoit « _2 », « _3 »… (e["doublon"]).
+    transparent : un nom en .jpg devient .png (JPEG n'a pas de transparence, e["en_png"]) ; les noms sont comparés
+    sans leur extension (l'image avant détourage est opaque/<nom>.png)."""
     resultat = []
     if fichier:
         if not col_prompt:
@@ -310,38 +320,50 @@ def entrees(fichier=None, feuille=None, entetes=True, col_prompt=None, col_nom=N
         else:
             nom = f"{i:03d}_{_slug(e['prompt'][:30], f'image_{i}')}.png"
         racine, ext = nom[:-len(Path(nom).suffix)], Path(nom).suffix
+        e["en_png"] = transparent and ext == ".jpg"
+        if e["en_png"]:
+            ext, nom = ".png", racine + ".png"
+
+        def cle(n):
+            return (n[:-len(Path(n).suffix)] if transparent else n).lower()
+
         candidat, k = nom, 1
-        while candidat.lower() in pris:
+        while cle(candidat) in pris:
             k += 1
             candidat = f"{racine}_{k}{ext}"
         e["doublon"] = candidat != nom
-        pris.add(candidat.lower())
+        pris.add(cle(candidat))
         e["fichier"] = candidat
     return resultat
 
 
-def prompt_image(entree, contexte, styles, avec_images_de_style=False):
-    """« prompt. contexte de la ligne. contexte commun. [consigne des images de style.] Style: … » — le prompt
-    d'abord : un texte trop long pour le générateur perd la fin du contexte, pas le sujet de l'image."""
+def prompt_image(entree, contexte, styles, avec_images_de_style=False, transparent=False):
+    """« prompt. contexte de la ligne. contexte commun. [fond uni.] [consigne des images de style.] Style: … » — le
+    prompt d'abord : un texte trop long pour le générateur perd la fin du contexte, pas le sujet de l'image."""
     ligne = entree.get("contexte_ligne")
     if ligne and contexte and _normal(ligne) in _normal(contexte):  # même texte que le contexte commun : une fois
         ligne = None
-    morceaux = [entree["prompt"], ligne, contexte, STYLE_DES_IMAGES if avec_images_de_style else None]
+    morceaux = [entree["prompt"], ligne, contexte, FOND_UNI if transparent else None,
+                STYLE_DES_IMAGES if avec_images_de_style else None]
     corps = ". ".join(m.strip().rstrip(".") for m in morceaux if m and m.strip())
     style = texte(styles)
     return f"{corps}. Style: {style}." if style else f"{corps}."
 
 
 def apercu_prompts(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte,
-                   styles, images_style, limite=0, numeroter=False):
+                   styles, images_style, limite=0, numeroter=False, transparent=False):
     """Tableau des prompts qui seront envoyés (pour vérifier avant de lancer 250 images)."""
     lot, contexte = _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste,
-                              contexte, limite, numeroter)
+                              contexte, limite, numeroter, transparent)
     avec = bool(_images_de_style(images_style))
-    data = [[e["numero"], e["fichier"], prompt_image(e, contexte, styles, avec)] for e in lot]
+    data = [[e["numero"], e["fichier"], prompt_image(e, contexte, styles, avec, transparent)] for e in lot]
     doublons = [e for e in lot if e["doublon"]]
-    msg = f"{len(lot)} image(s) à générer" + (" (FLUX.2 klein, avec les images de style)." if avec
-                                               else " (Z-Image-Turbo).")
+    msg = f"{len(lot)} image(s) à générer" + (" (FLUX.2 klein, avec les images de style" if avec
+                                               else " (Z-Image-Turbo")
+    msg += ", puis fond retiré par BiRefNet)." if transparent else ")."
+    en_png = [e for e in lot if e["en_png"]]
+    if en_png:
+        msg += (f"\n\nℹ️ {len(en_png)} nom(s) en .jpg enregistré(s) en .png : le JPEG ne garde pas la transparence.")
     if doublons:
         msg += (f"\n\n⚠️ {len(doublons)} nom(s) de fichier en double : renommés « _2 », « _3 »… (lignes "
                 + ", ".join(str(e["ligne"]) for e in doublons[:10]) + ("…" if len(doublons) > 10 else "") + ").")
@@ -349,8 +371,8 @@ def apercu_prompts(fichier, feuille, entetes, col_prompt, col_nom, col_contexte,
 
 
 def _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte, limite,
-              numeroter=False):
-    lot = entrees(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, liste, numeroter)
+              numeroter=False, transparent=False):
+    lot = entrees(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, liste, numeroter, transparent)
     limite = int(limite or 0)
     if limite > 0:
         lot = lot[:limite]
@@ -373,10 +395,14 @@ def _images_de_style(fichiers):
 # --- Génération ------------------------------------------------------------------------------------------------------
 def generer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste, contexte, styles,
             images_style, format_label, tailles, graine, meme_graine, nom="", limite=0, numeroter=False,
-            progress=gr.Progress()):
-    """Prépare le lot (lot.json) puis le génère. Renvoie (message, galerie, archive zip, dossier)."""
+            transparent=False, progress=gr.Progress()):
+    """Prépare le lot (lot.json) puis le génère. Renvoie (message, galerie, archive zip, dossier).
+    transparent : fond uni demandé puis retiré par BiRefNet (fichiers PNG/WebP transparents)."""
+    transparent = bool(transparent)
     lot, contexte = _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_contexte, liste,
-                              contexte, limite, numeroter)
+                              contexte, limite, numeroter, transparent)
+    if transparent:  # avant de lancer 250 images, pas après
+        diffusion.verifier("photo_detourage")
     format_label = format_label if format_label in FORMATS else FORMAT_DEFAUT
     largeur, hauteur = FORMATS[format_label]
     nom = _slug(nom, "serie")
@@ -389,12 +415,13 @@ def generer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_c
     graine = int(graine or 0) or diffusion.graines(1)[0]
     for e in lot:
         e["graine"] = graine if meme_graine else graine + e["numero"] - 1
-        e["prompt_final"] = prompt_image(e, contexte, styles, bool(references))
+        e["prompt_final"] = prompt_image(e, contexte, styles, bool(references), transparent)
     infos = {"nom": nom, "contexte": contexte, "styles": styles, "format": format_label, "largeur": largeur,
              "hauteur": hauteur, "tailles": sorted({int(t) for t in tailles or []}, reverse=True),
              "references": [r.name for r in references], "graine": graine, "meme_graine": bool(meme_graine),
              "source": Path(str(getattr(fichier, "name", fichier))).name if fichier else "liste",
-             "moteur": "FLUX.2 klein 4B" if references else "Z-Image-Turbo", "images": lot}
+             "moteur": ("FLUX.2 klein 4B" if references else "Z-Image-Turbo") + (" + BiRefNet" if transparent else ""),
+             "transparent": transparent, "images": lot}
     (dossier / "lot.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
     return _executer(dossier, progress)
 
@@ -411,6 +438,7 @@ def reprendre(dossier, progress=gr.Progress()):
 def _executer(dossier, progress):
     infos = json.loads((dossier / "lot.json").read_text(encoding="utf-8"))
     lot, references = infos["images"], [dossier / r for r in infos.get("references") or []]
+    transparent = bool(infos.get("transparent"))
     a_faire = [e for e in lot if not (dossier / e["fichier"]).exists()]
     total, debut, erreurs, echecs_suite = len(a_faire), time.monotonic(), [], 0
     for p0 in range(0, total, PAQUET):
@@ -424,14 +452,25 @@ def _executer(dossier, progress):
             progress(fait / max(1, total), desc=f"Images {p0 + 1}–{p0 + n} sur {total}{reste} — {desc}")
 
         sorties = [dossier / e["fichier"] for e in paquet]
-        prompts = [e["prompt_final"] for e in paquet]
-        graines = [e["graine"] for e in paquet]
+        # fond transparent : l'image générée va dans opaque/ (une reprise ne regénère pas celles déjà faites)
+        bruts = [_opaque(dossier, e) for e in paquet] if transparent else sorties
+        manquantes = [i for i, b in enumerate(bruts) if not b.exists()]
         try:
-            if references:
-                diffusion.personnage(prompts, references, sorties, graines, infos["largeur"], infos["hauteur"],
-                                     progress=suivi)
-            else:
-                diffusion.image(prompts, sorties, graines, infos["largeur"], infos["hauteur"], progress=suivi)
+            if manquantes:
+                prompts = [paquet[i]["prompt_final"] for i in manquantes]
+                graines = [paquet[i]["graine"] for i in manquantes]
+                cibles = [bruts[i] for i in manquantes]
+                generation = partie(suivi, 0, 0.8 if transparent else 1)
+                if references:
+                    diffusion.personnage(prompts, references, cibles, graines, infos["largeur"], infos["hauteur"],
+                                         progress=generation)
+                else:
+                    diffusion.image(prompts, cibles, graines, infos["largeur"], infos["hauteur"], progress=generation)
+            if transparent:
+                prets = [i for i, b in enumerate(bruts) if b.exists()]
+                if prets:
+                    diffusion.detourer_lot([bruts[i] for i in prets], [sorties[i] for i in prets],
+                                           progress=partie(suivi, 0.8, 1))
             echecs_suite = 0
         except gr.Error as e:  # le paquet suivant repart d'un moteur neuf ; « Reprendre » refera celles-ci
             erreurs.append(f"images {paquet[0]['numero']}–{paquet[-1]['numero']} : {getattr(e, 'message', e)}")
@@ -448,6 +487,8 @@ def _executer(dossier, progress):
     temps = time.monotonic() - debut
     msg = (f"✅ {len(faites)}/{len(lot)} image(s) {infos['largeur']}×{infos['hauteur']} ({infos['moteur']}) "
            f"en {duree_lisible(temps)}, dans {dossier}.")
+    if transparent:
+        msg += f" Fond transparent ; les images avant détourage sont dans « {OPAQUE} »."
     if infos.get("tailles"):
         msg += f" Copies réduites : {', '.join(f'{t} px' for t in infos['tailles'])}."
     if erreurs:
@@ -455,6 +496,16 @@ def _executer(dossier, progress):
                 "\n\nClique sur « Reprendre le lot » pour refaire seulement les images manquantes.")
     galerie = [(str(dossier / e["fichier"]), f"{e['numero']} · {e['nom'] or e['prompt'][:60]}") for e in faites]
     return msg, galerie, str(archive) if archive else None, str(dossier)
+
+
+def partie(progress, debut, fin):
+    """Progression d'une étape ramenée à la tranche [debut, fin] de celle du paquet."""
+    return lambda valeur, desc="": progress(debut + (fin - debut) * valeur, desc=desc)
+
+
+def _opaque(dossier, e):
+    """Image générée avant détourage (PNG sans perte, même nom que le fichier final)."""
+    return dossier / OPAQUE / (Path(e["fichier"]).stem + ".png")
 
 
 def _reduire(image, tailles):

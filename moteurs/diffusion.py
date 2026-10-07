@@ -1014,15 +1014,13 @@ def _ouvrir_photo(chemin):
 
 
 def detourer(chemin_tache):
-    """Tâche : {entree, sortie, modele: general | personne, fond: None | "#rrggbb" | "flou", masque: chemin}.
+    """Tâche : {entree, sortie, modele: general | personne, fond: None | "#rrggbb" | "flou", masque: chemin}, ou
+    {entrees, sorties, modele} pour un lot (images en série à fond transparent : le modèle n'est chargé qu'une fois).
     BiRefNet donne un masque doux (0–255) ; les couleurs du fond mêlées aux bords (cheveux) sont retirées par
     l'estimation du premier plan de pymatting (rembg.bg.decontaminate_cutout). Sans fond : PNG transparent.
-    fp16 sur la carte graphique (jamais bf16 : deform_conv2d de torchvision ne le gère pas). RESULTAT {sortie, ...}."""
-    import numpy as np
+    fp16 sur la carte graphique (jamais bf16 : deform_conv2d de torchvision ne le gère pas).
+    RESULTAT {sortie, ...} ou, pour un lot, {sorties, couvertures}."""
     import torch
-    from PIL import Image, ImageFilter
-    from rembg.bg import decontaminate_cutout
-    from torchvision import transforms
     from transformers import AutoModelForImageSegmentation
 
     t = _lire(chemin_tache)
@@ -1031,7 +1029,9 @@ def detourer(chemin_tache):
         cote = int(t["cote"])
     device = _device()
     _hors_ligne_si_present(depot)
-    print("PROGRESSION 1/3 chargement de BiRefNet", flush=True)
+    lot = "entrees" in t
+    n = len(t["entrees"]) + 1 if lot else 3
+    print(f"PROGRESSION 1/{n} chargement de BiRefNet", flush=True)
     dtype = torch.float16 if device == "cuda" else torch.float32
     torch.set_float32_matmul_precision("high")
     depot, revision = t.get("depot", depot), t.get("revision", revision)
@@ -1040,17 +1040,44 @@ def detourer(chemin_tache):
         lambda: AutoModelForImageSegmentation.from_pretrained(depot, trust_remote_code=True, revision=revision)
         .to(device=device, dtype=dtype).eval(),
         1.0, vers_cpu=lambda m: m.to("cpu"), vers_gpu=lambda m: m.to(device))
-    image, _ = _ouvrir_photo(t["entree"])
-    print(f"PROGRESSION 2/3 détourage ({image.width}×{image.height})", flush=True)
+    if lot:
+        couvertures = []
+        for i, (entree, sortie) in enumerate(zip(t["entrees"], t["sorties"]), 2):
+            print(f"PROGRESSION {i}/{n} détourage de {Path(sortie).name}", flush=True)
+            couvertures.append(_detourer_image(modele, cote, device, dtype, entree, sortie)[2])
+        _resultat({"sorties": t["sorties"], "couvertures": couvertures})
+        print(f"TERMINE {t['sorties'][-1]}", flush=True)
+        return
+    image, masque, couverture = _detourer_image(modele, cote, device, dtype, t["entree"], t["sortie"], t.get("fond"),
+                                                etapes=True)
+    if t.get("masque"):
+        masque.save(t["masque"])
+    _resultat({"sortie": t["sortie"], "masque": t.get("masque"), "largeur": image.width, "hauteur": image.height,
+               "couverture": couverture})
+    print(f"TERMINE {t['sortie']}", flush=True)
+
+
+def _detourer_image(modele, cote, device, dtype, entree, sortie, fond=None, etapes=False):
+    """Une image détourée par BiRefNet, enregistrée dans sortie (RGBA sans fond). Renvoie (image, masque, part de
+    l'image occupée par le sujet)."""
+    import numpy as np
+    import torch
+    from PIL import Image, ImageFilter
+    from rembg.bg import decontaminate_cutout
+    from torchvision import transforms
+
+    image, _ = _ouvrir_photo(entree)
+    if etapes:
+        print(f"PROGRESSION 2/3 détourage ({image.width}×{image.height})", flush=True)
     preparation = transforms.Compose([transforms.Resize((cote, cote)), transforms.ToTensor(),
                                       transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     x = preparation(image).unsqueeze(0).to(device=device, dtype=dtype)
     with torch.inference_mode():
         prediction = _memoire(modele)(x)[-1].sigmoid().float().cpu()[0, 0].numpy()
     masque = Image.fromarray((prediction * 255).round().astype("uint8")).resize(image.size, Image.BILINEAR)
-    print("PROGRESSION 3/3 finitions des bords", flush=True)
+    if etapes:
+        print("PROGRESSION 3/3 finitions des bords", flush=True)
     decoupe = decontaminate_cutout(image, masque)  # RGBA, couleurs des bords sans le fond
-    fond = t.get("fond")
     if fond == "flou":  # effet portrait : le sujet net devant son propre fond flouté
         base = image.filter(ImageFilter.GaussianBlur(max(image.size) / 80)).convert("RGBA")
         resultat = Image.alpha_composite(base, decoupe).convert("RGB")
@@ -1059,14 +1086,10 @@ def detourer(chemin_tache):
         resultat = Image.alpha_composite(base, decoupe).convert("RGB")
     else:
         resultat = decoupe
-    Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True)
-    resultat.save(t["sortie"])
-    if t.get("masque"):
-        masque.save(t["masque"])
+    Path(sortie).parent.mkdir(parents=True, exist_ok=True)
+    resultat.save(sortie)
     couverture = float(np.asarray(masque, dtype=np.float32).mean() / 255)
-    _resultat({"sortie": t["sortie"], "masque": t.get("masque"), "largeur": image.width, "hauteur": image.height,
-               "couverture": round(couverture, 3)})
-    print(f"TERMINE {t['sortie']}", flush=True)
+    return image, masque, round(couverture, 3)
 
 
 def _par_tuiles(modele, image, tuile=512, marge=32):

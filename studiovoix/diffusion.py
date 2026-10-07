@@ -126,6 +126,9 @@ def _verifier(*noms):
                           if "bruitages" in noms and not _present("bruitages") else "."))
 
 
+verifier = _verifier  # pour les autres modules : vérifier avant un long lot qu'un modèle est bien là
+
+
 def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None, gpu=True):
     """Écrit tache.json dans dossier, lance l'action et renvoie le dictionnaire de la ligne RESULTAT.
     gpu : l'action utilise la carte graphique (ACE-Step est alors arrêté pour libérer sa mémoire)."""
@@ -252,6 +255,17 @@ def detourer(entree, sortie, modele="general", fond=None, masque=None, progress=
              "masque": str(masque) if masque else None}
     return lancer("detourer", tache, Path(sortie).parent, "Détourage", progress,
                   {1: "chargement du modèle de détourage", 2: "détourage", 3: "finitions des bords"})
+
+
+def detourer_lot(entrees, sorties, progress=None):
+    """BiRefNet (modèle « general ») sur plusieurs images d'un coup : chaque sortie est un PNG (ou WebP)
+    transparent. Le modèle n'est chargé qu'une fois. RESULTAT {sorties, couvertures}."""
+    _verifier("photo_detourage")
+    sorties = [str(s) for s in sorties]
+    return lancer("detourer", {"entrees": [str(e) for e in entrees], "sorties": sorties, "modele": "general"},
+                  Path(sorties[0]).parent, "Détourage", progress,
+                  {1: "chargement du modèle de détourage",
+                   **{i: f"fond retiré : image {i - 1}/{len(sorties)}" for i in range(2, len(sorties) + 2)}})
 
 
 def ameliorer(entree, sortie, echelle=2, rapide=False, visages=True, force=0.7, progress=None):
