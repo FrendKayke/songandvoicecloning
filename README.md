@@ -275,6 +275,7 @@ Les prix sont indicatifs (vérifie les prix actuels et les versions récentes de
 
 - **Distance** : 5 à 10 cm pour un dynamique, 15 à 20 cm pour un statique, légèrement de biais pour éviter les « p » et les souffles.
 - **La pièce** : coupe ventilateurs et climatisation, ferme la fenêtre ; enregistre face à un mur couvert (rideaux, armoire ouverte pleine de vêtements, couette tendue derrière toi) plutôt que dans une pièce vide et carrelée.
+- **Pas de message vocal WhatsApp** (ni d'extrait d'appel ou de vidéo) : la compression retire les aigus, et la voix clonée sort étouffée. Le contrôle de qualité le signale (« Son étouffé »). Enregistre-toi directement dans la bibliothèque avec le micro du PC ou d'un casque.
 - **Le niveau** : règle le gain pour que tes passages les plus forts montent vers −12 à −6 dB, jamais au maximum (le contrôle de qualité signale la saturation).
 - **Windows** : dans Paramètres → Son → ton micro, désactive les « améliorations audio » et toute réduction de bruit ; elles abîment le timbre.
 - **Le navigateur** applique souvent sa propre suppression de bruit et d'écho au micro. Pour les enregistrements importants (surtout ceux pour RVC), enregistre plutôt avec **Audacity** (gratuit) en WAV 48 kHz, 24 bits, mono, puis importe le fichier.

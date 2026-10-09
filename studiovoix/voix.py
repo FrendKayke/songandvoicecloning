@@ -19,6 +19,10 @@ NIVEAU_REFUS = -40  # dBFS : niveau de la voix en dessous duquel on refuse
 NIVEAU_FAIBLE = -30  # dBFS : en dessous, avertissement
 SEUIL_SATURATION = 0.99  # amplitude considérée comme saturée
 PART_SATUREE_MAX = 0.001  # 0,1 % des échantillons
+# Part de l'énergie au-dessus de 4 kHz en dessous de laquelle le son est jugé étouffé : un message vocal WhatsApp
+# (compressé) n'en avait que 0,18 % (« s », « ch », souffle et timbre retirés) et la voix clonée sortait étouffée
+# (rapport de l'utilisateur du 09/10) ; une voix enregistrée en direct au micro en a nettement plus
+PART_AIGUS_MIN = 0.003
 
 
 def list_voices():
@@ -89,12 +93,34 @@ def analyser(y, sr) -> Analyse:
             "Rapproche-toi du micro ou monte son niveau d'entrée."
         )
 
+    aigus = _part_aigus(y, sr)
+    if aigus is not None and aigus < PART_AIGUS_MIN and niveau_db >= NIVEAU_REFUS:
+        part = f"{100 * aigus:.2f}".replace(".", ",")
+        a.avertissements.append(
+            f"Son étouffé (seulement {part} % de l'énergie au-dessus de 4 kHz) : on dirait un enregistrement "
+            "compressé (message vocal WhatsApp, appel, vidéo) ou un micro de mauvaise qualité. La voix clonée "
+            "reprendra ce son étouffé : enregistre-toi plutôt directement ici avec le micro du PC ou d'un casque, "
+            "ou importe le fichier d'origine (WAV) d'un enregistreur."
+        )
+
     if part_saturee > PART_SATUREE_MAX:
         a.avertissements.append(
             f"Son saturé ({part_saturee:.1%} des échantillons au maximum) : la voix sera déformée. "
             "Éloigne-toi un peu du micro ou baisse son niveau d'entrée, puis recommence."
         )
     return a
+
+
+def _part_aigus(y, sr):
+    """Part de l'énergie au-dessus de 4 kHz (None si le fichier ne peut pas en contenir : fréquence trop basse)."""
+    if sr < 16000 or len(y) < sr:
+        return None
+    spectre = np.abs(np.fft.rfft(y.astype("float64"))) ** 2
+    total = spectre.sum()
+    if total <= 0:
+        return None
+    frequences = np.fft.rfftfreq(len(y), 1 / sr)
+    return float(spectre[frequences >= 4000].sum() / total)
 
 
 def _charger(audio_path):

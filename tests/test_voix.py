@@ -10,9 +10,10 @@ from studiovoix.voix import analyser, delete_voice, infos_voix, list_voices, ren
 SR = 44100
 
 
-def _sine(seconds, amp, sr=SR):
+def _sine(seconds, amp, sr=SR, aigus=0.1):
+    """Note de 220 Hz avec un peu d'aigus (6 kHz, comme les « s » d'une vraie voix) ; aigus=0 : son étouffé."""
     t = np.linspace(0, seconds, int(seconds * sr), endpoint=False)
-    return (amp * np.sin(2 * np.pi * 220 * t)).astype("float32")
+    return (amp * (np.sin(2 * np.pi * 220 * t) + aigus * np.sin(2 * np.pi * 6000 * t))).astype("float32")
 
 
 # --- Contrôle de qualité ----------------------------------------------------------
@@ -20,6 +21,14 @@ def test_analyse_voix_correcte():
     a = analyser(_sine(15, 0.3), SR)
     assert not a.erreurs and not a.avertissements and not a.infos
     assert -15 < a.niveau_db < -12  # sinus d'amplitude 0,3 ≈ -13,5 dBFS
+
+
+def test_analyse_son_etouffe():
+    """Message vocal WhatsApp (0,18 % d'énergie au-dessus de 4 kHz chez l'utilisateur) : avertissement."""
+    a = analyser(_sine(15, 0.3, aigus=0), SR)
+    assert not a.erreurs and "Son étouffé" in a.avertissements[0] and "WhatsApp" in a.avertissements[0]
+    assert not analyser(_sine(15, 0.3), SR).avertissements
+    assert not analyser(_sine(15, 0.3, sr=8000, aigus=0), 8000).avertissements  # rien à mesurer à 8 kHz
 
 
 def test_analyse_duree():
@@ -47,7 +56,7 @@ def test_analyse_saturation():
     y = np.clip(_sine(15, 2.0), -1, 1)
     a = analyser(y, SR)
     assert not a.erreurs and any("saturé" in m for m in a.avertissements)
-    assert not any("saturé" in m for m in analyser(_sine(15, 0.95), SR).avertissements)
+    assert not any("saturé" in m for m in analyser(_sine(15, 0.95, aigus=0), SR).avertissements)
 
 
 # --- Import --------------------------------------------------------------------
