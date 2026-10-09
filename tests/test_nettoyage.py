@@ -62,6 +62,24 @@ def test_nettoyage(faux_nettoyage):
     assert "Nettoyage de la voix : étape 2/2…" in etapes and "Léger" in msg
 
 
+def test_entree_convertie_en_wav_pcm(faux_nettoyage):
+    """ClearVoice lit l'entrée avec pydub, qui sans ffmpeg ne lit que les WAV PCM : un WAV flottant (ou un FLAC, un
+    MP3) échouait chez l'utilisateur. L'échantillon est donc réécrit en WAV PCM 16 bits mono."""
+    import numpy as np
+
+    src = faux_nettoyage / "flottant.flac"
+    y = (0.3 * np.sin(np.arange(2 * 48000) / 10)).astype("float32")
+    sf.write(str(src), np.stack([y, y], 1), 48000)
+    nettoyage.nettoyer(str(src), list(nettoyage.NIVEAUX)[0], progress=no_progress)
+    entree = next(cfg.CLEAN_DIR.iterdir()) / "original.wav"
+    info = sf.info(str(entree))
+    assert (info.format, info.subtype, info.channels, info.samplerate) == ("WAV", "PCM_16", 1, 48000)
+    flottant = faux_nettoyage / "flottant.wav"
+    sf.write(str(flottant), y, 44100, subtype="FLOAT")
+    nettoyage.nettoyer(str(flottant), list(nettoyage.NIVEAUX)[0], progress=no_progress)
+    assert all(sf.info(str(d / "original.wav")).subtype == "PCM_16" for d in cfg.CLEAN_DIR.iterdir())
+
+
 def test_erreurs(faux_nettoyage, monkeypatch):
     with pytest.raises(gr.Error, match="Importe ou enregistre"):
         nettoyage.nettoyer(None, list(nettoyage.NIVEAUX)[0], progress=no_progress)

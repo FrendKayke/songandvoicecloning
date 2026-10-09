@@ -6,7 +6,6 @@ Environnement dédié (<lecteur>:\\StudioVoix\\nettoyage\\.venv), appelé en sou
 Les modèles restent dans StudioVoix\\nettoyage (le script est lancé depuis ce dossier).
 """
 import json
-import shutil
 from pathlib import Path
 
 import gradio as gr
@@ -60,6 +59,23 @@ def download():
     )
 
 
+def _en_wav_pcm(source, destination):
+    """Copie de l'échantillon en WAV PCM 16 bits mono, à sa fréquence d'origine. ClearVoice lit l'entrée avec pydub
+    (AudioSegment.from_file) qui, sans ffmpeg, ne sait lire que les WAV PCM (module wave) : un WAV en 32 bits
+    flottants, un MP3 ou un FLAC donnaient « 'NoneType' object has no attribute 'frame_rate' » (constaté chez
+    l'utilisateur, reproduit avec pydub sans ffmpeg)."""
+    import librosa
+    import soundfile as sf
+
+    try:
+        y, sr = librosa.load(str(source), sr=None, mono=True)
+    except Exception as e:  # noqa: BLE001 - format illisible
+        raise gr.Error(f"Impossible de lire l'échantillon ({e}). Enregistre-le en WAV ou en MP3.") from e
+    if not len(y):
+        raise gr.Error("L'échantillon est vide.")
+    sf.write(str(destination), y, sr, subtype="PCM_16")
+
+
 def nettoyer(audio_path, niveau_label, progress=gr.Progress()):
     """Nettoie un échantillon (fichier importé ou enregistré). Renvoie (fichier nettoyé, choix « nettoyée », message)."""
     if not audio_path:
@@ -70,8 +86,8 @@ def nettoyer(audio_path, niveau_label, progress=gr.Progress()):
     _verifier_installation()
 
     workdir = nouveau_dossier(cfg.CLEAN_DIR)
-    entree = workdir / f"original{Path(audio_path).suffix.lower() or '.wav'}"
-    shutil.copy(audio_path, entree)  # le fichier temporaire de Gradio peut disparaître
+    entree = workdir / "original.wav"
+    _en_wav_pcm(audio_path, entree)  # copie : le fichier temporaire de Gradio peut disparaître
     sortie = workdir / "voix_nettoyee.wav"
     tache = workdir / "tache.json"
     tache.write_text(json.dumps({"entree": str(entree), "sortie": str(sortie), "niveau": niveau},
