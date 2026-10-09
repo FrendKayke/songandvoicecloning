@@ -1,6 +1,6 @@
 """Bibliothèque de voix : data/voices/<nom>.wav (44,1 kHz mono, 30 s au plus, normalisé).
 
-Import depuis un fichier (wav, mp3, flac) ou le micro, avec un contrôle de qualité simple
+Import depuis un fichier (wav, mp3, flac, m4a…) ou le micro, avec un contrôle de qualité simple
 (durée, volume trop faible, saturation), écoute, renommage et suppression.
 """
 from dataclasses import dataclass, field
@@ -11,6 +11,7 @@ import numpy as np
 import soundfile as sf
 
 from . import config as cfg
+from .audio import charger
 
 DUREE_MIN = 5       # s : en dessous, refus
 DUREE_CONSEILLEE = 10  # s : en dessous, avertissement
@@ -125,9 +126,9 @@ def _part_aigus(y, sr):
 
 def _charger(audio_path):
     try:
-        y, sr = librosa.load(audio_path, sr=None, mono=True)  # fréquence d'origine pour l'analyse
+        y, sr = charger(audio_path, sr=None, mono=True)  # fréquence d'origine ; m4a/AAC par PyAV
     except Exception:
-        raise gr.Error("Fichier illisible. Utilise un fichier audio wav, mp3 ou flac.")
+        raise gr.Error("Fichier illisible. Utilise un fichier audio wav, mp3, flac, m4a ou ogg.")
     return y, sr
 
 

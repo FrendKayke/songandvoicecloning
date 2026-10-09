@@ -25,7 +25,7 @@ def construire():
     """Composants de l'onglet (dans l'onglet ouvert par l'appelant)."""
     gr.Markdown(
         "### Ajouter une voix\n"
-        "Importe un fichier (**wav, mp3 ou flac**) ou enregistre-toi au micro : **10 à 25 secondes**, "
+        "Importe un fichier (**wav, mp3, flac ou m4a**) ou enregistre-toi au micro : **10 à 25 secondes**, "
         "dans une pièce calme, sans musique ni écho (idéalement en chantant, sinon en parlant). "
         "La qualité est vérifiée à l'import (durée, volume, saturation)."
     )

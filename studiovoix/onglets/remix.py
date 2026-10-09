@@ -9,7 +9,7 @@ def construire():
     """Composants de l'onglet (dans l'onglet ouvert par l'appelant)."""
     gr.Markdown(
         "**Une musique rejouée dans un autre style** : un thème de jeu vidéo en version orchestrale, une chanson pop "
-        "en jazz, un générique en 8-bit… Envoie un ou plusieurs morceaux **sans paroles** (MP3, WAV, FLAC, OGG ; "
+        "en jazz, un générique en 8-bit… Envoie un ou plusieurs morceaux **sans paroles** (MP3, WAV, FLAC, OGG, M4A ; "
         "10 minutes au plus chacun), choisis le nouveau style, puis « Remixer ». ACE-Step garde la mélodie et la "
         "structure du morceau et change les instruments et le style ; plusieurs morceaux sont faits l'un après "
         "l'autre avec les mêmes réglages (pratique pour un quiz). Compte environ 30 s à 1 min par morceau sur la "

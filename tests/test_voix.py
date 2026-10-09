@@ -95,7 +95,7 @@ def test_import_refus(env):
     with pytest.raises(gr.Error, match="nom"):
         save_voice(str(write_tone(env / "ok.wav", seconds=12)), "///")
     (env / "texte.mp3").write_text("pas de l'audio")
-    with pytest.raises(gr.Error, match="wav, mp3 ou flac"):
+    with pytest.raises(gr.Error, match="illisible.*m4a"):
         save_voice(str(env / "texte.mp3"), "x")
     assert list_voices() == []
 

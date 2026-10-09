@@ -22,6 +22,7 @@ import numpy as np
 
 from . import acestep
 from . import config as cfg
+from .audio import charger
 from .outils import ecrire_creation, nouveau_dossier
 from .styles import musique
 from .videos import duree_lisible
@@ -78,7 +79,7 @@ def _chemins(fichiers):
     chemins = [str(getattr(f, "name", f)) for f in (fichiers if isinstance(fichiers, (list, tuple)) else [fichiers])
                if f]
     if not chemins:
-        raise gr.Error("Ajoute la musique à remixer (MP3, WAV, FLAC, OGG…).")
+        raise gr.Error("Ajoute la musique à remixer (MP3, WAV, FLAC, OGG, M4A…).")
     for c in chemins:
         if not Path(c).is_file():
             raise gr.Error(f"Fichier introuvable : {c}")
@@ -87,11 +88,10 @@ def _chemins(fichiers):
 
 def _preparer_original(source, dossier):
     """Copie le morceau en WAV 44,1 kHz stéréo (format sûr pour ACE-Step) ; renvoie (chemin, durée)."""
-    import librosa
     import soundfile as sf
 
     try:
-        audio, sr = librosa.load(source, sr=44100, mono=False)
+        audio, sr = charger(source, sr=44100, mono=False)
     except Exception as e:  # noqa: BLE001 - format illisible
         raise gr.Error(f"Impossible de lire « {Path(source).name} » ({e}). Convertis-le en WAV ou MP3.") from e
     if audio.ndim == 1:

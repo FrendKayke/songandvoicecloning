@@ -64,11 +64,12 @@ def _en_wav_pcm(source, destination):
     (AudioSegment.from_file) qui, sans ffmpeg, ne sait lire que les WAV PCM (module wave) : un WAV en 32 bits
     flottants, un MP3 ou un FLAC donnaient « 'NoneType' object has no attribute 'frame_rate' » (constaté chez
     l'utilisateur, reproduit avec pydub sans ffmpeg)."""
-    import librosa
     import soundfile as sf
 
+    from .audio import charger
+
     try:
-        y, sr = librosa.load(str(source), sr=None, mono=True)
+        y, sr = charger(source, sr=None, mono=True)
     except Exception as e:  # noqa: BLE001 - format illisible
         raise gr.Error(f"Impossible de lire l'échantillon ({e}). Enregistre-le en WAV ou en MP3.") from e
     if not len(y):

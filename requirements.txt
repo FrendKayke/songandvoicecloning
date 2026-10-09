@@ -4,3 +4,4 @@ numpy
 librosa
 soundfile
 openpyxl
+av

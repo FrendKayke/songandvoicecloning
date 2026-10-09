@@ -14,7 +14,6 @@ fichiers finaux au même volume (WAV, MP3, OGG au choix), lot.csv (pour Excel) e
 import csv
 import json
 import re
-import shutil
 import time
 import zipfile
 from pathlib import Path
@@ -24,6 +23,7 @@ import soundfile as sf
 
 from . import acestep, diffusion, export, serie
 from . import config as cfg
+from .audio import charger
 from .images import scenes_du_texte
 from .mixage import load_stereo
 from .outils import nouveau_dossier
@@ -260,8 +260,12 @@ def generer(fichier, feuille, entetes, col_desc, col_nom, col_paroles, col_duree
                     "(Outils → Modèles et diagnostic).")
     dossier = nouveau_dossier(cfg.MUSIQUES_SERIE_DIR, nom)
     if reference:  # copiée : la reprise ne dépend pas de l'original
-        copie = dossier / f"reference{Path(reference).suffix.lower() or '.wav'}"
-        shutil.copy(reference, copie)
+        copie = dossier / "reference.wav"  # en WAV : le serveur ACE-Step ne lit pas forcément un m4a
+        try:
+            y, sr_ref = charger(reference, sr=None, mono=False)
+        except Exception as e:  # noqa: BLE001 - format illisible
+            raise gr.Error(f"Musique de référence illisible ({e}).") from e
+        sf.write(str(copie), y.T if y.ndim > 1 else y, sr_ref)
         reference = copie.name
     graine = int(graine or 0) or acestep.graines(1)[0]
     for e, anglais in zip(lot, descriptions):

@@ -10,12 +10,12 @@ import shutil
 from pathlib import Path
 
 import gradio as gr
-import librosa
 import soundfile as sf
 
 from . import config as cfg
 from . import retraits
 from . import serveur_acestep
+from .audio import EXTENSIONS, charger
 from .outils import lancer_moteur, stream_command
 from .voix import analyser, list_voices, nettoyer_nom
 
@@ -27,7 +27,7 @@ DUREES = {
 }
 DUREE_CONSEILLEE = 10 * 60   # s
 DUREE_MIN = 60               # s : en dessous, on refuse
-FORMATS = {".wav", ".mp3", ".flac"}
+FORMATS = set(EXTENSIONS)  # m4a, aac… décodés par PyAV (audio.charger)
 MODELES_DE_BASE = {
     "détecteur de hauteur (RMVPE)": "rvc/models/predictors/rmvpe.pt",
     "encodeur (ContentVec)": "rvc/models/embedders/contentvec/pytorch_model.bin",
@@ -132,10 +132,10 @@ def analyser_enregistrements(fichiers, voix_biblio):
     lignes, total = ["| Fichier | Durée | Remarques |", "|---|---|---|"], 0.0
     for p in sources:
         if p.suffix.lower() not in FORMATS:
-            lignes.append(f"| {p.name} | — | ❌ format non pris en charge (wav, mp3, flac) |")
+            lignes.append(f"| {p.name} | — | ❌ format non pris en charge (wav, mp3, flac, m4a, ogg…) |")
             continue
         try:
-            y, sr = librosa.load(str(p), sr=None, mono=True)
+            y, sr = charger(p, sr=None, mono=True)
         except Exception:
             lignes.append(f"| {p.name} | — | ❌ fichier illisible |")
             continue
@@ -159,8 +159,8 @@ def preparer_jeu(nom, fichiers, voix_biblio):
         if p.suffix.lower() not in FORMATS:
             continue
         try:
-            y, sr = sf.read(str(p), dtype="float32", always_2d=True)
-        except Exception:
+            y, sr = charger(p, sr=None, mono=True)
+        except Exception:  # noqa: BLE001 - fichier illisible : ignoré (signalé par l'analyse)
             continue
         total += len(y) / sr
         sf.write(str(dossier / f"{i:03d}.wav"), y, sr)

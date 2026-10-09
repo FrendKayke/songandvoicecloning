@@ -2,6 +2,7 @@
 import gradio as gr
 
 from .. import rvc
+from ..audio import EXTENSIONS
 from ..voix import list_voices
 from .chanson import maj_conversion
 from .commun import espace_de_noms
@@ -20,8 +21,8 @@ def construire():
     )
     with gr.Row():
         with gr.Column():
-            rvc_fichiers = gr.File(file_count="multiple", file_types=[".wav", ".mp3", ".flac"],
-                                   label="Tes enregistrements (wav, mp3, flac)")
+            rvc_fichiers = gr.File(file_count="multiple", file_types=EXTENSIONS,
+                                   label="Tes enregistrements (wav, mp3, flac, m4a…)")
             rvc_biblio = gr.Dropdown(choices=list_voices(), value=[], multiselect=True,
                                      label="Ajouter des voix de ta bibliothèque (facultatif)")
         with gr.Column():
