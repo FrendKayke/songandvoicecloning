@@ -5,3 +5,7 @@ librosa
 soundfile
 openpyxl
 av
+pypdf
+mammoth
+python-pptx
+pillow-heif
