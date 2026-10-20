@@ -51,6 +51,9 @@ MODELES = {
     # face + dos (révision d'un modèle : ce qui est porté dans le dos) ; 4,9 Go, même licence que Hunyuan3D-2
     "forme3d_vues": ("tencent/Hunyuan3D-2mv", "Hunyuan3D-2mv forme à partir de la face et du dos",
                      ["hunyuan3d-dit-v2-mv-turbo/model.fp16.safetensors"]),
+    # Whisper large-v3-turbo (MIT, 1,6 Go) : transcription, sous-titres
+    "transcription": ("openai/whisper-large-v3-turbo", "Whisper large-v3-turbo (transcription, sous-titres)",
+                      ["model.safetensors", "tokenizer.json", "preprocessor_config.json"]),
     "texture3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 texture (peinture)",
                   ["hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.safetensors",
                    "hunyuan3d-delight-v2-0/unet/diffusion_pytorch_model.safetensors"]),
@@ -266,6 +269,15 @@ def detourer_lot(entrees, sorties, progress=None):
                   Path(sorties[0]).parent, "Détourage", progress,
                   {1: "chargement du modèle de détourage",
                    **{i: f"fond retiré : image {i - 1}/{len(sorties)}" for i in range(2, len(sorties) + 2)}})
+
+
+def transcrire(entree, langue=None, traduire=False, progress=None):
+    """Whisper large-v3-turbo sur un WAV 16 kHz mono. langue : code ISO (« fr ») ou None (détectée) ; traduire :
+    texte en anglais. RESULTAT {segments: [{debut, fin, texte}], texte, duree}."""
+    _verifier("transcription")
+    return lancer("transcrire", {"entree": str(entree), "langue": langue or None, "traduire": bool(traduire)},
+                  Path(entree).parent, "Whisper", progress,
+                  {1: "chargement de Whisper", 2: "transcription"})
 
 
 def ameliorer(entree, sortie, echelle=2, rapide=False, visages=True, force=0.7, progress=None):

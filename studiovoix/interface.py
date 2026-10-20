@@ -10,7 +10,7 @@ import gradio as gr
 
 from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, histoire,
                       illustrations, images, modeles, modeles_3d, pdf, photos, plans, remix, serie, serie_musique,
-                      synthese, videos)
+                      sous_titres, synthese, videos)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
 
@@ -47,6 +47,7 @@ GROUPES = [
     ("🧰 Outils", [
         ("galerie", galerie, "🗃️ Galerie (toutes mes créations)"),
         ("modeles", modeles, "⚙️ Modèles et diagnostic"),
+        ("sous_titres", sous_titres, "📝 Transcrire et sous-titrer"),
         ("pdf", pdf, "📄 Convertir en PDF"),
         ("espace", espace, "💽 Espace disque"),
     ]),

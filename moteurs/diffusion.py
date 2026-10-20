@@ -34,6 +34,7 @@ from pathlib import Path
 QWEN = "Qwen/Qwen3-VL-4B-Instruct"  # 8,9 Go en bf16 : seul sur la carte, prompts plus fidèles que le 2B
 QWEN_COTE_MAX = 1024  # côté maximal des images données à Qwen (jetons visuels, mémoire graphique)
 STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
+WHISPER = "openai/whisper-large-v3-turbo"  # MIT, 1,6 Go : transcription et sous-titres (99 langues)
 # Z-Image-Turbo (Alibaba Tongyi-MAI, Apache 2.0) : encodeur de texte (Qwen3-4B), VAE et réglages depuis le dépôt
 # officiel ; le transformeur (6 milliards de paramètres, 24,6 Go en fp32 dans le dépôt officiel) depuis sa version
 # GGUF 8 bits (7,2 Go, qualité quasi identique), qui tient sur 12 Go avec le déchargement vers la mémoire vive.
@@ -114,6 +115,7 @@ MODELES = {
     # face + dos (révision d'un modèle 3D : détails cachés dans le dos)
     "forme3d_vues": [(HUNYUAN_MV, _poids(HUNYUAN_MV_FORME))],
     "texture3d": [(HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"])],
+    "transcription": [(WHISPER, None)],
 }
 
 
@@ -1580,6 +1582,57 @@ def _tester_liens(depot):
     return are_symlinks_supported(dossier)
 
 
+# --- Whisper : transcription (sous-titres) ------------------------------------------------------------------
+def transcrire(chemin_tache):
+    """Tâche : {entree: WAV 16 kHz mono (préparé par l'application), langue: code ISO (« fr ») ou None (détectée),
+    traduire: bool (texte en anglais)}. Whisper large-v3-turbo par le pipeline de transformers ; au-delà de 30 s,
+    transcription longue « séquentielle » (audio entier passé au pipeline, conseillée par la carte du modèle : plus
+    juste que le découpage en morceaux). RESULTAT {segments: [{debut, fin, texte}], texte, duree}."""
+    import numpy as np
+    import soundfile as sf
+    import torch
+    from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+
+    t = _lire(chemin_tache)
+    device = _device()
+    depot = t.get("depot", WHISPER)
+    _hors_ligne_si_present(depot)
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    print("PROGRESSION 1/2 chargement de Whisper", flush=True)
+
+    def charger():
+        _precharger((depot, None))
+        modele = AutoModelForSpeechSeq2Seq.from_pretrained(depot, dtype=dtype, low_cpu_mem_usage=True).to(device)
+        processeur = AutoProcessor.from_pretrained(depot)
+        return pipeline("automatic-speech-recognition", model=modele, tokenizer=processeur.tokenizer,
+                        feature_extractor=processeur.feature_extractor, dtype=dtype, device=device)
+
+    asr = _garder(("Whisper", depot, device), charger, 2, vers_cpu=lambda p_: p_.model.to("cpu"),
+                  vers_gpu=lambda p_: p_.model.to(device))
+    audio, sr = sf.read(t["entree"], dtype="float32", always_2d=True)
+    audio = audio.mean(axis=1)
+    if sr != 16000:
+        _erreur(f"audio à {sr} Hz : 16 000 Hz attendus.")
+    duree = len(audio) / sr
+    print(f"PROGRESSION 2/2 transcription ({duree:.0f} s d'audio)", flush=True)
+    options = {"task": "translate" if t.get("traduire") else "transcribe"}
+    if t.get("langue"):
+        options["language"] = t["langue"]
+    with torch.inference_mode():
+        sortie = _memoire(asr)({"raw": np.ascontiguousarray(audio), "sampling_rate": sr}, return_timestamps=True,
+                               generate_kwargs=options)
+    segments = []
+    for morceau in sortie.get("chunks") or []:
+        debut, fin = morceau["timestamp"]
+        texte = morceau["text"].strip()
+        if texte:
+            debut = float(debut or 0.0)
+            segments.append({"debut": round(debut, 2), "fin": round(float(fin if fin is not None else duree), 2),
+                             "texte": texte})
+    _resultat({"segments": segments, "texte": sortie.get("text", "").strip(), "duree": round(duree, 2)})
+    print("TERMINE -", flush=True)
+
+
 def telecharger(noms):
     from huggingface_hub import snapshot_download
 
@@ -1635,7 +1688,8 @@ def _retirer_ckpt_inutiles():
 
 
 ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
-           "assembler": assembler, "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger}
+           "assembler": assembler, "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger,
+           "transcrire": transcrire}
 
 
 def principal(argv):

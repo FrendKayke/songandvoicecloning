@@ -115,6 +115,15 @@ FAUX_MOTEUR = textwrap.dedent("""
         im.save(t["sortie"])
         print("RESULTAT " + json.dumps({"sortie": t["sortie"], "largeur": im.width, "hauteur": im.height,
                                         "visages": 1 if t["visages"] else 0, "modele": "x"}), flush=True)
+    elif action == "transcrire":
+        info = sf.info(t["entree"])
+        assert info.samplerate == 16000 and info.channels == 1
+        print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
+        duree = round(info.frames / 16000, 2)
+        mots = "Bonjour à tous, voici une phrase de démonstration assez longue pour être coupée en plusieurs sous-titres lisibles"
+        print("RESULTAT " + json.dumps({"segments": [{"debut": 0.0, "fin": 1.5, "texte": "Il était une fois"},
+                                                      {"debut": 1.5, "fin": duree, "texte": mots}],
+                                        "texte": "Il était une fois " + mots, "duree": duree}), flush=True)
     elif action == "alleger":
         print("PROGRESSION 1/1 x", flush=True)
         Path(t["sortie"]).write_bytes(b"g" * 100)
@@ -1275,6 +1284,74 @@ def test_images_en_serie_a_fond_transparent(faux_diffusion, monkeypatch):
     nouvelles = _journal()[n:]
     assert [e["action"] for e in nouvelles] == ["detourer"] and nouvelles[0]["tache"]["sorties"] == [str(d / "coeur.png")]
     assert "3/3" in msg
+
+
+def _video_test(chemin, secondes=3, fps=12, avec_son=True):
+    """Petite vidéo H.264 (+ AAC) écrite par PyAV, comme celles d'un téléphone."""
+    import av
+    import numpy as np
+
+    with av.open(str(chemin), "w") as out:
+        v = out.add_stream("libx264", rate=fps)
+        v.width, v.height, v.pix_fmt = 320, 240, "yuv420p"
+        a = out.add_stream("aac", rate=16000, layout="mono") if avec_son else None
+        for i in range(secondes * fps):
+            image = np.full((240, 320, 3), (i * 7) % 255, np.uint8)
+            for p in v.encode(av.VideoFrame.from_ndarray(image, format="rgb24")):
+                out.mux(p)
+        if a:
+            t = np.arange(secondes * 16000) / 16000
+            son = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)[None]
+            for i in range(0, son.shape[1], 1024):
+                trame = av.AudioFrame.from_ndarray(np.ascontiguousarray(son[:, i:i + 1024]), format="fltp",
+                                                   layout="mono")
+                trame.sample_rate = 16000
+                for p in a.encode(trame):
+                    out.mux(p)
+            for p in a.encode(None):
+                out.mux(p)
+        for p in v.encode(None):
+            out.mux(p)
+    return chemin
+
+
+def test_transcrire_et_sous_titrer(faux_diffusion):
+    """Whisper (faux moteur) : WAV 16 kHz mono envoyé, sous-titres redécoupés (2 lignes de 42 caractères), .srt avec
+    BOM, .vtt, texte, et vidéo avec les sous-titres incrustés (même nombre d'images, son recopié)."""
+    import av
+
+    from studiovoix import sous_titres
+
+    decoupe = sous_titres.decouper([{"debut": 0, "fin": 10, "texte": "mot " * 60}])
+    assert len(decoupe) == 3 and all(len(l_) <= 42 for s_ in decoupe for l_ in s_["texte"].split("\n"))
+    assert decoupe[0]["debut"] == 0 and abs(decoupe[-1]["fin"] - 10) < 1e-6
+    assert sous_titres.srt([{"debut": 3661.5, "fin": 3662, "texte": "a"}]).startswith("1\n01:01:01,500 --> 01:01:02,000")
+    assert sous_titres.vtt([{"debut": 1, "fin": 2, "texte": "a"}]).startswith("WEBVTT\n\n00:00:01.000 --> ")
+
+    video = _video_test(cfg.DATA_DIR.parent / "Mon clip.mp4")
+    msg, texte, fichiers, sortie, dossier = sous_titres.transcrire(str(video), "Français", False, True,
+                                                                     progress=no_progress)
+    tache = _journal()[-1]["tache"]
+    assert tache["langue"] == "fr" and tache["traduire"] is False and Path(tache["entree"]).name == "audio_16k.wav"
+    assert texte.startswith("Il était une fois") and len(fichiers) == 4 and sortie.endswith("_sous-titres.mp4")
+    srt = Path(fichiers[1]).read_bytes()
+    assert srt.startswith(b"\xef\xbb\xbf1\r\n" if b"\r\n" in srt else b"\xef\xbb\xbf1\n") and "Il était".encode() in srt
+    assert Path(fichiers[2]).read_text(encoding="utf-8").startswith("WEBVTT")
+    with av.open(sortie) as v:
+        assert v.streams.video[0].frames == 36 and v.streams.audio and v.streams.video[0].codec_context.name == "h264"
+    with av.open(sortie) as v, av.open(str(video)) as o:
+        premiere = next(v.decode(video=0)).to_ndarray(format="rgb24")
+        origine = next(o.decode(video=0)).to_ndarray(format="rgb24")
+    assert abs(premiere.astype(int) - origine.astype(int)).max() > 100  # texte blanc cerné de noir dessiné
+    # audio seul : pas de vidéo ; fichier sans son : refusé
+    (cfg.DATA_DIR.parent / "voix.wav").write_bytes(b"")
+    import numpy as np
+    sf.write(str(cfg.DATA_DIR.parent / "voix.wav"), (0.2 * np.sin(np.arange(32000) / 5)).astype("float32"), 16000)
+    _, _, fichiers, sortie, _ = sous_titres.transcrire(str(cfg.DATA_DIR.parent / "voix.wav"), progress=no_progress)
+    assert sortie is None and len(fichiers) == 3 and _journal()[-1]["tache"]["langue"] is None
+    muet = _video_test(cfg.DATA_DIR.parent / "muet.mp4", avec_son=False)
+    with pytest.raises(gr.Error, match="son"):
+        sous_titres.transcrire(str(muet), progress=no_progress)
 
 
 def test_reviser_un_modele_3d(faux_diffusion):

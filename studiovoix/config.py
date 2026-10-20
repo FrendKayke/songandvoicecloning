@@ -46,6 +46,7 @@ SERIES_DIR = DATA_DIR / "series"  # images en série (tableau Excel / liste) : s
 REMIX_DIR = DATA_DIR / "remix"  # musiques remixées dans un autre style (ACE-Step, cover) : remix/<horodatage>/
 MUSIQUES_SERIE_DIR = DATA_DIR / "musiques_serie"  # musiques en série (tableau Excel / liste) : <horodatage>_<nom>/
 PDF_DIR = DATA_DIR / "pdf"  # fichiers convertis en PDF : pdf/<horodatage>_<nom>/
+TRANSCRIPTIONS_DIR = DATA_DIR / "transcriptions"  # transcriptions et sous-titres : <horodatage>_<nom>/
 for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR, GAMES_DIR, SFX_DIR, MODELS3D_DIR, CARDS_DIR, PHOTOS_DIR, VIDEOS_DIR,
           IMAGES_DIR):
     d.mkdir(parents=True, exist_ok=True)
