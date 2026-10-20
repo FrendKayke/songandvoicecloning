@@ -24,6 +24,7 @@ ENVIRONNEMENTS = {
     "chatterbox": ("3.11", "cu124", DOSSIER / "chatterbox.txt"),
     "nettoyage": ("3.11", "cu124", DOSSIER / "nettoyage.txt"),
     "diffusion": ("3.12", "cu126", DOSSIER / "diffusion.txt"),
+    "rigging": ("3.11", "cu128", DOSSIER / "rigging.txt"),
     "rvc": ("3.12", "cu128", None),  # requirements.txt d'Applio, au commit épinglé dans installer.ps1
     "application": ("3.12", None, RACINE / "requirements.txt"),
 }

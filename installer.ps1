@@ -2,7 +2,7 @@
 # Installe : uv (gestionnaire Python), Python 3.10 / 3.11 / 3.12, ACE-Step 1.5, Seed-VC, Demucs,
 # Chatterbox (synthèse vocale), le nettoyage de voix (MossFormer2, VoiceFixer), RVC (Applio : entraînement
 # d'un modèle de ta voix), le moteur de diffusion (Qwen3-VL, Stable Audio Open, Hunyuan3D-2, Z-Image, FLUX.2 klein, Wan 2.2, StableAvatar : bruitages,
-# modèles 3D, vidéos), tous leurs modèles, et l'environnement de l'application.
+# modèles 3D, vidéos), UniRig (rigging 3D), tous leurs modèles, et l'environnement de l'application.
 # Relançable : chaque étape terminée est sautée.
 
 $ErrorActionPreference = 'Stop'
@@ -37,6 +37,12 @@ $HySrc = Join-Path $Dif 'hunyuan3d'
 $HyCommit = 'f8db63096c8282cb27354314d896feba5ba6ff8a'
 $KijaiCommit = '2609efa38f6a98292476f714839b7c1e5f9b699a'
 $KijaiRaw = "https://raw.githubusercontent.com/kijai/ComfyUI-Hunyuan3DWrapper/$KijaiCommit"
+# Rigging 3D : UniRig (VAST-AI-Research, MIT) épinglé ; moteurs\rigging.py reprend les commandes de ses scripts
+# launch\inference\*.sh à ce commit
+$Rig = Join-Path $Eng 'rigging'
+$RigPy = Join-Path $Rig '.venv\Scripts\python.exe'
+$RigSrc = Join-Path $Rig 'UniRig'
+$UrCommit = '6793c6640ff01c8fb389f3993434124bb43d2933'
 $AppPy = Join-Path $App '.venv\Scripts\python.exe'
 # Listes de dépendances de chaque environnement (lues aussi par la vérification automatique du dépôt)
 $Listes = Join-Path $App 'installation'
@@ -208,7 +214,7 @@ try {
     Run $Uv @('--version')
 
     # --- 2. Code des moteurs ---
-    Step 2 'Code d''ACE-Step, de Seed-VC, de Chatterbox, de RVC (Applio) et de Hunyuan3D-2'
+    Step 2 'Code d''ACE-Step, de Seed-VC, de Chatterbox, de RVC (Applio), de Hunyuan3D-2 et d''UniRig'
     Get-Repo 'https://github.com/ace-step/ACE-Step-1.5/archive/refs/heads/main.zip' $Ace
     Get-Repo 'https://github.com/Plachtaa/seed-vc/archive/refs/heads/main.zip' $Sv
     if (-not (Test-Retire 'chatterbox')) {
@@ -219,6 +225,10 @@ try {
     if (-not (Test-Retire 'diffusion')) {
         New-Item -ItemType Directory -Force -Path $Dif | Out-Null
         Get-Repo "https://github.com/Tencent-Hunyuan/Hunyuan3D-2/archive/$HyCommit.zip" $HySrc
+    }
+    if (-not (Test-Retire 'rigging')) {
+        New-Item -ItemType Directory -Force -Path $Rig | Out-Null
+        Get-Repo "https://github.com/VAST-AI-Research/UniRig/archive/$UrCommit.zip" $RigSrc
     }
 
     # --- 3. Environnement ACE-Step (PyTorch CUDA 12.8, via sa propre config) ---
@@ -374,6 +384,29 @@ try {
     if (Test-Retire 'rvc') { Write-Retire } elseif (-not (Test-Path $m)) {
         # Lancé depuis le dossier d'Applio : ses modèles vont dans rvc\models, ses entraînements dans logs
         Run $RvcPy @((Join-Path $App 'moteurs\rvc_voix.py'), 'telecharger') $Rvc
+        Done $m
+    } else { Write-Host 'Déjà fait.' }
+
+    # --- 14. Rigging 3D (UniRig : squelette et poids de peau ; Python 3.11 pour bpy 4.2, PyTorch 2.7 CUDA 12.8) ---
+    Step 14 'Rigging 3D automatique : UniRig (Python 3.11, ~6 Go de modèles)'
+    $m = Join-Path $Rig '.env-ok'
+    $sig = Get-Signature @('torch==2.7.0 torchvision==0.22.0 cu128', $UrCommit, (Join-Path $Listes 'rigging.txt'))
+    if (Test-Retire 'rigging') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
+        $venv = Join-Path $Rig '.venv'
+        Remove-Venv $venv
+        Run $Uv @('venv', '--python', '3.11', $venv)
+        Run $Uv @('pip', 'install', '--python', $RigPy, 'torch==2.7.0', 'torchvision==0.22.0',
+            '--index-url', 'https://download.pytorch.org/whl/cu128')
+        # Blender en module (bpy), extensions compilées (spconv, torch_scatter, torch_cluster, flash-attn) : roues
+        # Windows, versions et raisons dans installation\rigging.txt
+        Run $Uv @('pip', 'install', '--python', $RigPy, '-r', (Join-Path $Listes 'rigging.txt'))
+        Run $RigPy @('-c', 'import torch, bpy, spconv.pytorch, torch_scatter, torch_cluster, flash_attn, lightning; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''Rigging prêt, Blender'', bpy.app.version_string, ''GPU :'', torch.cuda.get_device_name(0))')
+        Done $m $sig
+    } else { Write-Host 'Déjà fait.' }
+    $m = Join-Path $Rig '.modeles-ok'
+    if (Test-Retire 'rigging') { Write-Retire } elseif (-not (Test-Path $m)) {
+        # Poids d'UniRig (squelette 1,4 Go, peau 4,4 Go) et configuration d'OPT-350M, dans le cache Hugging Face
+        Run $RigPy @((Join-Path $App 'moteurs\rigging.py'), 'telecharger') $RigSrc
         Done $m
     } else { Write-Host 'Déjà fait.' }
 

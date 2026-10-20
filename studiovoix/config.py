@@ -27,6 +27,9 @@ RVC_DIR = Path(os.environ.get("RVC_DIR", str(ENG_DIR / "rvc")))  # Applio : code
 RVC_PYTHON = os.environ.get("RVC_PYTHON", venv_python(RVC_DIR))
 DIFFUSION_DIR = Path(os.environ.get("DIFFUSION_DIR", str(ENG_DIR / "diffusion")))  # Hunyuan3D, Z-Image, Stable Audio, Qwen
 DIFFUSION_PYTHON = os.environ.get("DIFFUSION_PYTHON", venv_python(DIFFUSION_DIR))
+RIGGING_DIR = Path(os.environ.get("RIGGING_DIR", str(ENG_DIR / "rigging")))  # UniRig (rigging 3D), Python 3.11
+RIGGING_PYTHON = os.environ.get("RIGGING_PYTHON", venv_python(RIGGING_DIR))
+UNIRIG_DIR = RIGGING_DIR / "UniRig"  # code d'UniRig au commit épinglé (dossier de travail du moteur)
 # Scripts exécutés dans l'environnement d'un moteur (jamais importés par l'application)
 MOTEURS_DIR = APP_DIR / "moteurs"
 

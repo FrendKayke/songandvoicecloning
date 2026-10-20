@@ -1,7 +1,7 @@
 """Onglet « Modèles 3D » : image ou texte → modèle 3D, révisions (image corrigée, vue de dos), web, lot."""
 import gradio as gr
 
-from .. import modele3d, projets
+from .. import modele3d, projets, rigging
 from ..outils import open_folder
 from .commun import espace_de_noms
 
@@ -74,6 +74,17 @@ def construire():
             m3_fichiers = gr.File(label="Fichiers produits", file_count="multiple", interactive=False)
             btn_m3_web = gr.Button("🪶 Alléger pour le web (texture 1024 px en JPEG)")
             btn_m3_dossier = gr.Button("📂 Ouvrir le dossier")
+    with gr.Accordion("🦴 Squelette pour l'animation (rigging automatique)", open=False):
+        gr.Markdown("UniRig (licence MIT) place un squelette dans le modèle et calcule l'influence de chaque os sur la "
+                    "surface : le modèle peut ensuite être animé dans Blender ou un moteur de jeu (Unity, Unreal, "
+                    "Godot). Sans fichier importé, c'est le dernier modèle créé ci-dessus qui est animé. Personnages, "
+                    "animaux et créatures marchent le mieux ; compte une à quelques minutes.")
+        with gr.Row():
+            m3_rig_fichier = gr.File(label="Ou un modèle à importer (GLB, FBX, OBJ, VRM)",
+                                     file_types=[".glb", ".gltf", ".fbx", ".obj", ".vrm"])
+            m3_rig_graine = gr.Number(value=0, precision=0, label="Graine (0 = par défaut ; autre = autre squelette)")
+        btn_m3_rig = gr.Button("🦴 Ajouter un squelette", variant="primary")
+        m3_rig_statut = gr.Markdown()
     with gr.Accordion("📚 Plusieurs images à la suite (mêmes réglages)", open=False):
         gr.Markdown("Chaque image donne son propre modèle (nom = préfixe + nom du fichier), rangé dans la "
                     "Galerie. Une image qui échoue n'arrête pas les suivantes. Compte une à quelques minutes "
@@ -110,6 +121,8 @@ def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     # Modèles 3D
     c.btn_m3_web.click(modele3d.alleger, c.m3_dossier, [c.m3_statut, c.m3_fichiers])
+    c.btn_m3_rig.click(rigging.animer, [c.m3_dossier, c.m3_rig_fichier, c.m3_rig_graine],
+                       [c.m3_rig_statut, c.m3_vue, c.m3_fichiers])
     c.btn_m3_lot.click(modele3d.generer_lot, [c.m3_lot, c.m3_lot_prefixe, c.m3_qualite, c.m3_texture, c.m3_graine, c.m3_formats,
                                                      c.m3_projet],
                      [c.m3_lot_statut, c.m3_vue, c.m3_dossier])

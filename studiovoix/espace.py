@@ -14,7 +14,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from . import chatterbox, diffusion, retraits
+from . import chatterbox, diffusion, retraits, rigging
 from . import config as cfg
 
 HUNYUAN_PARTIES = {"forme3d": ["hunyuan3d-dit-v2-0-turbo", "hunyuan3d-vae-v2-0-turbo", "hunyuan3d-dit-v2-0"],
@@ -23,6 +23,7 @@ LIBELLES = {
     "chatterbox": "Synthèse vocale (Chatterbox) : environnement et modèles",
     "nettoyage": "Nettoyage de voix : environnement et modèles",
     "rvc": "RVC : environnement et modèles de base (tes modèles entraînés sont gardés)",
+    "rigging": "Rigging 3D (UniRig) : environnement et modèles",
     "diffusion": "Moteur de diffusion entier (bruitages, illustrations, personnages, photos, vidéos, 3D) : environnement et tous ses modèles",
     "diffusion:qwen": "Qwen3-VL (préparation des prompts)",
     "diffusion:bruitages": "Stable Audio Open (bruitages)",
@@ -50,6 +51,8 @@ def chemins(cle):
         return [cfg.CHATTERBOX_DIR, chatterbox.ckpt_dir()]
     if cle == "nettoyage":
         return [cfg.NETTOYAGE_DIR]
+    if cle == "rigging":
+        return [cfg.RIGGING_DIR, rigging.ckpt_dir()]
     if cle == "rvc":
         m = cfg.RVC_DIR / "rvc" / "models"
         return ([cfg.RVC_DIR / ".venv", cfg.RVC_DIR / ".env-ok", cfg.RVC_DIR / ".modeles-ok",
@@ -139,7 +142,7 @@ def inventaire():
     ligne("ACE-Step (génération musicale)", taille(cfg.ACESTEP_DIR), "indispensable")
     ligne("Seed-VC et Demucs (ta voix dans les chansons)", taille(cfg.SEEDVC_DIR) + taille(
         Path(os.environ.get("TORCH_HOME") or cfg.ENG_DIR / "torch-cache")), "indispensable")
-    for cle in ("chatterbox", "nettoyage", "rvc", "diffusion"):
+    for cle in ("chatterbox", "nettoyage", "rvc", "rigging", "diffusion"):
         if cle == "diffusion":
             ligne("Moteur de diffusion : environnement", taille(cfg.DIFFUSION_DIR),
                   "retiré" if retraits.retire("diffusion") else "retirable")
@@ -170,7 +173,7 @@ CHOIX_RETRAIT = [(LIBELLES[c], c) for c in ("diffusion:video", "diffusion:textur
                                              "diffusion:photo_qualite",
                                              "diffusion:qwen", "diffusion:transcription", "diffusion:fluidite", "diffusion:parlante",
                                              "diffusion:forme3d_vues", "diffusion:forme3d",
-                                             "diffusion", "rvc", "chatterbox",
+                                             "diffusion", "rvc", "rigging", "chatterbox",
                                              "nettoyage")]
 CHOIX_VIDER = [("Cache de téléchargement (uv) — retéléchargé si besoin", "uv-cache"),
                ("Fichiers d'essai du diagnostic", "diagnostic")]

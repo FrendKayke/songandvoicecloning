@@ -24,7 +24,7 @@ import gradio as gr
 import numpy as np
 import soundfile as sf
 
-from . import acestep, chatterbox, demucs, diffusion, nettoyage, ollama, retraits, rvc, seedvc, serveur_acestep
+from . import acestep, chatterbox, demucs, diffusion, nettoyage, ollama, retraits, rigging, rvc, seedvc, serveur_acestep
 from . import config as cfg
 from .voix import list_voices
 
@@ -36,6 +36,7 @@ ENVIRONNEMENTS = [
     ("Nettoyage", lambda: cfg.NETTOYAGE_PYTHON, "nettoyage"),
     ("RVC (Applio)", lambda: cfg.RVC_PYTHON, "rvc"),
     ("Diffusion", lambda: cfg.DIFFUSION_PYTHON, "diffusion"),
+    ("Rigging 3D (UniRig)", lambda: cfg.RIGGING_PYTHON, "rigging"),
 ]
 RETIRE = "retiré pour gagner de la place (Outils → Espace disque)"
 SONDE = ("import sys, torch; ok = torch.cuda.is_available(); "
@@ -229,7 +230,8 @@ def _modeles(r):
                            ("Demucs", [] if demucs.is_present() else [demucs.MODELE]),
                            ("Chatterbox", chatterbox.missing_components()),
                            ("Nettoyage", nettoyage.missing_components()), ("RVC", rvc.missing_components()),
-                           ("Diffusion", diffusion.missing_components())):
+                           ("Diffusion", diffusion.missing_components()),
+                           ("Rigging 3D (UniRig)", rigging.missing_components())):
         r.ligne(not manquants, nom, "présents" if not manquants else "manquants : " + ", ".join(map(str, manquants)))
     r.ligne(diffusion.jeton_present(), "Jeton Hugging Face (Stable Audio)",
             "enregistré" if diffusion.jeton_present() else "absent : bruitages indisponibles")

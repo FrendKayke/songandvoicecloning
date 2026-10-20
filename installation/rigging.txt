@@ -1,0 +1,31 @@
+# Environnement du rigging 3D (UniRig, Python 3.11 : bpy 4.2, Blender en module, n'existe qu'en cp311).
+# PyTorch 2.7.0 CUDA 12.8 est installé avant (index cu128) ; les versions suivent requirements.txt d'UniRig
+# (transformers 4.51.3, numpy 1.26.4) au commit épinglé dans installer.ps1.
+torch==2.7.0
+torchvision==0.22.0
+transformers==4.51.3
+python-box
+einops
+omegaconf
+lightning
+addict
+timm
+fast-simplification
+bpy==4.2.0
+trimesh
+open3d
+pyrender
+huggingface_hub
+numpy==1.26.4
+scipy
+psutil
+pyyaml
+tqdm
+# Extensions compilées, roues Windows : spconv (convolutions creuses, CUDA 12.6 inclus, marche avec le pilote de
+# PyTorch cu128) ; torch_scatter et torch_cluster de PyG pour torch 2.7.0 + cu128 ; flash-attn 2.8.3 (le modèle des
+# poids de peau importe flash_attn.modules.mha), roue Windows de kingbri1 pour Python 3.11 + torch 2.7.0 + cu128
+spconv-cu126==2.3.8
+--find-links https://data.pyg.org/whl/torch-2.7.0+cu128.html
+torch_scatter==2.1.2+pt27cu128
+torch_cluster==1.6.3+pt27cu128
+flash_attn @ https://github.com/kingbri1/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu128torch2.7.0cxx11abiFALSE-cp311-cp311-win_amd64.whl
