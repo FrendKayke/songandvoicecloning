@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import gradio as gr
 
 from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, histoire,
-                      fluidite, illustrations, images, modeles, modeles_3d, parlante, pdf, photos, plans, remix, serie,
-                      serie_musique,
+                      fluidite, illustrations, images, modeles, modeles_3d, parlante, pdf, photos, pixel_art, plans,
+                      remix, serie, serie_musique,
                       sous_titres, synthese, videos)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
@@ -39,6 +39,7 @@ GROUPES = [
         ("plans", plans, "🎞️ Vidéo en plusieurs plans"),
         ("parlante", parlante, "🗣️ Faire parler une image"),
         ("fluidite", fluidite, "⏩ Fluidifier ou ralentir une vidéo"),
+        ("pixel_art", pixel_art, "👾 Pixel art et sprites"),
         ("photos", photos, "📷 Retoucher une photo"),
     ]),
     ("🎮 Jeu", [

@@ -448,6 +448,15 @@ CONSIGNES = {
                  "describe the person as seen in the image (age, hair, clothes), then what they do (talking or singing "
                  "to the camera, natural expressions and head movements, mouth moving), then the background. No artist "
                  "or existing work. Answer with the prompt only."),
+    # onglet « Pixel art » : une personne de la photo (souvent un groupe) devient un personnage de jeu ; la demande dit
+    # qui (« l'homme barbu à lunettes ») et ce qui change (« en mage avec une cape violette »)
+    "sprite": ("The attached photo shows one or several people. Find the person designated in the request below. "
+               "Write an English description of that person as a video game character, for an image generator: "
+               "gender, approximate age, face (beard, glasses, expression), hair (color, length, style), skin tone and "
+               "build, exactly as in the photo; then their outfit, accessories and pose, applying every change asked "
+               "in the request (keep their real clothes only where nothing else is asked). Two or three sentences, no "
+               "name of any game, artist or existing work, nothing about the background. Answer with the description "
+               "only:\n\n"),
     # onglet « Images », « Modifier la photo » : consigne de retouche pour FLUX.2 klein (image de référence)
     "retouche": ("The attached image must be edited. Rewrite the following edit request into ONE short, precise "
                  "English instruction for an image editing model: say exactly what to change, and keep the people, "

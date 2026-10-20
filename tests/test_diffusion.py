@@ -178,9 +178,9 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite"}
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
-    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques"}
+    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 
@@ -1455,6 +1455,33 @@ def test_faire_parler_une_image(faux_diffusion, monkeypatch):
     with pytest.raises(gr.Error, match="au moins une seconde"):
         parlante.generer(str(portrait), parlante.FICHIER, str(court), None, None, None, False, "", parlante.AUTO, 20,
                          0, 5, progress=no_progress)
+
+
+def test_personnages_en_pixel_art(faux_diffusion):
+    """Photo de groupe → un sprite par ligne : Qwen (mode « sprite ») voit la photo et la demande, FLUX.2 klein reçoit
+    la photo en référence avec la consigne de style, BiRefNet retire le fond, puis la conversion en pixel art."""
+    from PIL import Image
+
+    from studiovoix import pixel_art
+
+    photo = cfg.DATA_DIR.parent / "groupe.jpg"
+    Image.new("RGB", (800, 600), (120, 100, 90)).save(photo)
+    msg, apercus, fichiers, dossier, sprite = pixel_art.creer_personnages(
+        str(photo), "l'homme barbu, en dresseur\n- la femme aux cheveux bouclés, en mage\n", None, 0, 0, 0, 0, True,
+        42, "équipe", progress=no_progress)
+    actions = [e["action"] for e in _journal()]
+    assert actions == ["decrire", "decrire", "personnage", "detourer"]
+    qwen = _journal()[0]["tache"]
+    assert qwen["mode"] == "sprite" and qwen["texte"] == "l'homme barbu, en dresseur" and qwen["image"].endswith(".jpg")
+    klein = _journal()[2]["tache"]
+    assert len(klein["prompts"]) == 2 and pixel_art.STYLE_SPRITE in klein["prompts"][1]
+    assert klein["graines"] == [42, 43] and (klein["largeur"], klein["hauteur"]) == (768, 1024)
+    assert Path(klein["references"][0]).name == "photo.jpg"
+    assert len(apercus) == 2 and Image.open(sprite).size == (64, 64) and Image.open(apercus[0]).size == (128, 128)
+    infos = json.loads((Path(dossier) / "personnages.json").read_text(encoding="utf-8"))
+    assert infos["personnages"][1]["demande"] == "la femme aux cheveux bouclés, en mage"
+    with pytest.raises(gr.Error, match="une ligne par personnage"):
+        pixel_art.creer_personnages(str(photo), " \n ", None, 0, 0, 0, 0, True, 0, progress=no_progress)
 
 
 def test_reviser_un_modele_3d(faux_diffusion):
