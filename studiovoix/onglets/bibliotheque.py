@@ -69,7 +69,7 @@ def brancher(c, demo, o):
         """Après une opération sur la bibliothèque : listes de voix des autres onglets à jour."""
         return evt.then(synchro_voix, o.chanson.voix, o.chanson.voix).then(synchro_voix, o.synthese.tts_voix, o.synthese.tts_voix).then(
             lambda v: gr.update(choices=list_voices(), value=[x for x in (v or []) if x in list_voices()]),
-            o.rvc.rvc_biblio, o.rvc.rvc_biblio)
+            o.rvc.rvc_biblio, o.rvc.rvc_biblio).then(synchro_voix, o.parlante.par_voix, o.parlante.par_voix)
 
     synchro_autres(c.btn_save.click(save_voice_choix, [c.audio_in, c.audio_clean, c.garder, c.nom], [c.msg_voice, c.biblio]))
     c.btn_clean.click(nettoyage.nettoyer, [c.audio_in, c.niveau], [c.audio_clean, c.garder, c.msg_clean])

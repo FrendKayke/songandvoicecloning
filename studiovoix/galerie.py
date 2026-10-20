@@ -167,7 +167,12 @@ def details(chemin, version=1):
         lignes.append(f"Image **{infos.get('nom')}** : {infos.get('largeur')}×{infos.get('hauteur')}, "
                       f"{origine.get(infos.get('usage'), 'à partir du texte')}, {infos.get('moteur')}"
                       + (f", demande : {infos['description_fr']}" if infos.get("description_fr") else ""))
-    if infos["type"] == "video":
+    if infos["type"] == "video" and infos.get("parlante"):
+        lignes.append(f"Vidéo parlante **{infos.get('nom')}** : {infos.get('largeur')}×{infos.get('hauteur')}, "
+                      f"{infos.get('duree')}, {infos.get('etapes')} étapes"
+                      + (", voix isolée de la musique" if infos.get("voix_isolee") else "")
+                      + (f", texte lu par « {infos['voix']} »" if infos.get("voix") else ""))
+    elif infos["type"] == "video":
         lignes.append(f"Vidéo **{infos.get('nom')}** : {infos.get('largeur')}×{infos.get('hauteur')}, "
                       f"{infos.get('duree')}, {infos.get('etapes')} étapes, "
                       + ("à partir d'une image" if infos.get("image_depart") else "à partir du texte")

@@ -36,6 +36,7 @@ LIBELLES = {
     "diffusion:texture3d": "Hunyuan3D-2 : texture (le plus gros)",
     "diffusion:transcription": "Whisper (transcription, sous-titres)",
     "diffusion:fluidite": "RIFE (vidéos plus fluides, ralentis)",
+    "diffusion:parlante": "StableAvatar (vidéo parlante ; l'encodeur de texte de Wan 2.2 est gardé)",
 }
 
 
@@ -63,8 +64,14 @@ def chemins(cle):
             return [d for s in sorted(snaps.glob("*")) for d in (s / p for p in HUNYUAN_PARTIES[nom])]
         if diffusion.MODELES[nom][0] == diffusion.LOCAL_PHOTOS:  # dossier partagé : seulement les fichiers du modèle
             return [diffusion.dossier_photos() / f for f in diffusion.MODELES[nom][2]]
-        depots = [diffusion.MODELES[nom][0]] + [f[0] for f in diffusion.MODELES[nom][2] if isinstance(f, tuple)]
-        return [_depot(d) for d in dict.fromkeys(depots)]
+        # dépôt principal d'un autre modèle (encodeur de Wan 2.2 repris par StableAvatar) : partagé, gardé ; code
+        # téléchargé : seulement son dossier
+        partages = {m[0] for n, m in diffusion.MODELES.items() if n != nom}
+        depots = [diffusion.MODELES[nom][0]] + [f[0] for f in diffusion.MODELES[nom][2]
+                                                if isinstance(f, tuple) and f[0] not in partages]
+        code = [diffusion.dossier_code() / f[1].split("/")[0] for f in diffusion.MODELES[nom][2]
+                if isinstance(f, tuple) and f[0] == diffusion.LOCAL_CODE]
+        return [_depot(d) for d in dict.fromkeys(depots) if d != diffusion.LOCAL_CODE] + code
     raise gr.Error(f"Élément inconnu : {cle}")
 
 
@@ -161,7 +168,7 @@ def inventaire():
 CHOIX_RETRAIT = [(LIBELLES[c], c) for c in ("diffusion:video", "diffusion:texture3d", "diffusion:zimage", "diffusion:personnages",
                                              "diffusion:bruitages", "diffusion:photo_detourage",
                                              "diffusion:photo_qualite",
-                                             "diffusion:qwen", "diffusion:transcription", "diffusion:fluidite",
+                                             "diffusion:qwen", "diffusion:transcription", "diffusion:fluidite", "diffusion:parlante",
                                              "diffusion:forme3d_vues", "diffusion:forme3d",
                                              "diffusion", "rvc", "chatterbox",
                                              "nettoyage")]

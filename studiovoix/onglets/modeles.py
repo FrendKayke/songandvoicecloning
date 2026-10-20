@@ -77,6 +77,7 @@ def construire():
         b_dif = gr.Button("⬇️ Télécharger Qwen3-VL, Hunyuan3D, Z-Image, FLUX.2 klein et les outils photo", variant="primary")
         b_vid = gr.Button("⬇️ Télécharger Wan 2.2 (vidéo, ~20 Go)", variant="primary")
         b_sfx = gr.Button("⬇️ Télécharger Stable Audio Open (jeton requis)", variant="primary")
+        b_par = gr.Button("⬇️ Télécharger StableAvatar (vidéo parlante, ~9 Go)", variant="primary")
     with gr.Accordion("🔑 Jeton Hugging Face (nécessaire pour Stable Audio Open)", open=not diffusion.jeton_present()):
         gr.Markdown(
             f"1. Connecte-toi sur Hugging Face et accepte la licence sur {diffusion.LICENCE_BRUITAGES} ; "
@@ -116,7 +117,8 @@ def brancher(c, demo, o):
                   (c.b_cb, chatterbox.download), (c.b_nt, nettoyage.download), (c.b_rvc, rvc.download),
                   (c.b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "zimage", "personnages", "photo_detourage", "photo_qualite"])),
                   (c.b_vid, lambda: diffusion.download(["video"])),
-                  (c.b_sfx, lambda: diffusion.download(["bruitages"]))):
+                  (c.b_sfx, lambda: diffusion.download(["bruitages"])),
+                  (c.b_par, lambda: diffusion.download(["parlante"]))):
         b.click(fn, None, c.log).then(models_status_md, None, c.status)
     c.o_ace.click(lambda: open_folder(acestep.ckpt_dir()))
     c.o_sv.click(lambda: open_folder(seedvc.ckpt_dir()))

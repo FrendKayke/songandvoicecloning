@@ -293,6 +293,10 @@ def continuer(dossier):
 def recreer(chemin, infos, graine, progress=gr.Progress()):
     """Galerie : même vidéo, mêmes réglages, même graine (résultat proche) ; une suite de plans est refaite avec
     les mêmes prompts."""
+    if infos.get("parlante"):  # image qui parle (StableAvatar) : même image, même son
+        from . import parlante
+
+        return parlante.recreer(chemin, infos, graine, progress=progress)
     depart = Path(chemin) / infos["image_depart"] if infos.get("image_depart") else None
     if depart is not None and not depart.exists():
         raise gr.Error(f"Image de départ introuvable : {depart}")

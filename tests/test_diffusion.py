@@ -131,6 +131,15 @@ FAUX_MOTEUR = textwrap.dedent("""
         fps = 24 if t["ralenti"] else 24 * t["facteur"]
         print("RESULTAT " + json.dumps({"sortie": t["sortie"], "images": 97, "fps": fps, "duree": round(97 / fps, 2),
                                         "plans": 1}), flush=True)
+    elif action == "parler":
+        info = sf.info(t["audio"])
+        assert info.samplerate == 16000 and info.channels == 1 and Path(t["image"]).exists()
+        assert Path(t["son"]).exists() and t["prompt"]
+        for i in range(1, t["etapes"] + 4): print(f"PROGRESSION {i}/{t['etapes'] + 3} x", flush=True)
+        Path(t["sortie"]).write_bytes(b"mp4")
+        duree = round(info.frames / 16000, 2)
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "graine": t["graine"], "images": int(duree * 25),
+                                        "duree": duree, "largeur": t["largeur"], "hauteur": t["hauteur"]}), flush=True)
     elif action == "alleger":
         print("PROGRESSION 1/1 x", flush=True)
         Path(t["sortie"]).write_bytes(b"g" * 100)
@@ -157,7 +166,7 @@ def faux_diffusion(env, monkeypatch):
     for nom in diffusion.MODELES:  # modèles « présents » dans le cache
         for f in diffusion.MODELES[nom][2]:
             depot, f = f if isinstance(f, tuple) else (diffusion.MODELES[nom][0], f)
-            p = (diffusion.dossier_photos() / f if depot == diffusion.LOCAL_PHOTOS
+            p = (diffusion._dossier_depot(depot) / f if depot in (diffusion.LOCAL_PHOTOS, diffusion.LOCAL_CODE)
                  else diffusion._dossier_depot(depot) / "snapshots" / "abc" / f)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(b"0")
@@ -169,7 +178,7 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante"}
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
     assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
@@ -1380,6 +1389,72 @@ def test_fluidifier_une_video(faux_diffusion):
     assert _journal()[-1]["tache"]["ralenti"] is True and "24 images/s" in msg
     with pytest.raises(gr.Error, match="vidéo"):
         fluidite.fluidifier(None, progress=no_progress)
+
+
+def test_faire_parler_une_image(faux_diffusion, monkeypatch):
+    """StableAvatar (faux moteur) : son m4a/wav → WAV 16 kHz mono pour le modèle, son complet gardé pour la vidéo,
+    format d'après l'image, prompt par défaut sans Qwen, voix isolée par Demucs pour une chanson, texte lu par
+    Chatterbox, recréation depuis la galerie avec la même graine."""
+    import numpy as np
+    from PIL import Image
+
+    from studiovoix import galerie, parlante
+
+    portrait = cfg.DATA_DIR.parent / "portrait.png"
+    Image.new("RGB", (600, 900), (200, 150, 120)).save(portrait)
+    assert parlante.format_pour(parlante.AUTO, portrait) == (480, 832)
+    assert parlante.format_pour("Carré (512×512)", portrait) == (512, 512)
+    voix = cfg.DATA_DIR.parent / "voix.wav"
+    sf.write(str(voix), (0.2 * np.sin(np.arange(44100 * 2) / 7)).astype("float32"), 44100)
+    monkeypatch.setattr(diffusion, "present", lambda nom: nom != "qwen")
+    assert parlante.prompt_pret(str(portrait), "", "", progress=no_progress) == parlante.PROMPT_DEFAUT
+    msg, video, dossier = parlante.generer(str(portrait), parlante.FICHIER, str(voix), None, None, None, False,
+                                           parlante.PROMPT_DEFAUT, parlante.AUTO, 20, 7, 5.5, "Mamie",
+                                           progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert _journal()[-1]["action"] == "parler" and (t["largeur"], t["hauteur"]) == (480, 832)
+    assert t["graine"] == 7 and t["etapes"] == 20 and t["guidage_audio"] == 5.5
+    assert Path(t["son"]).name == "voix.wav" and sf.info(t["son"]).samplerate == 44100
+    d = Path(dossier)
+    assert d.parent == cfg.VIDEOS_DIR and d.name.endswith("_Mamie") and (d / "image.png").exists()
+    infos = json.loads((d / "creation.json").read_text(encoding="utf-8"))
+    assert infos["parlante"] and infos["type"] == "video" and "2.0 s" in msg
+    # chanson : la voix est isolée pour le modèle, la vidéo garde le son complet
+    separes = []
+
+    def separer(son, travail):
+        separes.append(son)
+        sortie = Path(travail) / "vocals.wav"
+        sf.write(str(sortie), np.zeros(44100 * 2, "float32") + 0.1, 44100)
+        return sortie, sortie
+
+    from studiovoix import demucs
+    monkeypatch.setattr(demucs, "separate_vocals", separer)
+    parlante.generer(str(portrait), parlante.FICHIER, str(voix), None, None, None, True, "", parlante.AUTO, 20, 7, 5,
+                     progress=no_progress)
+    assert separes and Path(_journal()[-1]["tache"]["son"]).name == "voix.wav"
+    # texte lu par une voix de la bibliothèque (Chatterbox)
+    from studiovoix import chatterbox
+
+    def lire(voix_, texte, langue, *a, **k):
+        assert (voix_, texte, langue) == ("Moi", "Bonjour", "Français")
+        return str(voix), "ok"
+
+    monkeypatch.setattr(chatterbox, "synthese", lire)
+    parlante.generer(str(portrait), parlante.TEXTE, None, "Moi", "Bonjour", "Français", False, "", parlante.AUTO, 20,
+                     7, 5, progress=no_progress)
+    # galerie : même image, même son, même graine
+    n = len(_journal())
+    msg, nouveau = galerie.recreer(dossier, progress=no_progress)
+    assert len(_journal()) == n + 1 and _journal()[-1]["tache"]["graine"] == 7 and "Vidéo recréée" in msg
+    with pytest.raises(gr.Error, match="image"):
+        parlante.generer(None, parlante.FICHIER, str(voix), None, None, None, False, "", parlante.AUTO, 20, 0, 5,
+                         progress=no_progress)
+    court = cfg.DATA_DIR.parent / "court.wav"
+    sf.write(str(court), np.zeros(4410, "float32"), 44100)
+    with pytest.raises(gr.Error, match="au moins une seconde"):
+        parlante.generer(str(portrait), parlante.FICHIER, str(court), None, None, None, False, "", parlante.AUTO, 20,
+                         0, 5, progress=no_progress)
 
 
 def test_reviser_un_modele_3d(faux_diffusion):

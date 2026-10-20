@@ -18,6 +18,8 @@ from . import serveur_acestep
 from .outils import lancer_moteur, stream_command
 
 LOCAL_PHOTOS = "local:photos"  # pas un dépôt Hugging Face : fichiers dans <DIFFUSION_DIR>/photos
+LOCAL_CODE = "local:code"  # code téléchargé depuis GitHub (StableAvatar) : <DIFFUSION_DIR>/code
+CODE_STABLEAVATAR = "StableAvatar-38625187dc10"  # dossier du commit épinglé (moteurs/diffusion.py : STABLEAVATAR_CODE)
 # nom → (dépôt Hugging Face, libellé, fichiers attendus dans le cache — un par composant essentiel ; un couple
 # (autre dépôt, fichier) désigne un fichier d'un autre dépôt)
 MODELES = {
@@ -56,6 +58,14 @@ MODELES = {
     # Whisper large-v3-turbo (MIT, 1,6 Go) : transcription, sous-titres
     "transcription": ("openai/whisper-large-v3-turbo", "Whisper large-v3-turbo (transcription, sous-titres)",
                       ["model.safetensors", "tokenizer.json", "preprocessor_config.json"]),
+    # StableAvatar 1.3B (MIT) : vidéo parlante ; encodeur de texte et tokeniseur repris de Wan 2.2 (mêmes poids)
+    "parlante": ("FrancisRing/StableAvatar", "StableAvatar 1.3B (vidéo parlante)",
+                 ["StableAvatar-1.3B/transformer3d-square.pt", "Wan2.1-Fun-V1.1-1.3B-InP/Wan2.1_VAE.pth",
+                  "Wan2.1-Fun-V1.1-1.3B-InP/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth",
+                  "wav2vec2-base-960h/model.safetensors",
+                  ("Wan-AI/Wan2.2-TI2V-5B-Diffusers", "text_encoder/model-00003-of-00003.safetensors"),
+                  ("Wan-AI/Wan2.2-TI2V-5B-Diffusers", "tokenizer/tokenizer.json"),
+                  (LOCAL_CODE, f"{CODE_STABLEAVATAR}/wan/pipeline/wan_inference_long_pipeline.py")]),
     "texture3d": ("tencent/Hunyuan3D-2", "Hunyuan3D-2 texture (peinture)",
                   ["hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.safetensors",
                    "hunyuan3d-delight-v2-0/unet/diffusion_pytorch_model.safetensors"]),
@@ -76,9 +86,15 @@ def dossier_photos() -> Path:
     return cfg.DIFFUSION_DIR / "photos"
 
 
+def dossier_code() -> Path:
+    return cfg.DIFFUSION_DIR / "code"
+
+
 def _dossier_depot(depot) -> Path:
     if depot == LOCAL_PHOTOS:
         return dossier_photos()
+    if depot == LOCAL_CODE:
+        return dossier_code()
     return hf_home() / "hub" / ("models--" + depot.replace("/", "--"))
 
 
@@ -89,8 +105,8 @@ def ckpt_dir(nom) -> Path:
 def _present(nom) -> bool:
     for f in MODELES[nom][2]:
         depot, chemin = f if isinstance(f, tuple) else (MODELES[nom][0], f)
-        if depot == LOCAL_PHOTOS:
-            if not (dossier_photos() / chemin).is_file():
+        if depot in (LOCAL_PHOTOS, LOCAL_CODE):
+            if not (_dossier_depot(depot) / chemin).is_file():
                 return False
         elif not any((_dossier_depot(depot) / "snapshots").glob(f"*/{chemin}")):
             return False
@@ -110,6 +126,7 @@ def _env():
     # rembg range son modèle de détourage dans ~/.u2net sinon (donc sur C:)
     env["U2NET_HOME"] = os.environ.get("U2NET_HOME") or str(cfg.DIFFUSION_DIR / "u2net")
     env["STUDIOVOIX_PHOTOS"] = str(dossier_photos())
+    env["STUDIOVOIX_CODE"] = str(dossier_code())
     return env
 
 
@@ -289,6 +306,20 @@ def fluidifier(entree, sortie, facteur=2, ralenti=False, progress=None):
     return lancer("fluidifier", {"entree": str(entree), "sortie": str(sortie), "facteur": int(facteur),
                                  "ralenti": bool(ralenti)}, Path(sortie).parent, "RIFE", progress,
                   {1: "chargement de RIFE", 2: "images intermédiaires"})
+
+
+def parler(image, audio, son, sortie, prompt, largeur, hauteur, etapes=30, graine=0, guidage_audio=5.0,
+           progress=None):
+    """StableAvatar : vidéo MP4 (25 images/s) où la personne de l'image parle ou chante sur `audio` (WAV 16 kHz
+    mono) ; `son` = son complet ajouté à la vidéo. RESULTAT {sortie, graine, images, duree, largeur, hauteur}."""
+    _verifier("parlante")
+    tache = {"image": str(image), "audio": str(audio), "son": str(son), "sortie": str(sortie), "prompt": prompt,
+             "largeur": int(largeur), "hauteur": int(hauteur), "etapes": int(etapes), "graine": int(graine),
+             "guidage_audio": float(guidage_audio)}
+    libelles = {1: "lecture du texte (une à deux minutes)", 2: "chargement de StableAvatar",
+                int(etapes) + 3: "enregistrement de la vidéo"}
+    libelles.update({k + 3: f"génération, étape {k + 1}/{int(etapes)}" for k in range(int(etapes))})
+    return lancer("parler", tache, Path(sortie).parent, "Vidéo parlante", progress, libelles)
 
 
 def ameliorer(entree, sortie, echelle=2, rapide=False, visages=True, force=0.7, progress=None):

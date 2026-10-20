@@ -86,6 +86,26 @@ FICHIERS_PHOTOS = {
         "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx",
         "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"),
 }
+# StableAvatar (MIT) : vidéo parlante ou chantée à partir d'une image et d'un son (Wan 2.1 1.3B + audio, durée
+# illimitée par fenêtres qui se chevauchent). Son code (paquet « wan ») vient du dépôt GitHub au commit épinglé ;
+# ses poids du dépôt Hugging Face. Le fichier StableAvatar-1.3B contient tout le transformeur (1143 tenseurs, vérifié) :
+# les poids de base de Wan2.1-Fun (3,1 Go) ne sont pas téléchargés. L'encodeur de texte umT5-xxl est celui de
+# Wan 2.2 (déjà là pour les vidéos) : mêmes poids que le .pth de StableAvatar (comparés tenseur par tenseur) et même
+# calcul (UMT5EncoderModel de transformers = T5 de Wan, écart nul mesuré) : 11,4 Go de téléchargement en moins.
+STABLEAVATAR = "FrancisRing/StableAvatar"
+STABLEAVATAR_CODE = ("Francis-Rings/StableAvatar", "38625187dc10913ba4facc32341a841ce0a8f29b")
+SA_BASE = "Wan2.1-Fun-V1.1-1.3B-InP"
+SA_FICHIERS = ["StableAvatar-1.3B/transformer3d-square.pt", f"{SA_BASE}/config.json", f"{SA_BASE}/Wan2.1_VAE.pth",
+               f"{SA_BASE}/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"] + [
+    f"wav2vec2-base-960h/{f}" for f in ("config.json", "feature_extractor_config.json", "preprocessor_config.json",
+                                        "model.safetensors", "special_tokens_map.json", "tokenizer_config.json",
+                                        "vocab.json")]
+# Prompt négatif d'inference.py de StableAvatar (celui de Wan, en chinois : le modèle a été entraîné avec)
+NEGATIF_PARLANTE = ("色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，"
+                    "多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，"
+                    "倒着走")
+IMAGES_MIN_PARLANTE = 85  # au moins deux fenêtres de 81 images (voir parler)
+FORMATS_PARLANTE = [(512, 512), (480, 832), (832, 480)]  # les trois formats d'entraînement (largeur, hauteur)
 HUNYUAN = "tencent/Hunyuan3D-2"
 HUNYUAN_FORME = "hunyuan3d-dit-v2-0-turbo"
 HUNYUAN_TEXTURE = "hunyuan3d-paint-v2-0-turbo"
@@ -120,6 +140,8 @@ MODELES = {
     "texture3d": [(HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"])],
     "transcription": [(WHISPER, None)],
     "fluidite": [("local:photos", ["flownet_v4.26.pkl"])],
+    # vidéo parlante : poids de StableAvatar, encodeur de texte et tokeniseur de Wan 2.2, code au commit épinglé
+    "parlante": [(STABLEAVATAR, SA_FICHIERS), (WAN, ["text_encoder/*", "tokenizer/*"]), ("code:stableavatar", None)],
 }
 
 
@@ -419,6 +441,13 @@ CONSIGNES = {
                  "situation mentioned). No song titles, no artist or existing work, no lyrics. Answer with exactly "
                  "the same number of lines, numbered 1., 2., 3. and so on, one description per line, nothing "
                  "else:\n\n"),
+    # onglet « Vidéo parlante » (StableAvatar) : forme conseillée par ses auteurs, « première image - ce que fait la
+    # personne - décor »
+    "parlante": ("The attached image is the first frame of a video in which this person talks or sings, with lips "
+                 "synchronized to a voice. Write an English prompt for the video generator, in 2 or 3 sentences: first "
+                 "describe the person as seen in the image (age, hair, clothes), then what they do (talking or singing "
+                 "to the camera, natural expressions and head movements, mouth moving), then the background. No artist "
+                 "or existing work. Answer with the prompt only."),
     # onglet « Images », « Modifier la photo » : consigne de retouche pour FLUX.2 klein (image de référence)
     "retouche": ("The attached image must be edited. Rewrite the following edit request into ONE short, precise "
                  "English instruction for an image editing model: say exactly what to change, and keep the people, "
@@ -510,6 +539,9 @@ def decrire(chemin_tache):
     if t.get("image") and mode in MODES_TEXTE:  # texte + image : Qwen la voit (vidéo : première image ;
         consigne = {"video": IMAGE_DE_DEPART, "scene": IMAGE_REFERENCE,  # image : modèle)
                     "histoire": IMAGE_PERSONNAGES}.get(mode, "") + consigne
+    if mode == "parlante" and (t.get("texte") or "").strip():  # souhaits de l'utilisateur (souvent en français)
+        consigne += (" Include these wishes from the user, translated into English: "
+                     + " ".join(t["texte"].split()))
     if t.get("image") and int(t.get("photos") or 1) > 1:
         consigne = PHOTOS_NUMEROTEES.format(n=int(t["photos"])) + consigne
     suite = t.get("suite")  # {plans: [textes], indice (1…n), precedent: prompt du plan précédent ou None}
@@ -1663,6 +1695,228 @@ def fluidifier(chemin_tache):
     print(f"TERMINE {t['sortie']}", flush=True)
 
 
+# --- StableAvatar : vidéo parlante (lèvres synchronisées sur une voix) -----------------------------------------
+def _dossier_code():
+    return Path(os.environ.get("STUDIOVOIX_CODE") or Path.cwd() / "code")
+
+
+def _code_stableavatar():
+    return _dossier_code() / f"StableAvatar-{STABLEAVATAR_CODE[1][:12]}"
+
+
+def _telecharger_code_stableavatar():
+    """Code de StableAvatar (paquet « wan » seulement) depuis l'archive GitHub du commit épinglé : le dossier n'est
+    complet qu'une fois tout extrait (renommage final), un téléchargement interrompu repart de zéro."""
+    import io
+    import shutil
+    import urllib.request
+    import zipfile
+
+    cible = _code_stableavatar()
+    if (cible / "wan" / "pipeline" / "wan_inference_long_pipeline.py").is_file():
+        return
+    depot, commit = STABLEAVATAR_CODE
+    print(f"Téléchargement du code de StableAvatar ({commit[:7]})…", flush=True)
+
+    def recuperer():
+        with urllib.request.urlopen(f"https://github.com/{depot}/archive/{commit}.zip", timeout=60) as r:
+            return r.read()
+
+    archive = zipfile.ZipFile(io.BytesIO(_avec_reprises(recuperer, "code de StableAvatar")))
+    provisoire = cible.with_name(cible.name + ".part")
+    shutil.rmtree(provisoire, ignore_errors=True)
+    for membre in archive.namelist():
+        relatif = membre.split("/", 1)[1] if "/" in membre else ""
+        if relatif.startswith("wan/") and not membre.endswith("/"):
+            chemin = provisoire / relatif
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            chemin.write_bytes(archive.read(membre))
+    (provisoire / "LICENSE.txt").write_bytes(archive.read(f"StableAvatar-{commit}/LICENSE.txt"))
+    shutil.rmtree(cible, ignore_errors=True)
+    provisoire.rename(cible)
+
+
+def format_parlante(largeur, hauteur):
+    """Format d'entraînement le plus proche des proportions de l'image : carré, portrait ou paysage."""
+    import math
+
+    rapport = largeur / max(1, hauteur)
+    return min(FORMATS_PARLANTE, key=lambda f: abs(math.log(rapport * f[1] / f[0])))
+
+
+def parler(chemin_tache):
+    """Tâche : {image, audio (WAV 16 kHz mono, lu par le modèle : voix seule si elle a été isolée), son (son de la
+    vidéo, complet ; par défaut audio), sortie (MP4), prompt, largeur/hauteur
+    (un des FORMATS_PARLANTE, sinon d'après l'image), etapes (30 à 50 conseillés), graine, guidage_texte (3),
+    guidage_audio (5 ; plus haut = lèvres mieux synchronisées), chevauchement (5 à 15 fenêtres latentes : plus =
+    meilleurs raccords, plus lent)}.
+    StableAvatar génère toute la durée du son par fenêtres de 81 images qui se chevauchent (25 images/s). Phase 1 :
+    umT5 de Wan 2.2 lit le prompt (comme les vidéos), puis il est libéré ; phase 2 : transformeur, VAE et wav2vec
+    sur la carte ; l'encodeur d'image CLIP n'y passe que le temps de lire l'image (sa partie texte, inutile, est
+    retirée). Le son d'origine est ajouté à la vidéo (AAC). RESULTAT {sortie, graine, images, duree, largeur, hauteur}.
+    Clés de test : code (dossier du code), poids (dossier des poids), depot_encodeur, sans_encodeur."""
+    import contextlib
+
+    import imageio_ffmpeg
+    import librosa
+    import numpy as np
+    import torch
+    from PIL import Image, ImageOps
+
+    t = _lire(chemin_tache)
+    device = _device()
+    code = Path(t.get("code") or _code_stableavatar())
+    if not (code / "wan").is_dir():
+        _erreur("code de StableAvatar absent : télécharge « StableAvatar » dans Outils → Modèles et diagnostic.")
+    if str(code) not in sys.path:
+        sys.path.insert(0, str(code))
+    _hors_ligne_si_present(STABLEAVATAR, WAN)
+    etapes = int(t.get("etapes", 30))
+    total = etapes + 3
+    # bf16 sur la carte (réglage d'origine) ; fp32 sur le processeur, où le code mélangeait les types (il compte sur
+    # l'autocast CUDA, qui remet CLIP en fp32 : « Input type BFloat16 and weight type Float », puis LayerNorm)
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    with Image.open(t["image"]) as im:
+        image = ImageOps.exif_transpose(im).convert("RGB")
+    largeur, hauteur = (int(t["largeur"]), int(t["hauteur"])) if t.get("largeur") else format_parlante(*image.size)
+    # Le pipeline redimensionne l'image sans la recadrer (visage déformé) : recadrée ici au format, puis relue par lui
+    reference = Path(t["sortie"]).with_name("reference.png")
+    reference.parent.mkdir(parents=True, exist_ok=True)
+    ImageOps.fit(image, (largeur, hauteur), Image.LANCZOS).save(reference)
+    voix, sr = librosa.load(t["audio"], sr=16000)
+    if len(voix) < sr:
+        _erreur("le son doit durer au moins une seconde.")
+    # Le pipeline avance par fenêtres de 81 images (21 latents, 3,24 s à 25 images/s) : avec moins de son, la boucle
+    # ne tourne pas et la vidéo sort vide ; avec exactement une fenêtre (81 à 84 images), elle ne s'arrête jamais
+    # (fin atteinte sans passer par arrive_last_frame, lu dans wan_inference_long_pipeline.py, constaté ici). Silence
+    # ajouté jusqu'à 85 images (deux fenêtres), images en trop retirées à la fin.
+    images_utiles = int(np.ceil(len(voix) / 640))  # 16 000 / 25 = 640 échantillons par image
+    voix = np.pad(voix, (0, max(0, IMAGES_MIN_PARLANTE * 640 - len(voix))))
+
+    print(f"PROGRESSION 1/{total} lecture du texte (encodeur umT5)", flush=True)
+    cle = ("StableAvatar", str(t.get("poids")), device)
+    _ranger()
+    _faire_place(11.5, sauf=cle)
+    tache_texte = {"prompt": t.get("prompt") or "A person is talking to the camera, natural expressions.",
+                   "negatif": NEGATIF_PARLANTE, "depot": t.get("depot_encodeur") or WAN,
+                   "sans_encodeur": t.get("sans_encodeur")}
+    prompt, negatif = _memoire(_encoder_texte_video)(tache_texte, device, dtype)
+    print(f"PROGRESSION 2/{total} chargement de StableAvatar", flush=True)
+
+    from diffusers import FlowMatchEulerDiscreteScheduler
+    from transformers import Wav2Vec2Model, Wav2Vec2Processor
+    from wan.models.wan_fantasy_transformer3d_1B import WanTransformer3DFantasyModel
+    from wan.models.wan_image_encoder import CLIPModel
+    from wan.models.wan_vae import AutoencoderKLWan
+    from wan.pipeline.wan_inference_long_pipeline import WanI2VTalkingInferenceLongPipeline
+
+    def dossier_poids():
+        if t.get("poids"):
+            return Path(t["poids"])
+        from huggingface_hub import snapshot_download
+
+        return Path(snapshot_download(STABLEAVATAR, allow_patterns=SA_FICHIERS))
+
+    def charger():
+        racine = dossier_poids()
+        base = racine / SA_BASE
+        _precharger((STABLEAVATAR, "StableAvatar-1.3B/transformer3d-square.pt"), (STABLEAVATAR, SA_BASE))
+        config = json.loads((base / "config.json").read_text(encoding="utf-8"))
+        # mêmes réglages que WanTransformer3DFantasyModel.from_pretrained (wan_civitai.yaml : dict_mapping), mais
+        # sans lire les poids de base : le fichier de StableAvatar les contient tous
+        options = {"in_channels": config["in_dim"], "hidden_size": config["dim"], "patch_size": (1, 2, 2),
+                   "qk_norm": True, "window_size": (-1, -1), "cross_attn_norm": True}
+        transformeur = WanTransformer3DFantasyModel.from_config(config, **options)
+        etat = torch.load(racine / "StableAvatar-1.3B" / "transformer3d-square.pt", map_location="cpu",
+                          weights_only=True)
+        transformeur.load_state_dict(etat.get("state_dict", etat), strict=True)
+        transformeur = transformeur.to(dtype).eval()
+        del etat
+        vae = AutoencoderKLWan.from_pretrained(str(base / "Wan2.1_VAE.pth"), additional_kwargs={}).eval()
+        clip = CLIPModel.from_pretrained(str(base / "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth")).eval()
+        clip.model.textual = None  # partie texte jamais utilisée (seule l'image est lue) : 2 Go de moins
+        processeur = Wav2Vec2Processor.from_pretrained(str(racine / "wav2vec2-base-960h"))
+        wav2vec = Wav2Vec2Model.from_pretrained(str(racine / "wav2vec2-base-960h")).eval()
+        for m in (transformeur, vae, clip, wav2vec):
+            _en_memoire_vive(m)
+        return transformeur, vae, clip, processeur, wav2vec
+
+    def sur(appareil):
+        def deplacer(o):
+            for m in (o[0], o[1], o[4]):
+                m.to(appareil)
+            o[2].to("cpu")  # CLIP : sur la carte seulement le temps de lire l'image (crochet ci-dessous)
+        return deplacer
+
+    transformeur, vae, clip, processeur, wav2vec = _garder(cle, charger, 9, vers_cpu=sur("cpu"),
+                                                           vers_gpu=sur(device))
+    if device == "cuda":
+        sur(device)((transformeur, vae, clip, processeur, wav2vec))
+
+    class _TexteLu(torch.nn.Module):
+        """Tient la place de l'encodeur de texte : le pipeline n'en lit que le type (bf16)."""
+        def __init__(self):
+            super().__init__()
+            self.temoin = torch.nn.Parameter(torch.zeros(1, dtype=dtype), requires_grad=False)
+
+        @property
+        def dtype(self):
+            return dtype
+
+    class Pipeline(WanI2VTalkingInferenceLongPipeline):
+        def encode_prompt(self, *a, **k):  # plongements de la phase 1 (listes : une entrée par vidéo)
+            return [prompt[0].to(device)], [negatif[0].to(device)]
+
+        def progress_bar(self, total=None, **k):  # une ligne PROGRESSION par étape ; CLIP quitte la carte
+            clip.to("cpu")
+            _vider_cache_cuda()
+            moteur = self
+
+            class Suivi(contextlib.AbstractContextManager):
+                n = 0
+
+                def update(self_):
+                    self_.n += 1
+                    print(f"PROGRESSION {self_.n + 2}/{moteur._total} étape {self_.n}/{total}", flush=True)
+
+                def __exit__(self_, *exc):
+                    return False
+            return Suivi()
+
+    ordonnanceur = FlowMatchEulerDiscreteScheduler(
+        num_train_timesteps=1000, shift=5.0, use_dynamic_shifting=False, base_shift=0.5, max_shift=1.15,
+        base_image_seq_len=256, max_image_seq_len=4096)  # scheduler_kwargs de wan_civitai.yaml
+    pipe = Pipeline(tokenizer=None, text_encoder=_TexteLu().to(device), vae=vae, transformer=transformeur,
+                    clip_image_encoder=clip, scheduler=ordonnanceur, wav2vec_processor=processeur, wav2vec=wav2vec)
+    pipe._total = total
+    clip.to(device)
+    graine = int(t.get("graine") or 0)
+    with torch.no_grad():
+        video = _memoire(pipe)(
+            prompt=tache_texte["prompt"],  # déjà lu en phase 1 : encode_prompt renvoie les plongements
+            num_frames=81, height=hauteur, width=largeur, guidance_scale=6.0,
+            generator=torch.Generator(device=device).manual_seed(graine), num_inference_steps=etapes,
+            text_guide_scale=float(t.get("guidage_texte", 3.0)), audio_guide_scale=float(t.get("guidage_audio", 5.0)),
+            vocal_input_values=voix, motion_frame=25, fps=25, sr=16000, cond_file_path=str(reference), seed=graine,
+            overlap_window_length=max(2, int(t.get("chevauchement", 5))), overlapping_weight_scheme="uniform",
+            clip_length=81).videos
+    print(f"PROGRESSION {total}/{total} enregistrement de la vidéo", flush=True)
+    images = (video[0].permute(1, 2, 3, 0).clamp(0, 1).float().numpy() * 255).round().astype(np.uint8)
+    images = images[:images_utiles]
+    duree = len(images) / 25
+    ecrivain = imageio_ffmpeg.write_frames(t["sortie"], (largeur, hauteur), fps=25, codec="libx264",
+                                           pix_fmt_in="rgb24", pix_fmt_out="yuv420p", quality=8, macro_block_size=1,
+                                           audio_path=t.get("son") or t["audio"], audio_codec="aac",
+                                           output_params=["-t", f"{duree:.3f}"])
+    ecrivain.send(None)
+    for image_ in images:
+        ecrivain.send(np.ascontiguousarray(image_).tobytes())
+    ecrivain.close()
+    _resultat({"sortie": t["sortie"], "graine": graine, "images": len(images), "duree": round(duree, 2),
+               "largeur": largeur, "hauteur": hauteur})
+    print(f"TERMINE {t['sortie']}", flush=True)
+
+
 # --- Whisper : transcription (sous-titres) ------------------------------------------------------------------
 def transcrire(chemin_tache):
     """Tâche : {entree: WAV 16 kHz mono (préparé par l'application), langue: code ISO (« fr ») ou None (détectée),
@@ -1730,6 +1984,9 @@ def telecharger(noms):
         if repo.startswith("local:"):  # fichiers publiés hors de Hugging Face (GitHub), vérifiés par SHA-256
             _telecharger_fichiers(motifs)
             continue
+        if repo == "code:stableavatar":
+            _telecharger_code_stableavatar()
+            continue
         _tester_liens(repo)
         try:
             _avec_reprises(lambda: snapshot_download(repo, allow_patterns=motifs, revision=REVISIONS.get(repo)), repo)
@@ -1770,7 +2027,7 @@ def _retirer_ckpt_inutiles():
 
 ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
            "assembler": assembler, "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger,
-           "transcrire": transcrire, "fluidifier": fluidifier}
+           "transcrire": transcrire, "fluidifier": fluidifier, "parler": parler}
 
 
 def principal(argv):
