@@ -1,7 +1,7 @@
 """Onglet « Vidéo en plusieurs plans » : un plan par ligne, chacun part de la dernière image du précédent."""
 import gradio as gr
 
-from .. import videos
+from .. import fluidite, videos
 from ..outils import open_folder
 from .commun import espace_de_noms
 
@@ -35,7 +35,9 @@ def construire():
     pl_statut = gr.Markdown()
     pl_dossier = gr.State()
     pl_video = gr.Video(label="Vidéo assemblée", height=480, interactive=False)
-    btn_pl_dossier = gr.Button("📂 Ouvrir le dossier")
+    with gr.Row():
+        btn_pl_fluide = gr.Button("⏩ Plus fluide (48 images/s)")
+        btn_pl_dossier = gr.Button("📂 Ouvrir le dossier")
     return espace_de_noms(locals())
 
 
@@ -44,4 +46,6 @@ def brancher(c, demo, o):
     c.btn_pl.click(videos.generer_suite,
                    [c.pl_plans, c.pl_image, c.pl_format, c.pl_duree, c.pl_etapes, c.pl_graine, c.pl_nom],
                    [c.pl_statut, c.pl_video, c.pl_dossier])
+    c.btn_pl_fluide.click(lambda v, progress=gr.Progress(): fluidite.fluidifier(v, progress=progress)[:2], c.pl_video,
+                          [c.pl_statut, c.pl_video])
     c.btn_pl_dossier.click(lambda d: open_folder(d) if d else None, c.pl_dossier)

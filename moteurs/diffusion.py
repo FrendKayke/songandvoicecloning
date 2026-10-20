@@ -79,6 +79,9 @@ FICHIERS_PHOTOS = {
         "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292"),
     "GFPGANv1.4.pth": ("https://github.com/TencentARC/GFPGAN/releases/download/v1.3.4/GFPGANv1.4.pth",
                        "e2cd4703ab14f4d01fd1383a8a8b266f9a5833dacee8e6a79d3bf21a1b6be5ad"),
+    # RIFE 4.26 (MIT, hzwer) : vidéos plus fluides et ralentis ; même empreinte que l'archive officielle de hzwer
+    "flownet_v4.26.pkl": ("https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.26.pkl",
+                          "45c7f74156704769dc9f85cfcaf8552e1e926f9399dcfa3a553dee88fac6f53f"),
     "face_detection_yunet_2023mar.onnx": (
         "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx",
         "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"),
@@ -116,6 +119,7 @@ MODELES = {
     "forme3d_vues": [(HUNYUAN_MV, _poids(HUNYUAN_MV_FORME))],
     "texture3d": [(HUNYUAN, [f"{HUNYUAN_TEXTURE}/*", "hunyuan3d-delight-v2-0/*"])],
     "transcription": [(WHISPER, None)],
+    "fluidite": [("local:photos", ["flownet_v4.26.pkl"])],
 }
 
 
@@ -1582,6 +1586,83 @@ def _tester_liens(depot):
     return are_symlinks_supported(dossier)
 
 
+# --- RIFE : vidéos plus fluides, ralentis -----------------------------------------------------------------------
+CHANGEMENT_DE_PLAN = 0.15  # écart moyen (0–1) entre deux images au-delà duquel on n'invente pas d'image intermédiaire
+
+
+def fluidifier(chemin_tache):
+    """Tâche : {entree, sortie, facteur: 2 à 4, ralenti: bool}. RIFE 4.26 intercale facteur − 1 images entre deux
+    images voisines : sans ralenti, même durée et cadence × facteur (son d'origine gardé) ; en ralenti, même cadence
+    et durée × facteur (sans son). Aux changements de plan (vidéo assemblée), l'image est répétée au lieu d'un
+    fondu inventé. Lecture et écriture image par image (imageio-ffmpeg, H.264 yuv420p) : aucune limite de durée.
+    RESULTAT {sortie, images, fps, duree}."""
+    import imageio_ffmpeg
+    import numpy as np
+    import torch
+
+    import rife
+
+    t = _lire(chemin_tache)
+    facteur = max(2, min(4, int(t.get("facteur", 2))))
+    ralenti = bool(t.get("ralenti"))
+    device = _device()
+    print("PROGRESSION 1/2 chargement de RIFE", flush=True)
+    poids = Path(t.get("poids") or (_dossier_photos() / "flownet_v4.26.pkl"))
+    if not poids.exists():
+        _erreur("modèle RIFE absent : télécharge-le dans Outils → Modèles et diagnostic.")
+    net = _garder(("RIFE", str(poids), device), lambda: rife.charger(str(poids), device), 0.1,
+                  vers_cpu=lambda m: m.to("cpu"), vers_gpu=lambda m: m.to(device))
+    lecteur = imageio_ffmpeg.read_frames(t["entree"], pix_fmt="rgb24")
+    meta = lecteur.__next__()
+    largeur, hauteur = meta["size"]
+    fps = float(meta.get("fps") or 24)
+    total = max(1, int(round(float(meta.get("duration") or 0) * fps)))
+    fps_sortie = fps if ralenti else fps * facteur
+    son = None if ralenti or not meta.get("audio_codec") else t["entree"]
+    ecrivain = imageio_ffmpeg.write_frames(t["sortie"], (largeur, hauteur), fps=fps_sortie, codec="libx264",
+                                           pix_fmt_in="rgb24", pix_fmt_out="yuv420p", quality=8,
+                                           macro_block_size=1, audio_path=son, audio_codec="aac" if son else None)
+    ecrivain.send(None)
+    echelle = 0.5 if max(largeur, hauteur) > 2000 else 1.0  # 4K : flux calculé à mi-résolution (conseil de RIFE)
+
+    def tenseur(octets):
+        image = np.frombuffer(octets, np.uint8).reshape(hauteur, largeur, 3)
+        return torch.from_numpy(image.copy()).permute(2, 0, 1)[None].to(device).float() / 255.0
+
+    def octets(x):
+        return (x[0].permute(1, 2, 0).clamp(0, 1) * 255).round().byte().cpu().numpy().tobytes()
+
+    print(f"PROGRESSION 2/2 images intermédiaires ({total} images, × {facteur})", flush=True)
+    precedent, ecrites, plans, n = None, 0, 0, 0
+    for brut in lecteur:
+        courant = tenseur(brut)
+        if precedent is not None:
+            ecart = float((precedent - courant).abs().mean())
+            if ecart > CHANGEMENT_DE_PLAN:
+                plans += 1
+                intermediaires = [octets(precedent)] * (facteur - 1)
+            else:
+                with torch.inference_mode():
+                    intermediaires = [octets(_memoire(rife.intercaler)(net, precedent, courant, k / facteur, echelle))
+                                      for k in range(1, facteur)]
+            for image in intermediaires:
+                ecrivain.send(image)
+                ecrites += 1
+        ecrivain.send(bytes(brut))
+        ecrites += 1
+        precedent = courant
+        n += 1
+        if n % 10 == 0:
+            print(f"Image {n}/{total}", flush=True)
+    ecrivain.close()
+    if n < 2:
+        _erreur("la vidéo doit contenir au moins deux images.")
+    print(f"{n} images lues, {ecrites} écrites, {plans} changement(s) de plan sans image inventée.", flush=True)
+    _resultat({"sortie": t["sortie"], "images": ecrites, "fps": round(fps_sortie, 3),
+               "duree": round(ecrites / fps_sortie, 2), "plans": plans})
+    print(f"TERMINE {t['sortie']}", flush=True)
+
+
 # --- Whisper : transcription (sous-titres) ------------------------------------------------------------------
 def transcrire(chemin_tache):
     """Tâche : {entree: WAV 16 kHz mono (préparé par l'application), langue: code ISO (« fr ») ou None (détectée),
@@ -1689,7 +1770,7 @@ def _retirer_ckpt_inutiles():
 
 ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
            "assembler": assembler, "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger,
-           "transcrire": transcrire}
+           "transcrire": transcrire, "fluidifier": fluidifier}
 
 
 def principal(argv):

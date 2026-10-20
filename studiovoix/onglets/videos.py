@@ -1,7 +1,7 @@
 """Onglet « Une vidéo » : texte → vidéo et image → vidéo (Wan 2.2 TI2V-5B)."""
 import gradio as gr
 
-from .. import videos
+from .. import fluidite, videos
 from ..outils import open_folder
 from .commun import espace_de_noms
 
@@ -41,6 +41,7 @@ def construire():
     vid_video = gr.Video(label="Vidéo", height=480, interactive=False)
     with gr.Row():
         btn_vid_continuer = gr.Button("🔁 Continuer : la dernière image devient l'image de départ")
+        btn_vid_fluide = gr.Button("⏩ Plus fluide (48 images/s)")
         btn_vid_dossier = gr.Button("📂 Ouvrir le dossier")
     return espace_de_noms(locals())
 
@@ -55,4 +56,6 @@ def brancher(c, demo, o):
                      c.vid_texte],
                     [c.vid_statut, c.vid_video, c.vid_dossier])
     c.btn_vid_continuer.click(videos.continuer, c.vid_dossier, c.vid_image)
+    c.btn_vid_fluide.click(lambda v, progress=gr.Progress(): fluidite.fluidifier(v, progress=progress)[:2], c.vid_video,
+                           [c.vid_statut, c.vid_video])
     c.btn_vid_dossier.click(lambda d: open_folder(d) if d else None, c.vid_dossier)

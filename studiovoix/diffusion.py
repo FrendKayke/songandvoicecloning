@@ -51,6 +51,8 @@ MODELES = {
     # face + dos (révision d'un modèle : ce qui est porté dans le dos) ; 4,9 Go, même licence que Hunyuan3D-2
     "forme3d_vues": ("tencent/Hunyuan3D-2mv", "Hunyuan3D-2mv forme à partir de la face et du dos",
                      ["hunyuan3d-dit-v2-mv-turbo/model.fp16.safetensors"]),
+    # RIFE 4.26 (MIT, 25 Mo, GitHub) : vidéos plus fluides, ralentis
+    "fluidite": (LOCAL_PHOTOS, "RIFE 4.26 (vidéos plus fluides, ralentis)", ["flownet_v4.26.pkl"]),
     # Whisper large-v3-turbo (MIT, 1,6 Go) : transcription, sous-titres
     "transcription": ("openai/whisper-large-v3-turbo", "Whisper large-v3-turbo (transcription, sous-titres)",
                       ["model.safetensors", "tokenizer.json", "preprocessor_config.json"]),
@@ -278,6 +280,15 @@ def transcrire(entree, langue=None, traduire=False, progress=None):
     return lancer("transcrire", {"entree": str(entree), "langue": langue or None, "traduire": bool(traduire)},
                   Path(entree).parent, "Whisper", progress,
                   {1: "chargement de Whisper", 2: "transcription"})
+
+
+def fluidifier(entree, sortie, facteur=2, ralenti=False, progress=None):
+    """RIFE : facteur − 1 images intercalées entre deux images voisines (même durée, cadence × facteur, son gardé ;
+    ou ralenti : même cadence, durée × facteur). RESULTAT {sortie, images, fps, duree, plans}."""
+    _verifier("fluidite")
+    return lancer("fluidifier", {"entree": str(entree), "sortie": str(sortie), "facteur": int(facteur),
+                                 "ralenti": bool(ralenti)}, Path(sortie).parent, "RIFE", progress,
+                  {1: "chargement de RIFE", 2: "images intermédiaires"})
 
 
 def ameliorer(entree, sortie, echelle=2, rapide=False, visages=True, force=0.7, progress=None):

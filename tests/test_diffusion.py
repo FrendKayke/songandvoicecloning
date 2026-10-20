@@ -124,6 +124,13 @@ FAUX_MOTEUR = textwrap.dedent("""
         print("RESULTAT " + json.dumps({"segments": [{"debut": 0.0, "fin": 1.5, "texte": "Il était une fois"},
                                                       {"debut": 1.5, "fin": duree, "texte": mots}],
                                         "texte": "Il était une fois " + mots, "duree": duree}), flush=True)
+    elif action == "fluidifier":
+        assert Path(t["entree"]).is_file() and 2 <= t["facteur"] <= 4
+        print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
+        Path(t["sortie"]).write_bytes(b"mp4")
+        fps = 24 if t["ralenti"] else 24 * t["facteur"]
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "images": 97, "fps": fps, "duree": round(97 / fps, 2),
+                                        "plans": 1}), flush=True)
     elif action == "alleger":
         print("PROGRESSION 1/1 x", flush=True)
         Path(t["sortie"]).write_bytes(b"g" * 100)
@@ -1352,6 +1359,27 @@ def test_transcrire_et_sous_titrer(faux_diffusion):
     muet = _video_test(cfg.DATA_DIR.parent / "muet.mp4", avec_son=False)
     with pytest.raises(gr.Error, match="son"):
         sous_titres.transcrire(str(muet), progress=no_progress)
+
+
+def test_fluidifier_une_video(faux_diffusion):
+    """RIFE (faux moteur) : une vidéo de l'application reçoit sa version à côté d'elle, une vidéo importée va dans
+    data/videos_fluides/ ; ralenti = même cadence ; changement de plan signalé."""
+    from studiovoix import fluidite
+
+    clip = cfg.DATA_DIR / "videos" / "x" / "video.mp4"
+    clip.parent.mkdir(parents=True)
+    clip.write_bytes(b"mp4")
+    msg, sortie, dossier = fluidite.fluidifier(str(clip), progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert _journal()[-1]["action"] == "fluidifier" and t["facteur"] == 2 and t["ralenti"] is False
+    assert sortie == str(clip.with_name("video_fluide_x2.mp4")) and "48 images/s" in msg and "changement" in msg
+    importee = cfg.DATA_DIR.parent / "Ma vidéo.mp4"
+    importee.write_bytes(b"mp4")
+    msg, sortie, dossier = fluidite.fluidifier(str(importee), "× 4", fluidite.RALENTI, progress=no_progress)
+    assert Path(sortie).name == "Ma vidéo_ralenti_x4.mp4" and Path(dossier).parent == cfg.FLUIDE_DIR
+    assert _journal()[-1]["tache"]["ralenti"] is True and "24 images/s" in msg
+    with pytest.raises(gr.Error, match="vidéo"):
+        fluidite.fluidifier(None, progress=no_progress)
 
 
 def test_reviser_un_modele_3d(faux_diffusion):
