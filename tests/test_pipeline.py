@@ -1,5 +1,6 @@
 """Pipeline complet avec faux moteurs : vérifie les appels et les fichiers produits."""
 import json
+from pathlib import Path
 
 import gradio as gr
 import pytest
@@ -7,6 +8,7 @@ import soundfile as sf
 
 from conftest import no_progress, write_tone
 from studiovoix import config as cfg
+from studiovoix import export
 from studiovoix.pipeline import MODE_INSTRU, MODE_VOIX_ACE, creer_chanson
 
 ARGS = dict(genre="pop", style="", instruments="piano", ambiance="", extra="", voix_base="Automatique",
@@ -190,9 +192,15 @@ def test_plusieurs_chansons_d_un_coup(fake_acestep, fake_engines):
     workdir = next(cfg.SONGS_DIR.iterdir())
     creation = json.loads((workdir / "creation.json").read_text(encoding="utf-8"))
     assert [v["dossier"] for v in creation["versions"]] == [f"version_{i}" for i in range(1, 6)]
-    visible, liste, ecoute = res[5:]
+    visible, liste, ecoute, bouton_toutes, toutes = res[5:]
     assert visible["visible"] and len(liste["choices"]) == 5 and liste["choices"][0][0] == "Chanson 1 (graine 42)"
     assert ecoute == creation["versions"][0]["fichier"] and "5 versions" in res[4]
+    # export : la chanson écoutée (avant : toujours la première), ou toutes d'un coup, chacune avec son numéro
+    assert bouton_toutes["visible"] and len(toutes) == 5
+    fichiers, _ = chanson._exporter(res[0], toutes[2], list(export.CIBLES)[0])
+    assert Path(fichiers[0]).name.endswith("_3_export.mp3") and Path(fichiers[0]).parent.name == "version_3"
+    fichiers, msg = export.exporter_fichiers(toutes, list(export.CIBLES)[0])
+    assert len(fichiers) == 5 and len({Path(f).name for f in fichiers}) == 5 and msg.count("✅") == 5
 
 
 def test_une_version_reste_a_la_racine(fake_acestep, fake_engines):

@@ -125,9 +125,11 @@ def construire():
         ecoute_version = gr.Audio(label="Chanson choisie", type="filepath")
     with gr.Row():
         chanson_cible = gr.Dropdown(list(export.CIBLES), value=list(export.CIBLES)[0], label="Volume de l'export")
-        btn_export_chanson = gr.Button("💾 Exporter la chanson en MP3")
-        chanson_mp3 = gr.File(label="MP3 à télécharger")
+        btn_export_chanson = gr.Button("💾 Exporter la chanson écoutée en MP3")
+        btn_export_toutes = gr.Button("💾 Exporter toutes les chansons en MP3", visible=False)
+        chanson_mp3 = gr.File(label="MP3 à télécharger", file_count="multiple")
     chanson_export_msg = gr.Markdown()
+    toutes_chansons = gr.State([])
     with gr.Accordion("Étapes intermédiaires", open=False) as intermediaires:
         brute = gr.Audio(label="Chanson brute ACE-Step", type="filepath")
         voix_conv = gr.Audio(label="Voix convertie", type="filepath")
@@ -151,7 +153,13 @@ def _creer(*args, progress=gr.Progress()):
     plusieurs = len(choix) > 1
     return (final, brute, conv, instru, msg, gr.update(visible=plusieurs),
             gr.update(choices=choix, value=choix[0][1] if plusieurs else None),
-            choix[0][1] if plusieurs else None)
+            choix[0][1] if plusieurs else None, gr.update(visible=plusieurs), [f for _, f in choix])
+
+
+def _exporter(final, choisie, cible):
+    """La chanson écoutée dans « Écouter les autres chansons » (sinon la première) : avant, toujours la première."""
+    fichier, msg = export.exporter_fichier(choisie or final, cible)
+    return [fichier], msg
 
 
 def brancher(c, demo, o):
@@ -162,10 +170,13 @@ def brancher(c, demo, o):
          c.thinking, c.semitones, c.steps, c.gain_voix, c.gain_instru, c.mode, c.description, c.retirer, c.versions, c.graine,
          c.conversion],
         [c.final, c.brute, c.voix_conv, c.instru_out, c.statut, c.autres_versions, c.liste_versions,
-         c.ecoute_version],
+         c.ecoute_version, c.btn_export_toutes, c.toutes_chansons],
     )
     c.liste_versions.input(lambda f: f, c.liste_versions, c.ecoute_version)
-    c.btn_export_chanson.click(export.exporter_fichier, [c.final, c.chanson_cible], [c.chanson_mp3, c.chanson_export_msg])
+    c.btn_export_chanson.click(_exporter, [c.final, c.ecoute_version, c.chanson_cible],
+                               [c.chanson_mp3, c.chanson_export_msg])
+    c.btn_export_toutes.click(export.exporter_fichiers, [c.toutes_chansons, c.chanson_cible],
+                              [c.chanson_mp3, c.chanson_export_msg])
 
     champs_style = [c.genre, c.style, c.instruments, c.ambiance, c.extra, c.voix_base, c.mode]
     for champ in champs_style:

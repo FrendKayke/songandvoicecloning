@@ -116,9 +116,26 @@ def exporter_fichier(src, cible_label, formats=("mp3",)):
         raise gr.Error("Rien à exporter : crée d'abord une chanson.")
     cible = CIBLES.get(cible_label, -14.0)
     y, lufs = normaliser(load_stereo(src), cfg.SR, cible)
-    fichiers = ecrire(y, cfg.SR, Path(src).with_name(Path(src).stem + "_export"), formats)
+    src = Path(src)
+    # plusieurs chansons d'une création (version_1/, version_2/…) : le numéro dans le nom, sinon tous les fichiers
+    # téléchargés s'appellent pareil
+    numero = src.parent.name.split("_", 1)[1] if src.parent.name.startswith("version_") else ""
+    fichiers = ecrire(y, cfg.SR, src.with_name(src.stem + (f"_{numero}" if numero else "") + "_export"), formats)
     premier = next(iter(fichiers.values()))
     return str(premier), f"✅ Exporté {_note_volume(lufs, cible)} : {', '.join(str(p) for p in fichiers.values())}"
+
+
+def exporter_fichiers(sources, cible_label, formats=("mp3",)):
+    """Plusieurs chansons d'un coup (toutes celles d'une création). Renvoie (fichiers, message)."""
+    sources = [s for s in dict.fromkeys(sources or []) if s and Path(s).exists()]
+    if not sources:
+        raise gr.Error("Rien à exporter : crée d'abord une chanson.")
+    fichiers, messages = [], []
+    for src in sources:
+        f, msg = exporter_fichier(src, cible_label, formats)
+        fichiers.append(f)
+        messages.append(msg)
+    return fichiers, "\n".join(messages)
 
 
 def exporter_fichier_formats(src, cible_label, formats):
