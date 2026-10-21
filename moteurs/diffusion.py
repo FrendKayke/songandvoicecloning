@@ -457,6 +457,15 @@ CONSIGNES = {
                "in the request (keep their real clothes only where nothing else is asked). Two or three sentences, no "
                "name of any game, artist or existing work, nothing about the background. Answer with the description "
                "only:\n\n"),
+    # onglet « Tileset en objets 3D » : ce que représente un morceau de tileset vu de dessus (une tuile « trou avec
+    # échelle » redessinée telle quelle par FLUX.2 klein devenait un pavé plat chez l'utilisateur)
+    "tuile3d": ("The attached image is one piece of a pixel art tileset from a top-down 2D video game: an object, a "
+                "piece of furniture, a decoration, a wall part or a floor feature, drawn seen from above at an "
+                "angle. Identify the real physical object it represents and describe it for a 3D modeler as a "
+                "standalone object: its name first, then its shape, parts, proportions, materials and exact colors "
+                "as in the image. If it is a floor feature (a hole with a ladder, a trapdoor, a carpet), describe "
+                "only the physical object (for example: a wooden ladder with five rungs). One or two sentences in "
+                "English, no mention of pixels, tiles, games or background. Answer with the description only."),
     # onglet « Images », « Modifier la photo » : consigne de retouche pour FLUX.2 klein (image de référence)
     "retouche": ("The attached image must be edited. Rewrite the following edit request into ONE short, precise "
                  "English instruction for an image editing model: say exactly what to change, and keep the people, "
@@ -551,6 +560,9 @@ def decrire(chemin_tache):
     if mode == "parlante" and (t.get("texte") or "").strip():  # souhaits de l'utilisateur (souvent en français)
         consigne += (" Include these wishes from the user, translated into English: "
                      + " ".join(t["texte"].split()))
+    if mode == "tuile3d" and (t.get("texte") or "").strip():  # ce que l'utilisateur dit de l'objet
+        consigne += (" The user says this object is: " + " ".join(t["texte"].split())
+                     + " (translate into English and follow it).")
     if t.get("image") and int(t.get("photos") or 1) > 1:
         consigne = PHOTOS_NUMEROTEES.format(n=int(t["photos"])) + consigne
     suite = t.get("suite")  # {plans: [textes], indice (1…n), precedent: prompt du plan précédent ou None}

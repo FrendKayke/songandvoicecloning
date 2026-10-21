@@ -7,10 +7,13 @@ remakes 3D de jeux en pixel art).
    une zone est coupée entre deux cases quand l'image ne continue pas (objets rangés côte à côte, chacun son
    contour) ; les blocs d'au moins quatre cases pleines (sol, eau, mur) sont signalés et décochés par défaut : ce sont
    des textures, pas des objets.
-2. Pour chaque objet coché : FLUX.2 klein le redessine en rendu 3D propre du même objet (mêmes formes, couleurs et
-   détails, vue de trois quarts, fond blanc) — Hunyuan3D lit mal du pixel art de quelques dizaines de pixels — puis
-   Hunyuan3D-2 en fait la forme et la texture (`modele3d.generer`), réduite au nombre de faces de la qualité
-   « Low poly » (détails gardés dans la texture).
+2. Identification (`identifier`, Qwen3-VL mode « tuile3d ») : ce que représente chaque objet coché, décrit comme un
+   objet 3D autonome (une tuile « trou avec échelle » = une échelle) ; texte modifiable dans l'onglet.
+3. Dessin (`dessiner`) : une image 3D propre par objet, d'après la description, par Z-Image (FLUX.2 klein, avec le
+   pixel art en référence, le recopiait : la première version donnait des pavés plats peints, constaté chez
+   l'utilisateur) ; FLUX.2 klein reste au choix (« garder le dessin d'origine »).
+4. 3D (`generer`) : Hunyuan3D-2 sur chaque image (`modele3d.generer`), qualité « Low poly » (8 000 faces, détails
+   dans la texture).
 Rangement : data/3d/tilesets/<horodatage>_<nom>/ (pieces/, rendus/, <objet>.glb, lot.json) ; chaque modèle a aussi
 sa création dans data/3d/<horodatage>/ (galerie, « Recréer »).
 """
@@ -30,10 +33,10 @@ from .serie import _slug
 QUALITE = "Low poly (jeu : formes simples, détails dans la texture)"  # dans modele3d.QUALITES
 AIRE_MIN = 24  # pixels : en dessous, une poussière (ou un morceau isolé d'un autre objet)
 COTE_REFERENCE = 512  # objet agrandi (au plus proche) pour FLUX.2 klein
-RENDU_3D = ("Recreate this pixel art game sprite as a clean 3D render of exactly the same object: a low poly 3D game "
-            "asset with simple smooth geometry, same shape, same proportions, same colors, same details and markings, "
-            "seen in three-quarter view from slightly above, the whole object visible and centered, single object, "
-            "plain pure white background, soft studio lighting. No pixels, no pixel art, no text, no floor, no shadow")
+STYLE_3D = "stylized low poly 3D game asset, clean simple shapes, smooth colors, 3D render"
+# avec le dessin d'origine en référence (FLUX.2 klein) : il a tendance à recopier les pixels, d'où l'insistance
+RENDU_3D = ("Use the reference image only for the design and colors of the object: show it as a smooth 3D rendered "
+            "object with real volume and depth, not flat, no pixels, no pixel art, no text, no floor")
 
 
 def _vides(a, cote):
@@ -184,45 +187,118 @@ def analyser(fichier, cote=0, nom="tileset"):
     choix = [libelle(p) for p in pieces]
     sols = sum(p["sol"] for p in pieces)
     msg = (f"🧩 {len(pieces)} élément(s) trouvé(s)" + (f", dont {sols} sol(s) ou surface(s) décoché(s)" if sols else "")
-           + ". Décoche ce que tu ne veux pas en 3D, puis « Créer les objets 3D » (une à deux minutes par objet).")
+           + ". Décoche ce que tu ne veux pas en 3D, puis « 🔎 Identifier les objets ».")
     return (msg, [(p["piece"], libelle(p)) for p in pieces], choix,
             [libelle(p) for p in pieces if not p["sol"]], str(dossier))
 
 
-def generer(dossier, choisis, redessiner=True, qualite=QUALITE, texture=True, graine=0, projet=None,
-            progress=gr.Progress()):
-    """Objets cochés → modèles 3D. Tous les rendus FLUX.2 klein d'abord, puis tous les Hunyuan3D (le moteur ne
-    change de modèle qu'une fois). Un objet en échec n'arrête pas les autres. Renvoie (message, dernier GLB,
-    fichiers, dossier)."""
+def _lot(dossier):
     if not dossier or not (Path(dossier) / "lot.json").exists():
         raise gr.Error("Découpe d'abord le tileset.")
-    d = Path(dossier)
-    lot = json.loads((d / "lot.json").read_text(encoding="utf-8"))
+    return Path(dossier), json.loads((Path(dossier) / "lot.json").read_text(encoding="utf-8"))
+
+
+def _ecrire_lot(d, lot):
+    (d / "lot.json").write_text(json.dumps(lot, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def _lignes(table):
+    """Tableau de l'onglet (liste de lignes [objet, description]) → [(nom, description)] non vides."""
+    if hasattr(table, "values"):  # DataFrame
+        table = table.values.tolist()
+    return [(str(r[0]).split(" ")[0], str(r[1] or "").strip()) for r in (table or []) if r and str(r[0]).strip()]
+
+
+def identifier(dossier, choisis, progress=gr.Progress()):
+    """Qwen3-VL regarde chaque objet coché et dit ce qu'il représente, en objet 3D autonome (mode « tuile3d ») :
+    une tuile vue de dessus n'est pas l'objet (trou + échelle → une échelle). Renvoie (tableau, message)."""
+    d, lot = _lot(dossier)
     pieces = [p for p in lot["pieces"] if libelle(p) in (choisis or [])]
     if not pieces:
         raise gr.Error("Coche au moins un objet.")
+    for i, p in enumerate(pieces):
+        progress(i / len(pieces), desc=f"Que représente {p['nom']} ? ({i + 1}/{len(pieces)}, Qwen3-VL)")
+        p["description"] = diffusion.decrire("tuile3d", image=p["reference"], dossier=d)
+    _ecrire_lot(d, lot)
+    return ([[p["nom"], p["description"]] for p in pieces],
+            "🔎 Vérifie ce que chaque objet doit être et corrige le texte si besoin (« une échelle en bois », en "
+            "français ou en anglais), puis « Dessiner les objets ».")
+
+
+def _descriptions(d, lot, table, progress):
+    """Objets du tableau avec leur description (Qwen pour celles qui manquent)."""
+    par_nom = {p["nom"]: p for p in lot["pieces"]}
+    pieces = []
+    for nom, texte in _lignes(table):
+        if nom not in par_nom:
+            continue
+        p = par_nom[nom]
+        if not texte:
+            progress(0, desc=f"Que représente {nom} ? (Qwen3-VL)")
+            texte = diffusion.decrire("tuile3d", image=p["reference"], dossier=d)
+        p["description"] = texte
+        pieces.append(p)
+    if not pieces:
+        raise gr.Error("Identifie d'abord les objets cochés (bouton « 🔎 Identifier les objets »).")
+    return pieces
+
+
+def prompt_objet(description):
+    return f"{description.rstrip('. ')}. {STYLE_3D}, {modele3d.OBJET_SEUL}"
+
+
+def dessiner(dossier, table, garder_dessin=False, graine=0, progress=gr.Progress()):
+    """Une image 3D propre par objet du tableau : Z-Image d'après la description (par défaut ; FLUX.2 klein, à qui
+    on donnait le pixel art, le recopiait), ou FLUX.2 klein avec le dessin d'origine en référence. Renvoie
+    (galerie, message, dossier)."""
+    d, lot = _lot(dossier)
+    pieces = _descriptions(d, lot, table, progress)
     graine = int(graine or 0) or diffusion.graines(1)[0]
-    images = {p["nom"]: p["reference"] for p in pieces}
-    if redessiner:
-        (d / "rendus").mkdir(exist_ok=True)
+    (d / "rendus").mkdir(exist_ok=True)
+    sorties = [d / "rendus" / f"{p['nom']}.png" for p in pieces]
+    prompts = [prompt_objet(p["description"]) for p in pieces]
+    graines = [graine + i for i in range(len(pieces))]
+    if garder_dessin:
         for i, p in enumerate(pieces):
-            progress(i / len(pieces) * 0.3, desc=f"Rendu 3D de {p['nom']} ({i + 1}/{len(pieces)}, FLUX.2 klein)…")
-            sortie = d / "rendus" / f"{p['nom']}.png"
+            progress(i / len(pieces), desc=f"Rendu 3D de {p['nom']} ({i + 1}/{len(pieces)}, FLUX.2 klein)…")
             largeur, hauteur = _format(p["reference"])
-            try:
-                diffusion.personnage(RENDU_3D + ".", [p["reference"]], [sortie], [graine + i], largeur, hauteur)
-                images[p["nom"]] = str(sortie)
-            except gr.Error as e:
-                p["erreur"] = f"rendu : {getattr(e, 'message', e)}"
+            diffusion.personnage(f"{prompts[i]}. {RENDU_3D}.", [p["reference"]], [sorties[i]], [graines[i]], largeur,
+                                 hauteur)
+    else:
+        progress(0, desc=f"Dessin de {len(pieces)} objet(s) (Z-Image)…")
+        diffusion.image(prompts if len(prompts) > 1 else prompts[0], sorties, graines, 1024, 1024)
+    for p, sortie, g, prompt in zip(pieces, sorties, graines, prompts):
+        p.update(rendu=str(sortie), graine_rendu=g, prompt=prompt, description_rendu=p["description"],
+                 moteur_rendu="klein" if garder_dessin else "zimage")
+    lot["graine"] = graine
+    _ecrire_lot(d, lot)
+    return ([(str(s_), p["nom"]) for p, s_ in zip(pieces, sorties)],
+            f"🎨 {len(pieces)} objet(s) dessiné(s) (graine {graine}). S'il y en a un raté, corrige sa description ou "
+            "change la graine et redessine ; sinon « Créer les modèles 3D ».", str(d))
+
+
+def generer(dossier, table, garder_dessin=False, qualite=QUALITE, texture=True, graine=0, projet=None,
+            progress=gr.Progress()):
+    """Objets du tableau → modèles 3D (Hunyuan3D-2) d'après leurs images dessinées (dessinées d'abord si besoin :
+    tous les dessins, puis toute la 3D, le moteur ne change de modèle qu'une fois). Un objet en échec n'arrête pas
+    les autres. Renvoie (message, dernier GLB, fichiers, dossier)."""
+    d, lot = _lot(dossier)
+    pieces = _descriptions(d, lot, table, progress)
+    a_dessiner = [p for p in pieces if not p.get("rendu") or not Path(p["rendu"]).exists()
+                  or p.get("description_rendu") != p["description"]]  # description corrigée depuis le dessin
+    if a_dessiner:
+        dessiner(dossier, [[p["nom"], p["description"]] for p in a_dessiner], garder_dessin, graine, progress=progress)
+        d, lot = _lot(dossier)
+        par_nom = {p["nom"]: p for p in lot["pieces"]}
+        pieces = [par_nom[p["nom"]] for p in pieces]
+    graine = int(graine or 0) or lot.get("graine") or diffusion.graines(1)[0]
     lignes, produits, dernier = [], [], None
     for i, p in enumerate(pieces):
-        if p.get("erreur"):
-            lignes.append(f"- ❌ {p['nom']} : {p['erreur']}")
-            continue
-        progress(0.3 + i / len(pieces) * 0.7, desc=f"Modèle 3D de {p['nom']} ({i + 1}/{len(pieces)}, Hunyuan3D)…")
+        progress(i / len(pieces), desc=f"Modèle 3D de {p['nom']} ({i + 1}/{len(pieces)}, Hunyuan3D)…")
         try:
-            msg, glb, _, _, creation = modele3d.generer(images[p["nom"]], f"{lot['atlas'].rsplit('.', 1)[0]}_{p['nom']}",
-                                                        qualite, texture, graine + i, ["glb"], projet=projet)
+            msg, glb, _, _, creation = modele3d.generer(
+                p["rendu"], f"{lot['atlas'].rsplit('.', 1)[0]}_{p['nom']}", qualite, texture, graine + i, ["glb"],
+                description=p.get("prompt"), projet=projet)
         except gr.Error as e:
             lignes.append(f"- ❌ {p['nom']} : {getattr(e, 'message', e)}")
             continue
@@ -231,13 +307,10 @@ def generer(dossier, choisis, redessiner=True, qualite=QUALITE, texture=True, gr
         p.update(glb=str(copie), creation=creation)
         produits.append(str(copie))
         dernier = str(copie)
-        lignes.append(f"- ✅ {p['nom']} : {msg.split(' : ', 1)[-1].split('. Dossier')[0]}")
-    for p in lot["pieces"]:  # notés dans lot.json : position dans l'atlas → modèle
-        p.update(next((q for q in pieces if q["nom"] == p["nom"]), {}))
-    lot.update(redessine=bool(redessiner), qualite=qualite, graine=graine)
-    (d / "lot.json").write_text(json.dumps(lot, ensure_ascii=False, indent=1), encoding="utf-8")
-    reussis = len(produits)
-    return (f"**{reussis}/{len(pieces)} objet(s) en 3D** (GLB dans {d}, chacun aussi dans la Galerie) :\n\n"
+        lignes.append(f"- ✅ {p['nom']} ({p['description'][:60]}) : {msg.split(' : ', 1)[-1].split('. Dossier')[0]}")
+    lot.update(qualite=qualite)
+    _ecrire_lot(d, lot)
+    return (f"**{len(produits)}/{len(pieces)} objet(s) en 3D** (GLB dans {d}, chacun aussi dans la Galerie) :\n\n"
             + "\n".join(lignes), dernier, produits, str(d))
 
 

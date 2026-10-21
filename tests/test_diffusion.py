@@ -178,7 +178,7 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d"}
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
     assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
@@ -1564,8 +1564,9 @@ def test_ckpt_de_hunyuan_retires(tmp_path, monkeypatch, capsys):
 
 def test_tileset_en_objets_3d(faux_diffusion):
     """Tileset : objets trouvés (deux meubles rangés côte à côte séparés, une plante sur deux cases gardée entière,
-    case à croix rouge et fond ignorés, bloc de sol décoché), puis FLUX.2 klein redessine chaque objet coché avant
-    Hunyuan3D (tous les rendus d'abord), qualité low poly."""
+    case à croix rouge et fond ignorés, bloc de sol décoché) ; Qwen dit ce que représente chaque objet coché (texte
+    corrigeable), Z-Image le dessine d'après ce texte (FLUX.2 klein recopiait le pixel art : pavés plats), puis
+    Hunyuan3D en qualité low poly ; une description corrigée après le dessin est redessinée."""
     from PIL import Image, ImageDraw
 
     from studiovoix import tileset3d
@@ -1589,15 +1590,32 @@ def test_tileset_en_objets_3d(faux_diffusion):
                                                                          [72, 4, 117, 61], [0, 64, 64, 128]]
     assert [p["sol"] for p in lot["pieces"]] == [False, False, False, True] and len(coches) == 3
     assert "dont 1 sol(s)" in msg and Image.open(lot["pieces"][2]["reference"]).mode == "RGB"
-    texte, glb, produits, _ = tileset3d.generer(dossier, coches[1:], True, tileset3d.QUALITE, True, 7,
+    table, _ = tileset3d.identifier(dossier, coches[1:], progress=no_progress)
+    assert table == [["objet_02", "metal clink on a table"], ["objet_03", "metal clink on a table"]]
+    assert [e["tache"]["mode"] for e in _journal()] == ["tuile3d", "tuile3d"]
+    table[0][1] = "une échelle en bois"  # corrigée par l'utilisateur
+    galerie, _, _ = tileset3d.dessiner(dossier, table, False, 7, progress=no_progress)
+    zimage = _journal()[-1]
+    assert zimage["action"] == "image" and zimage["tache"]["graines"] == [7, 8]
+    assert zimage["tache"]["prompts"][0].startswith("une échelle en bois. " + tileset3d.STYLE_3D)
+    assert [Path(g[0]).name for g in galerie] == ["objet_02.png", "objet_03.png"]
+    n = len(_journal())
+    texte, glb, produits, _ = tileset3d.generer(dossier, table, False, tileset3d.QUALITE, True, 7,
                                                 progress=no_progress)
-    actions = [e["action"] for e in _journal()]
-    assert actions == ["personnage", "personnage", "forme3d", "forme3d"]
-    klein = _journal()[0]["tache"]
-    assert tileset3d.RENDU_3D in klein["prompt"] and klein["graines"] == [7]
-    assert klein["references"][0].endswith("objet_02_reference.png")
-    forme = _journal()[2]["tache"]
+    assert [e["action"] for e in _journal()[n:]] == ["forme3d", "forme3d"]  # dessins déjà faits : pas refaits
+    forme = _journal()[n]["tache"]
     assert forme["faces"] == 8000 and Path(forme["image"]).name == "image.png"
     assert "2/2 objet(s) en 3D" in texte and [Path(p).name for p in produits] == ["objet_02.glb", "objet_03.glb"]
     lot = json.loads((Path(dossier) / "lot.json").read_text(encoding="utf-8"))
     assert lot["pieces"][1]["glb"].endswith("objet_02.glb") and "glb" not in lot["pieces"][0]
+    assert lot["pieces"][1]["description"] == "une échelle en bois"
+    # description corrigée après le dessin : redessinée (FLUX.2 klein, dessin d'origine gardé) avant la 3D
+    table[1][1] = "a potted plant"
+    n = len(_journal())
+    tileset3d.generer(dossier, table, True, tileset3d.QUALITE, True, 7, progress=no_progress)
+    actions = [e["action"] for e in _journal()[n:]]
+    assert actions == ["personnage", "forme3d", "forme3d"]
+    klein = _journal()[n]["tache"]
+    assert tileset3d.RENDU_3D in klein["prompt"] and klein["references"][0].endswith("objet_03_reference.png")
+    with pytest.raises(gr.Error, match="Identifie d'abord"):
+        tileset3d.dessiner(dossier, [], progress=no_progress)
