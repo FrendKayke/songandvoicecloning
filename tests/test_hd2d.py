@@ -146,3 +146,35 @@ def test_effet_lumineux(env):
     assert couleur[0, 0, 3] == 0 and couleur[50, 50, 3] > 150  # fond blanc retiré, cœur opaque
     glb = _lire_glb(d / "magie_panneau.glb")
     assert glb["materials"][0]["alphaMode"] == "BLEND" and "emissiveTexture" in glb["materials"][0]
+
+
+def test_atlas_de_tuiles(env):
+    """Atlas (cases de 32 px) : reconnu, cases marquées d'une croix rouge laissées plates, cases de sol raccordables
+    calculées en boucle, cartes de la taille de l'atlas, pas d'objet 3D."""
+    atlas = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    sol = _briques(32)
+    for x in range(0, 128, 32):
+        atlas.paste(sol, (x, 0))
+    d = ImageDraw.Draw(atlas)
+    d.ellipse((36, 40, 90, 92), fill=(60, 140, 60, 255), outline=(0, 0, 0, 255))  # un objet sur deux cases
+    croix = Image.new("RGBA", (32, 32), "white")
+    dc = ImageDraw.Draw(croix)
+    dc.rectangle((0, 0, 31, 31), outline=(255, 0, 0, 255))
+    dc.line((0, 0, 31, 31), fill=(255, 0, 0, 255))
+    dc.line((0, 31, 31, 0), fill=(255, 0, 0, 255))
+    atlas.paste(croix, (96, 96))
+    a = np.array(atlas)
+    assert hd2d.case_atlas(a.shape[:2]) == 32 and hd2d.deviner_type(a) == hd2d.ATLAS
+    assert hd2d.deviner_type(np.array(_sprite())) == hd2d.SPRITE
+    h, vides, raccords = hd2d.relief_atlas(a, 32)
+    assert vides[96:, 96:].all() and not vides[:96].any() and len(raccords) == 4
+    n = hd2d.normales_atlas(h, vides, raccords)
+    assert (n[96:, 96:] == (128, 128, 255)).all() and (n[40:90, 36:90] != (128, 128, 255)).any()
+    f = env / "atlas.png"
+    atlas.save(f)
+    msg, apercus, produits, dossier = hd2d.convertir([str(f)], progress=no_progress)
+    assert "jeu de tuiles, 4×4 cases de 32 px (1 vides ignorées)" in msg
+    assert not any(p.endswith(".glb") for p in produits)
+    assert Image.open(Path(dossier) / "atlas_normales.png").size == (128, 128)
+    assert (np.array(Image.open(Path(dossier) / "atlas_couleur.png")) == a).all()
+    assert Image.open(Path(dossier) / "atlas_avant_apres.png").size == ((128 * 2 + 8) * 8, 128 * 8)

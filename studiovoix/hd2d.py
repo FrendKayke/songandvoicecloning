@@ -32,11 +32,13 @@ AUTO = "Automatique"
 SPRITE = "Personnage, créature ou objet (fond transparent)"
 TUILE = "Tuile de décor (sol, mur, rocher…)"
 EFFET = "Effet lumineux (magie, feu, particules)"
-TYPES = [AUTO, SPRITE, TUILE, EFFET]
+ATLAS = "Jeu de tuiles (atlas de cases : décor et objets)"
+TYPES = [AUTO, SPRITE, TUILE, EFFET, ATLAS]
 OPENGL = "OpenGL (Godot, Unity, Blender)"
 DIRECTX = "DirectX (Unreal)"
 CONVENTIONS = [OPENGL, DIRECTX]
 IMAGES_APERCU = 30
+CASES_ATLAS = (32, 48, 16)  # taille de case d'un atlas, dans l'ordre d'essai (RPG Maker XP/VX : 32, MV/MZ : 48)
 
 
 # --- Lecture et nettoyage ----------------------------------------------------------------------------------------
@@ -53,12 +55,39 @@ def _blanc_vers_transparence(a):
     return sortie
 
 
+def case_atlas(forme):
+    """Taille de case d'un atlas d'après ses dimensions (0 si aucune ne tombe juste ou s'il a moins de 4×4 cases)."""
+    return next((c for c in CASES_ATLAS if forme[0] % c == 0 and forme[1] % c == 0
+                 and forme[0] // c >= 4 and forme[1] // c >= 4), 0)
+
+
+def _case_vide(c):
+    """Case « vide » d'un atlas, marquée d'une croix rouge par l'éditeur (bord et diagonale rouges)."""
+    rouge = (c[..., 0] > 200) & (c[..., 1] < 80) & (c[..., 2] < 80) & (c[..., 3] > 0)
+    tour = np.concatenate([rouge[0], rouge[-1], rouge[:, 0], rouge[:, -1]]).mean()
+    n = min(rouge.shape)
+    return tour > 0.7 and rouge[np.arange(n), np.arange(n)].mean() > 0.7
+
+
+def _est_atlas(a):
+    """Atlas de tuiles : cases régulières, des cases pleines (sol, murs) à côté d'objets détourés, ou des cases
+    marquées vides. Une planche de personnages n'a pas de case pleine."""
+    cote = case_atlas(a.shape[:2])
+    if not cote or a[..., 3].min() == 255:
+        return False
+    cases = [a[j:j + cote, i:i + cote] for j in range(0, a.shape[0], cote) for i in range(0, a.shape[1], cote)]
+    pleines = sum(bool((c[..., 3] == 255).all()) for c in cases)
+    return any(_case_vide(c) for c in cases) or (pleines >= 0.2 * len(cases) and pleines < len(cases))
+
+
 def deviner_type(a):
     """Sprite si la transparence est franche, effet si elle est douce. Image opaque : on regarde ce qu'un fond uni
     relié aux bords occuperait — presque rien = tuile (une tuile entourée de joints de la même couleur reste une
     tuile), ou motif qui touche les quatre bords = tuile (des briques : leurs joints forment un « fond » relié aux
     bords) ; fond blanc avec un bord clair qui s'y fond (lueur) = effet ; sinon sprite sur fond uni."""
     opaque = a[..., 3]
+    if _est_atlas(a):
+        return ATLAS
     if opaque.min() < 255:
         return SPRITE if set(np.unique(opaque)) <= {0, 255} else EFFET
     fond = np.array(_sans_fond_uni(Image.fromarray(a, "RGBA")))[..., 3] == 0
@@ -79,8 +108,11 @@ def preparer(image, type_):
     origine = np.array(ImageOps.exif_transpose(image).convert("RGBA"))
     a, k, decalage = reduire(origine)
     a = np.ascontiguousarray(a)
-    type_ = deviner_type(a) if type_ in (None, "", AUTO) else type_
-    if type_ == TUILE and decalage != (0, 0):  # une tuile doit se raccorder à sa taille : pas de bande coupée
+    if type_ in (None, "", AUTO):
+        type_ = ATLAS if _est_atlas(origine) else deviner_type(a)
+    if type_ == ATLAS and case_atlas(origine.shape[:2]) % k:
+        a, k, decalage = origine, 1, (0, 0)  # les cases de l'atlas doivent rester des cases entières
+    if type_ in (TUILE, ATLAS) and decalage != (0, 0):  # une tuile doit se raccorder à sa taille : pas de bande coupée
         a, k, decalage = origine, 1, (0, 0)
     if type_ == EFFET and a[..., 3].min() == 255:
         a = _blanc_vers_transparence(a)
@@ -152,6 +184,55 @@ def relief(a, type_, grille=None, arrondi=4):
     if type_ == EFFET:  # une lueur : relief doux, le cœur lumineux en avant
         return np.clip(0.4 * _flou(a[..., 3] / 255, 1.0) + 0.6 * detail, 0, 1)
     return np.clip(0.75 * bombe + 0.25 * detail, 0, 1)
+
+
+def _raccordable(case):
+    """Case pleine dont les bords opposés se suivent (sol, sable, eau) : son relief est calculé en boucle pour que la
+    case répétée sur la carte ne montre pas de joint."""
+    if case.shape[0] < 4 or case.shape[1] < 4:
+        return False
+    interieur = (np.abs(np.diff(case, axis=0)).mean() + np.abs(np.diff(case, axis=1)).mean()) / 2
+    bords = (np.abs(case[0] - case[-1]).mean() + np.abs(case[:, 0] - case[:, -1]).mean()) / 2
+    return bords <= 1.5 * interieur + 0.01
+
+
+def relief_atlas(a, cote, arrondi=4):
+    """Atlas de tuiles : (relief, cases vides, cases raccordables). Bombé depuis le bord des objets détourés (ils
+    dépassent souvent d'une case : calculé sur tout l'atlas) + détail de la luminosité rapporté au contraste de chaque
+    case ; cases pleines raccordables calculées en boucle ; cases marquées vides : plates."""
+    lum = (a[..., :3].astype(float) @ np.array([0.299, 0.587, 0.114])) / 255
+    masque = a[..., 3] >= 128
+    d = _distance_au_bord(masque, max(1, int(arrondi)))
+    bombe = np.sqrt(np.clip(1 - (1 - d / max(1, arrondi)) ** 2, 0, 1)) * masque
+    lisse = _flou(lum, 0.8)
+    h = np.zeros(lum.shape)
+    vides = np.zeros(lum.shape, bool)
+    raccords = []
+    for lignes, colonnes in _cases(lum.shape, (a.shape[1] // cote, a.shape[0] // cote)):
+        if _case_vide(a[lignes, colonnes]):
+            vides[lignes, colonnes] = True
+            continue
+        plein = bool(masque[lignes, colonnes].all())
+        boucle = plein and _raccordable(lum[lignes, colonnes])
+        case = _flou(lum[lignes, colonnes], 0.8, boucle=True) if boucle else lisse[lignes, colonnes]
+        vu = case[masque[lignes, colonnes]]
+        if not vu.size:
+            continue
+        detail = np.clip(0.5 + (case - vu.mean()) / (4 * max(vu.std(), 0.02)), 0, 1)
+        h[lignes, colonnes] = (0.5 * bombe[lignes, colonnes] + 0.5 * detail) * masque[lignes, colonnes]
+        if boucle:
+            raccords.append((lignes, colonnes))
+    return h, vides, raccords
+
+
+def normales_atlas(h, vides, raccords, force=2.0, convention=OPENGL):
+    """Normales d'un atlas : pente sur tout l'atlas (un objet qui dépasse d'une case reste continu), recalculée en
+    boucle sur les cases raccordables ; cases vides : plates."""
+    n = normales(h, force, convention)
+    for lignes, colonnes in raccords:
+        n[lignes, colonnes] = normales(h[lignes, colonnes], force, convention, boucle=True)
+    n[vides] = (128, 128, 255)
+    return n
 
 
 def normales(h, force=2.0, convention=OPENGL, boucle=False, grille=None):
@@ -324,6 +405,49 @@ def bloc_glb(a, n, chemin, nom):
                 nom)
 
 
+# --- Atlas de tuiles -----------------------------------------------------------------------------------------
+def _convertir_atlas(a, k, decalage, forme, colonnes, lignes, force, arrondi, convention, dossier, base):
+    """Atlas (RPG Maker, Tiled, Godot…) : cartes de même taille et même découpe que l'atlas d'origine (la couleur est
+    l'atlas tel quel), aperçu de tout l'atlas avec la lumière qui tourne, comparaison avant / après. Pas d'objet 3D :
+    l'atlas se découpe dans le moteur de jeu."""
+    if int(colonnes or 0) > 0:
+        cote = a.shape[1] // int(colonnes)
+    else:
+        cote = case_atlas(forme) // max(1, k)
+    if cote < 4 or a.shape[0] % cote or a.shape[1] % cote:
+        raise ValueError(f"cases de l'atlas introuvables ({forme[1]}×{forme[0]} pixels) : donne le nombre de "
+                         "colonnes de cases")
+    h, vides, raccords = relief_atlas(a, cote, arrondi)
+    n = normales_atlas(h, vides, raccords, float(force), convention)
+    n[a[..., 3] == 0] = (128, 128, 255)
+    sortie = []
+    for cle, img in (("couleur", a), ("normales", n), ("relief", (h * 255).round().astype(np.uint8))):
+        f = dossier / f"{base}_{cle}.png"
+        Image.fromarray(remettre(img, k, decalage, forme) if k > 1 else img).save(f)
+        sortie.append(f)
+    zoom = max(1, 1024 // max(forme)) * max(1, k)
+    images = [agrandir(eclairer(a, n, 2 * math.pi * i / IMAGES_APERCU).convert("RGBA"), zoom)
+              for i in range(IMAGES_APERCU)]
+    gif = dossier / f"{base}_apercu.gif"
+    _gif(images, gif, int(5000 / IMAGES_APERCU))
+    # avant / après : l'atlas sur le fond sombre, puis éclairé d'en haut à gauche
+    plat = eclairer(np.zeros_like(a), n, 0.0)  # le fond sombre seul
+    plat.paste(Image.fromarray(np.ascontiguousarray(a[..., :3])), (0, 0), Image.fromarray(a[..., 3]))
+    eclaire = eclairer(a, n, math.radians(135))
+    comparaison = Image.new("RGB", (a.shape[1] * 2 + 8, a.shape[0]), (30, 30, 30))
+    comparaison.paste(plat, (0, 0))
+    comparaison.paste(eclaire, (a.shape[1] + 8, 0))
+    comparaison = comparaison.resize((comparaison.width * zoom, comparaison.height * zoom), Image.NEAREST)
+    avant_apres = dossier / f"{base}_avant_apres.png"
+    comparaison.save(avant_apres)
+    cases = (a.shape[0] // cote) * (a.shape[1] // cote)
+    nb_vides = sum(bool(vides[sl].all()) for sl in _cases(a.shape[:2], (a.shape[1] // cote, a.shape[0] // cote)))
+    ligne = (f"jeu de tuiles, {a.shape[1] // cote}×{a.shape[0] // cote} cases de {cote * max(1, k)} px"
+             + (f" ({nb_vides} vides ignorées)" if nb_vides else "") + f", {len(raccords)} cases raccordables "
+             f"sur {cases}, couleur, normales, relief")
+    return ligne, sortie + [gif, avant_apres]
+
+
 # --- Onglet --------------------------------------------------------------------------------------------------
 def convertir(fichiers, type_label=AUTO, colonnes=0, lignes=0, force=2.0, arrondi=4, convention=OPENGL,
               pixels_par_metre=32, nom="hd2d", progress=gr.Progress()):
@@ -343,6 +467,17 @@ def convertir(fichiers, type_label=AUTO, colonnes=0, lignes=0, force=2.0, arrond
                 a, type_, (k, decalage, forme) = preparer(im, type_label)
         except (OSError, ValueError) as e:
             lignes_msg.append(f"⚠️ {Path(source).name} : illisible ({e})")
+            continue
+        if type_ == ATLAS:
+            try:
+                ligne, fichiers_atlas = _convertir_atlas(a, k, decalage, forme, colonnes, lignes, force, arrondi,
+                                                         convention, dossier, base)
+            except ValueError as e:
+                lignes_msg.append(f"⚠️ {Path(source).name} : {e}")
+                continue
+            apercus += [str(f) for f in fichiers_atlas if f.suffix == ".gif" or f.stem.endswith("avant_apres")]
+            produits += [str(f) for f in fichiers_atlas]
+            lignes_msg.append(f"✅ {Path(source).name} : {ligne}")
             continue
         grille = (colonnes, lignes)
         h = relief(a, type_, grille, arrondi)

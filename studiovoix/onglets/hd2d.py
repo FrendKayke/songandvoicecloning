@@ -21,7 +21,7 @@ def construire():
         with gr.Column():
             hd_type = gr.Dropdown(hd2d.TYPES, value=hd2d.AUTO, label="Type")
             with gr.Row():
-                hd_colonnes = gr.Number(value=0, precision=0, label="Planche : colonnes (0 = une seule image)")
+                hd_colonnes = gr.Number(value=0, precision=0, label="Planche ou atlas : colonnes (0 = automatique)")
                 hd_lignes = gr.Number(value=0, precision=0, label="Planche : lignes")
             hd_nom = gr.Textbox(label="Nom du dossier", value="hd2d")
     with gr.Accordion("Réglages", open=False):
