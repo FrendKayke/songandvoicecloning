@@ -1730,3 +1730,34 @@ def test_facettes_du_moteur(tmp_path):
     haut = f.triangles_center[:, 2] > 0.5
     bas = f.triangles_center[:, 2] < -0.5
     assert (couleurs[haut, 0] > 150).mean() > 0.9 and (couleurs[bas, 2] > 150).mean() > 0.9
+
+
+def test_kit_pour_la_nuit(faux_diffusion, monkeypatch):
+    """« Tout faire d'un coup » : préparer, dessiner et créer en un appel, PC éteint à la fin si demandé ; une nuit
+    interrompue reprend sans refaire les modèles déjà faits."""
+    from studiovoix import kit3d, outils
+
+    eteint = []
+    monkeypatch.setattr(outils, "eteindre_plus_tard", lambda delai=300: eteint.append(delai))
+    table, msg, glb, produits, dossier = kit3d.tout_faire("un banc\nun lampadaire\nune poubelle", True, "rue",
+                                                          eteindre=True, progress=no_progress)
+    assert len(table) == 3 and "3/3 objet(s) en 3D" in msg and eteint == [300] and "s'éteindra" in msg
+    assert [e["action"] for e in _journal()].count("forme3d") == 3
+    Path(produits[2]).unlink()  # un modèle perdu (nuit interrompue)
+    n = len(_journal())
+    msg, _, produits, _ = kit3d.reprendre(dossier, progress=no_progress)
+    assert [e["action"] for e in _journal()[n:]] == ["forme3d"] and msg.count("déjà fait") == 2
+    with pytest.raises(gr.Error, match="Indique le dossier"):
+        kit3d.reprendre("", progress=no_progress)
+
+
+def test_sans_veille(monkeypatch):
+    """Pendant un calcul, Windows ne se met pas en veille (drapeaux posés puis retirés) ; ailleurs, rien."""
+    from studiovoix import outils
+
+    with outils.sans_veille():  # vraie fonction : sans effet hors de Windows, appel système réel sous Windows
+        pass
+    appels = []
+    monkeypatch.setattr(outils.subprocess, "run", lambda cmd, check: appels.append(cmd))
+    monkeypatch.setattr(outils.sys, "platform", "win32")
+    assert outils.eteindre_plus_tard(10)[:4] == ["shutdown", "/s", "/t", "10"] and len(appels) == 1

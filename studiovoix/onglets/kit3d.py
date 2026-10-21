@@ -38,6 +38,17 @@ def construire():
         kit_projet = gr.Dropdown(projets.tous(), value=None, allow_custom_value=True,
                                  label="Projet de jeu (pour le pack, facultatif)")
     btn_kit = gr.Button("🧱 3. Créer les modèles 3D", variant="primary")
+    with gr.Accordion("🌙 Tout lancer pour la nuit", open=False):
+        gr.Markdown("Prépare, dessine et crée tous les modèles **d'un seul clic**, sans vérification entre les étapes "
+                    "(une à deux minutes par objet : 50 objets ≈ 1 h 30 à 2 h). Windows ne se met pas en veille "
+                    "pendant le calcul (l'écran peut s'éteindre) ; **laisse cette page ouverte**. Si la nuit est "
+                    "interrompue (coupure, redémarrage), « Reprendre » ne refait que ce qui manque.")
+        with gr.Row():
+            kit_eteindre = gr.Checkbox(value=False, label="Éteindre l'ordinateur à la fin (5 minutes après, annulable)")
+            btn_kit_nuit = gr.Button("🌙 Tout faire d'un coup", variant="primary")
+        with gr.Row():
+            kit_reprise = gr.Textbox(label="Kit à reprendre (dossier ; vide = le dernier de cet onglet)")
+            btn_kit_reprendre = gr.Button("🔁 Reprendre")
     kit_message = gr.Markdown()
     kit_dossier = gr.State()
     kit_vue = gr.Model3D(label="Dernier objet créé (glisser pour tourner)")
@@ -59,4 +70,11 @@ def brancher(c, demo, o):
     c.btn_kit.click(kit3d.generer, [c.kit_dossier, c.kit_table, c.kit_style, c.kit_qualite, c.kit_texture,
                                     c.kit_graine, c.kit_projet],
                     [c.kit_message, c.kit_vue, c.kit_produits, c.kit_dossier])
+    c.btn_kit_nuit.click(kit3d.tout_faire, [c.kit_texte, c.kit_traduire, c.kit_nom, c.kit_style, c.kit_qualite,
+                                            c.kit_texture, c.kit_graine, c.kit_projet, c.kit_eteindre],
+                         [c.kit_table, c.kit_message, c.kit_vue, c.kit_produits, c.kit_dossier])
+    c.btn_kit_reprendre.click(lambda chemin, dossier, q, t, p, progress=gr.Progress():
+                              kit3d.reprendre(chemin.strip() or dossier, q, t, p, progress=progress),
+                              [c.kit_reprise, c.kit_dossier, c.kit_qualite, c.kit_texture, c.kit_projet],
+                              [c.kit_message, c.kit_vue, c.kit_produits, c.kit_dossier])
     c.btn_kit_dossier.click(lambda d: open_folder(d) if d else None, c.kit_dossier)

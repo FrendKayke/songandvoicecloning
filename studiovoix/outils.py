@@ -1,4 +1,5 @@
 """Outils communs : journal de commande en direct, détection de poids, ouverture de dossier."""
+import contextlib
 import json
 import os
 import subprocess
@@ -73,7 +74,42 @@ def _avertir(texte):
         pass
 
 
+@contextlib.contextmanager
+def sans_veille():
+    """Empêche Windows de se mettre en veille pendant un calcul (SetThreadExecutionState, ES_CONTINUOUS |
+    ES_SYSTEM_REQUIRED, pour le fil courant ; l'écran peut s'éteindre) : un lot lancé le soir doit tourner toute la
+    nuit. Rien ailleurs que sous Windows."""
+    if sys.platform != "win32":
+        yield
+        return
+    import ctypes
+
+    noyau = ctypes.windll.kernel32
+    noyau.SetThreadExecutionState(ctypes.c_uint(0x80000000 | 0x00000001))
+    try:
+        yield
+    finally:
+        noyau.SetThreadExecutionState(ctypes.c_uint(0x80000000))
+
+
+def eteindre_plus_tard(delai=300):
+    """Éteint l'ordinateur dans `delai` secondes (Windows, `shutdown /s`), avec le message de Windows ; annulable
+    par `shutdown /a`. Renvoie la commande lancée (rien hors de Windows)."""
+    if sys.platform != "win32":
+        return None
+    cmd = ["shutdown", "/s", "/t", str(int(delai)), "/c",
+           "Studio Voix : travail de nuit terminé. Tapez « shutdown /a » pour annuler."]
+    subprocess.run(cmd, check=False)
+    return cmd
+
+
 def lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None, resident=None, annonce=None):
+    """Comme `_lancer_moteur`, sans mise en veille de Windows pendant le calcul."""
+    with sans_veille():
+        return _lancer_moteur(cmd, cwd, extra_env, nom, suivi, attendu, resident, annonce)
+
+
+def _lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None, resident=None, annonce=None):
     """Lance un script de moteurs/ en sous-processus et suit son protocole :
     « PROGRESSION i/n … » → suivi(i, n) ; « ERREUR : message » → gr.Error(« <nom> : message »).
     Si « attendu » (fichier de sortie) n'existe pas à la fin, c'est aussi une erreur. Renvoie les dernières lignes.

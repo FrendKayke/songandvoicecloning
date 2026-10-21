@@ -156,6 +156,13 @@ def generer(dossier, table, style=STYLE_DEFAUT, qualite=QUALITE, texture=True, g
     objets = kit["objets"]
     lignes, produits, dernier = [], [], None
     for i, o in enumerate(objets):
+        # reprise (coupure, PC redémarré) : un objet déjà fait dans cette qualité, d'après la même image, est gardé
+        if (o.get("glb") and Path(o["glb"]).exists() and o.get("qualite") == qualite
+                and o.get("prompt_glb") == o.get("prompt")):
+            produits.append(o["glb"])
+            dernier = o["glb"]
+            lignes.append(f"- ✅ {o['nom']} : déjà fait")
+            continue
         try:
             msg, glb, _, _, creation = modele3d.generer(
                 o["rendu"], o["nom"], qualite, texture, o["graine"], ["glb"], description=o["prompt"],
@@ -167,7 +174,8 @@ def generer(dossier, table, style=STYLE_DEFAUT, qualite=QUALITE, texture=True, g
             continue
         copie = d / f"{o['nom']}.glb"
         shutil.copy(glb, copie)
-        o.update(glb=str(copie), creation=creation)
+        o.update(glb=str(copie), creation=creation, qualite=qualite, prompt_glb=o.get("prompt"))
+        _ecrire(d, kit)  # noté au fur et à mesure : une nuit interrompue reprend où elle en était
         produits.append(str(copie))
         dernier = str(copie)
         lignes.append(f"- ✅ {o['nom']} : {msg.split(' : ', 1)[-1].split('. Dossier')[0]}")
@@ -182,3 +190,33 @@ def generer(dossier, table, style=STYLE_DEFAUT, qualite=QUALITE, texture=True, g
     reussis = len([l_ for l_ in lignes if l_.startswith("- ✅")])
     return (f"**{reussis}/{len(objets)} objet(s) en 3D** (dans {d}, archive .zip comprise ; chacun aussi dans la "
             "Galerie) :\n\n" + "\n".join(lignes), dernier, produits, str(d))
+
+
+def tout_faire(texte, traduire=True, nom="kit", style=STYLE_DEFAUT, qualite=QUALITE, texture=True, graine=0,
+               projet=None, eteindre=False, progress=gr.Progress()):
+    """Pour la nuit : préparer, dessiner et créer tous les modèles d'un coup (sans vérification entre les étapes ;
+    Windows ne se met pas en veille pendant les calculs). eteindre : arrêt de l'ordinateur 5 minutes après la fin
+    (annulable). Renvoie (tableau, message, dernier GLB, fichiers, dossier)."""
+    from .outils import eteindre_plus_tard, sans_veille
+
+    with sans_veille():
+        table, _, dossier = preparer(texte, traduire, nom, progress=progress)
+        msg, dernier, produits, dossier = generer(dossier, table, style, qualite, texture, graine, projet,
+                                                  progress=progress)
+    if eteindre:
+        eteindre_plus_tard(300)
+        msg += ("\n\n🌙 L'ordinateur s'éteindra dans 5 minutes (pour annuler : touche Windows, tapez « cmd », "
+                "puis « shutdown /a »).")
+    return table, msg, dernier, produits, dossier
+
+
+def reprendre(dossier, qualite=QUALITE, texture=True, projet=None, progress=gr.Progress()):
+    """Kit interrompu (coupure, redémarrage) : refait seulement ce qui manque (dessins puis modèles). Le dossier peut
+    être donné relatif à l'application."""
+    if not dossier:
+        raise gr.Error("Indique le dossier du kit à reprendre (data\\3d\\kits\\<date>_<nom>).")
+    d = Path(dossier) if Path(dossier).is_absolute() else cfg.APP_DIR / dossier
+    _, kit = _lire(d)
+    table = [[o["nom"], o.get("objet", ""), o["description"]] for o in kit["objets"]]
+    return generer(str(d), table, kit.get("style") or STYLE_DEFAUT, qualite, texture, kit.get("graine") or 0,
+                   projet, progress=progress)
