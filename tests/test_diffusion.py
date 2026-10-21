@@ -1560,3 +1560,44 @@ def test_ckpt_de_hunyuan_retires(tmp_path, monkeypatch, capsys):
         "hunyuan3d-dit-v2-0-turbo/config.yaml", "hunyuan3d-dit-v2-0-turbo/model.fp16.safetensors",
         "hunyuan3d-vae-v2-0-turbo/config.yaml", "hunyuan3d-vae-v2-0-turbo/model.fp16.safetensors",
         "hunyuan3d-dit-v2-0/config.yaml", "hunyuan3d-dit-v2-0/model.fp16.safetensors"]
+
+
+def test_tileset_en_objets_3d(faux_diffusion):
+    """Tileset : objets trouvés (deux meubles rangés côte à côte séparés, une plante sur deux cases gardée entière,
+    case à croix rouge et fond ignorés, bloc de sol décoché), puis FLUX.2 klein redessine chaque objet coché avant
+    Hunyuan3D (tous les rendus d'abord), qualité low poly."""
+    from PIL import Image, ImageDraw
+
+    from studiovoix import tileset3d
+
+    atlas = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    d = ImageDraw.Draw(atlas)
+    for x in (0, 32):  # deux meubles côte à côte, chacun avec son contour
+        d.rectangle((x, 0, x + 31, 31), fill=(200, 160, 60, 255), outline=(30, 20, 10, 255))
+    d.ellipse((72, 4, 116, 40), fill=(60, 160, 60, 255), outline=(10, 40, 10, 255))  # feuilles
+    d.rectangle((88, 40, 100, 60), fill=(150, 90, 50, 255), outline=(40, 20, 10, 255))  # pot
+    for y in range(64, 128, 4):  # sol de 2×2 cases
+        d.rectangle((0, y, 63, y + 3), fill=(120, 110, 90, 255) if y % 8 else (140, 130, 100, 255))
+    d.rectangle((96, 96, 127, 127), fill="white", outline=(255, 0, 0, 255))
+    d.line((96, 96, 127, 127), fill=(255, 0, 0, 255))
+    d.line((96, 127, 127, 96), fill=(255, 0, 0, 255))
+    chemin = faux_diffusion / "maison.png"
+    atlas.save(chemin)
+    msg, galerie, choix, coches, dossier = tileset3d.analyser(str(chemin), 0, "maison")
+    lot = json.loads((Path(dossier) / "lot.json").read_text(encoding="utf-8"))
+    assert lot["cote"] == 32 and [p["boite"] for p in lot["pieces"]] == [[0, 0, 32, 32], [32, 0, 64, 32],
+                                                                         [72, 4, 117, 61], [0, 64, 64, 128]]
+    assert [p["sol"] for p in lot["pieces"]] == [False, False, False, True] and len(coches) == 3
+    assert "dont 1 sol(s)" in msg and Image.open(lot["pieces"][2]["reference"]).mode == "RGB"
+    texte, glb, produits, _ = tileset3d.generer(dossier, coches[1:], True, tileset3d.QUALITE, True, 7,
+                                                progress=no_progress)
+    actions = [e["action"] for e in _journal()]
+    assert actions == ["personnage", "personnage", "forme3d", "forme3d"]
+    klein = _journal()[0]["tache"]
+    assert tileset3d.RENDU_3D in klein["prompt"] and klein["graines"] == [7]
+    assert klein["references"][0].endswith("objet_02_reference.png")
+    forme = _journal()[2]["tache"]
+    assert forme["faces"] == 8000 and Path(forme["image"]).name == "image.png"
+    assert "2/2 objet(s) en 3D" in texte and [Path(p).name for p in produits] == ["objet_02.glb", "objet_03.glb"]
+    lot = json.loads((Path(dossier) / "lot.json").read_text(encoding="utf-8"))
+    assert lot["pieces"][1]["glb"].endswith("objet_02.glb") and "glb" not in lot["pieces"][0]

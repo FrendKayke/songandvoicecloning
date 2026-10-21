@@ -11,7 +11,7 @@ import gradio as gr
 from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, hd2d, histoire,
                       fluidite, illustrations, images, modeles, modeles_3d, parlante, pdf, photos, pixel_art, plans,
                       remix, serie, serie_musique,
-                      sous_titres, synthese, videos)
+                      sous_titres, synthese, tileset3d, videos)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
 
@@ -48,6 +48,7 @@ GROUPES = [
         ("illustrations", illustrations, "🃏 Illustrations de cartes"),
         ("modeles_3d", modeles_3d, "🧊 Modèles 3D"),
         ("hd2d", hd2d, "🏔️ Passer en HD-2D"),
+        ("tileset3d", tileset3d, "🧱 Tileset en objets 3D"),
     ]),
     ("🧰 Outils", [
         ("galerie", galerie, "🗃️ Galerie (toutes mes créations)"),

@@ -29,6 +29,8 @@ QUALITES = {
     "Fine (plus lente, plus de mémoire)": {"etapes": 5, "octree": 384, "faces": 100000},
     # Jeu dans le navigateur : peu de faces, et modele_web.glb (texture 1024 en JPEG) à côté du modèle complet
     "Web léger (jeu dans le navigateur)": {"etapes": 5, "octree": 192, "faces": 10000, "web": True},
+    # objets d'un tileset en 3D (onglet « Tileset en objets 3D ») : formes simples, détails dans la texture
+    "Low poly (jeu : formes simples, détails dans la texture)": {"etapes": 5, "octree": 256, "faces": 8000},
     # modèle de forme complet (non distillé) : 50 pas au lieu de 5, détails plus fins ; une à deux minutes de plus
     "Maximale (modèle complet, 50 étapes, la plus détaillée)": {"etapes": 50, "octree": 384, "faces": 150000,
                                                                "complet": True},
