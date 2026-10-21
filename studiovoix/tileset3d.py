@@ -32,6 +32,7 @@ from .serie import _slug
 
 QUALITE = "Low poly (jeu : formes simples, détails dans la texture)"  # dans modele3d.QUALITES
 AIRE_MIN = 24  # pixels : en dessous, une poussière (ou un morceau isolé d'un autre objet)
+PAQUET = 8  # images dessinées par tâche de Z-Image
 COTE_REFERENCE = 512  # objet agrandi (au plus proche) pour FLUX.2 klein
 STYLE_3D = "stylized low poly 3D game asset, clean simple shapes, smooth colors, 3D render"
 # avec le dessin d'origine en référence (FLUX.2 klein) : il a tendance à recopier les pixels, d'où l'insistance
@@ -40,7 +41,8 @@ RENDU_3D = ("Use the reference image only for the design and colors of the objec
 
 
 def _vides(a, cote):
-    """Pixels à ignorer : transparents, cases à croix rouge, cases unies noires ou blanches (vide ou fond)."""
+    """Pixels à ignorer : transparents, cases à croix rouge, cases unies, grandes zones noires ou blanches (vide ou
+    fond)."""
     from scipy import ndimage
 
     vide = a[..., 3] == 0
@@ -57,26 +59,73 @@ def _vides(a, cote):
         meme = (a == np.array(couleur, a.dtype)).all(axis=-1)
         zones, _ = ndimage.label(meme)
         vide |= np.isin(zones, np.unique(zones[meme & vide])) & meme
+    # noir ou blanc uni sans case entière (sous un tapis, autour d'un escalier, sol blanc entre les meubles) : une
+    # grande zone, plus épaisse qu'un contour (ouverture 5×5), reliée au bord de l'image, au transparent ou au vide
+    rgb = a[..., :3].astype(int)
+    bord = np.zeros(vide.shape, bool)
+    bord[[0, -1], :] = bord[:, [0, -1]] = True
+    for fond in ((rgb.sum(axis=-1) < 24), (rgb.min(axis=-1) >= 236)):
+        fond &= a[..., 3] == 255
+        voisin = ndimage.binary_dilation(bord | vide, np.ones((3, 3)))
+        zones, n = ndimage.label(ndimage.binary_opening(fond, np.ones((5, 5))))
+        for z in range(1, n + 1):
+            zone = zones == z
+            if zone.sum() >= cote * cote // 4 and (zone & voisin).any():
+                vide |= ndimage.binary_dilation(zone, np.ones((3, 3)), iterations=2, mask=fond)
     return vide
 
 
-def _continu(ga, gb, la, lb, ea, eb):
-    """Deux bords de cases voisines (pixels face à face) : le même objet continue d'une case à l'autre si les pixels
-    se ressemblent ; deux objets rangés côte à côte ont chacun leur contour sombre ou changent de couleur."""
+def _continu(ka, kb, ea, eb, empile=True, parts=(1.0, 1.0), ca=None, cb=None):
+    """Deux bords de cases voisines (pixels face à face ; ka, kb : pixel de la couleur des contours) : deux objets
+    rangés côte à côte ont chacun leur contour le long de la limite (deux traits face à face) ; sinon c'est le même
+    objet qui continue (une plante, une étagère ou un tapis à cheval sur deux cases : couper sur une différence de
+    couleur les tranchait, constaté chez l'utilisateur). parts : place de la zone dans chacune des deux cases (0–1) ;
+    ca, cb : couleurs face à face (deux contours d'objets séparés sont de la même couleur ; une étagère a un trait
+    gris-bleu puis un trait gris : ses planches, pas deux objets)."""
     face = (ea > 0) & (ea == eb)
-    if face.sum() < 4:
+    if not face.any():
         return False
-    if face.sum() < 0.6 * len(face):  # passage étroit (feuilles d'une plante, pied) : le même objet qui déborde
-        return True
-    proche = np.abs(ga.astype(int) - gb.astype(int)).sum(axis=-1) < 90
-    sombres = (la < 0.3) & (lb < 0.3)
-    return (proche & ~sombres & face).sum() >= 0.5 * face.sum()
+    if face.sum() < 0.5 * len(face):
+        # passage étroit. Deux objets voisins qui se frôlent par leurs contours (bouts de feuilles de deux plantes
+        # rangées côte à côte) : chacun occupe une bonne part de sa case. Sinon, le même objet qui déborde : feuilles
+        # d'une plante haute sur la case du dessus, coin d'un tapis, barre fine qui continue
+        consequents = min(parts) >= 0.25
+        trait = (ka[face] & kb[face]) if empile else (ka[face] | kb[face])
+        return not (consequents and trait.mean() >= 0.7)
+    memes = True if ca is None else (ca[face] == cb[face]).mean() >= 0.75
+    return not (ka[face].mean() >= 0.75 and kb[face].mean() >= 0.75 and memes)
+
+
+def couleurs_de_contour(codes, plein):
+    """Couleurs des contours du tileset : les plus fréquentes au bord des objets (pixels pleins voisins du vide),
+    jusqu'à 60 % de ces pixels et 6 couleurs. Le pixel art les dessine d'une ou deux couleurs (gris moyen et gris-bleu
+    foncé dans les tilesets de l'utilisateur) ; un seuil de luminosité prenait un tapis rouge pour un contour."""
+    from scipy import ndimage
+
+    bord = plein & ndimage.binary_dilation(~plein, np.ones((3, 3)))
+    valeurs, nombres = np.unique(codes[bord], return_counts=True)
+    ordre = np.argsort(nombres)[::-1]
+    gardees, cumul = [], 0
+    for i in ordre[:6]:
+        if cumul >= 0.6 * nombres.sum():
+            break
+        gardees.append(valeurs[i])
+        cumul += nombres[i]
+    return np.array(gardees, dtype=codes.dtype)
+
+
+def _memes_couleurs(a, b, seuil=0.25):
+    """Le pixel art n'emploie qu'une petite palette par objet : deux cases voisines du même objet partagent leurs
+    couleurs (feuilles des deux côtés d'une plante, livres d'une étagère) ; une statue posée contre un sol n'en
+    partage presque aucune. Part des pixels de chaque côté dont la couleur existe de l'autre côté (la plus petite)."""
+    if not len(a) or not len(b):
+        return False
+    return min(np.isin(a, b).mean(), np.isin(b, a).mean()) >= seuil
 
 
 def _separer(etiquettes, a, cote):
     """Zones reliées → objets : une zone est coupée entre deux cases quand l'image ne continue pas de l'une à
     l'autre (objets rangés côte à côte dans l'atlas, piliers voisins, meubles contre un sol)."""
-    lum = (a[..., :3].astype(float) @ np.array([0.299, 0.587, 0.114])) / 255
     h, w = etiquettes.shape
     lignes, colonnes = h // cote, w // cote
     parent = {}
@@ -87,6 +136,14 @@ def _separer(etiquettes, a, cote):
             x = parent[x]
         return x
 
+    codes = (a[..., 0].astype(np.int64) << 16) | (a[..., 1].astype(np.int64) << 8) | a[..., 2]
+
+    def cellule(r, c, e):  # couleurs exactes de la zone e dans la case (r, c)
+        bloc = (slice(r * cote, (r + 1) * cote), slice(c * cote, (c + 1) * cote))
+        return codes[bloc][etiquettes[bloc] == e]
+
+    trait = np.isin(codes, couleurs_de_contour(codes, etiquettes > 0))
+
     for r in range(lignes):
         for c in range(colonnes):
             for dr, dc in ((0, 1), (1, 0)):
@@ -95,14 +152,17 @@ def _separer(etiquettes, a, cote):
                     continue
                 if dc:  # bord vertical : dernière colonne de la case de gauche, première de celle de droite
                     ys, xa, xb = slice(r * cote, (r + 1) * cote), c2 * cote - 1, c2 * cote
-                    ea, eb = etiquettes[ys, xa], etiquettes[ys, xb]
-                    ga, gb, la, lb = a[ys, xa, :3], a[ys, xb, :3], lum[ys, xa], lum[ys, xb]
+                    ea, eb, ka, kb = etiquettes[ys, xa], etiquettes[ys, xb], trait[ys, xa], trait[ys, xb]
+                    da, db = codes[ys, xa], codes[ys, xb]
                 else:
                     xs, ya, yb = slice(c * cote, (c + 1) * cote), r2 * cote - 1, r2 * cote
-                    ea, eb = etiquettes[ya, xs], etiquettes[yb, xs]
-                    ga, gb, la, lb = a[ya, xs, :3], a[yb, xs, :3], lum[ya, xs], lum[yb, xs]
+                    ea, eb, ka, kb = etiquettes[ya, xs], etiquettes[yb, xs], trait[ya, xs], trait[yb, xs]
+                    da, db = codes[ya, xs], codes[yb, xs]
                 for e in set(np.unique(ea[(ea > 0) & (ea == eb)]).tolist()):
-                    if _continu(ga, gb, la, lb, np.where(ea == e, ea, 0), np.where(eb == e, eb, 0)):
+                    ca, cb = cellule(r, c, e), cellule(r2, c2, e)
+                    if (_continu(ka, kb, np.where(ea == e, ea, 0), np.where(eb == e, eb, 0), empile=dr == 1,
+                                 parts=(len(ca) / cote ** 2, len(cb) / cote ** 2), ca=da, cb=db)
+                            and _memes_couleurs(ca, cb)):
                         parent[trouver((e, r, c))] = trouver((e, r2, c2))
     sortie = np.zeros_like(etiquettes)
     numeros = {}
@@ -113,6 +173,22 @@ def _separer(etiquettes, a, cote):
                 n = numeros.setdefault(trouver((e, r, c)), len(numeros) + 1)
                 sortie[r * cote:(r + 1) * cote, c * cote:(c + 1) * cote][bloc == e] = n
     return sortie
+
+
+def _rattacher_bandes(etiquettes, epaisseur=6):
+    """Bande de quelques pixels laissée seule par une coupure (rebord d'un comptoir) : rattachée à la zone qu'elle
+    touche le plus."""
+    from scipy import ndimage
+
+    for e, boite in enumerate(ndimage.find_objects(etiquettes), 1):
+        if boite is None or min(boite[0].stop - boite[0].start, boite[1].stop - boite[1].start) > epaisseur:
+            continue
+        zone = etiquettes == e
+        autour = etiquettes[ndimage.binary_dilation(zone, np.ones((3, 3))) & ~zone]
+        autour = autour[(autour > 0) & (autour != e)]
+        if autour.size:
+            etiquettes[zone] = np.bincount(autour).argmax()
+    return etiquettes
 
 
 def decouper(chemin, nom="tileset", cote=0):
@@ -127,7 +203,7 @@ def decouper(chemin, nom="tileset", cote=0):
     # regroupe les morceaux à un pixel l'un de l'autre (feuilles d'une plante, pieds d'un meuble)
     etiquettes, n = ndimage.label(ndimage.binary_dilation(plein, np.ones((3, 3))), np.ones((3, 3)))
     etiquettes[~plein] = 0
-    etiquettes = _separer(etiquettes, a, cote)
+    etiquettes = _rattacher_bandes(_separer(etiquettes, a, cote))
     dossier = nouveau_dossier(cfg.MODELS3D_DIR / "tilesets", _slug(nom, "tileset"))
     (dossier / "pieces").mkdir()
     shutil.copy(chemin, dossier / f"atlas{Path(chemin).suffix.lower() or '.png'}")
@@ -141,9 +217,12 @@ def decouper(chemin, nom="tileset", cote=0):
         y0, y1, x0, x1 = boite[0].start, boite[0].stop, boite[1].start, boite[1].stop
         cases = [(r, c) for r in range(y0 // cote, (y1 - 1) // cote + 1) for c in range(x0 // cote, (x1 - 1) // cote + 1)
                  if (etiquettes[r * cote:(r + 1) * cote, c * cote:(c + 1) * cote] == i).any()]
-        # sol, eau, mur : un bloc d'au moins quatre cases entièrement pleines (une texture, pas un objet)
-        pleines = [(r, c) for r, c in cases if (etiquettes[r * cote:(r + 1) * cote, c * cote:(c + 1) * cote] == i).all()]
-        sol = len(pleines) == len(cases) >= 4
+        # sol, eau, mur : un bloc d'au moins 6 cases entièrement pleines sur 2 lignes et 2 colonnes (une texture)
+        part = {(r, c): (etiquettes[r * cote:(r + 1) * cote, c * cote:(c + 1) * cote] == i).mean() for r, c in cases}
+        cases_ = [rc for rc in cases if part[rc] >= 0.25]  # sans une bande rattachée qui déborde sur une case
+        pleines = [rc for rc in cases_ if part[rc] == 1]
+        lignes_, colonnes_ = {r for r, _ in cases_}, {c for _, c in cases_}
+        sol = len(pleines) == len(cases_) >= 6 and len(lignes_) >= 2 and len(colonnes_) >= 2  # pas un pilier, un escalier
         morceau = a[boite].copy()
         morceau[~masque] = 0
         nom_piece = f"objet_{len(pieces) + 1:02d}"
@@ -243,6 +322,13 @@ def _descriptions(d, lot, table, progress):
     return pieces
 
 
+def _partie(progress, debut, fin, quoi):
+    """Progression d'une tâche du moteur ramenée à la tranche [debut, fin] de la barre, avec l'objet en cours."""
+    def suivi(fraction, desc=""):
+        progress(debut + (fin - debut) * fraction, desc=f"{quoi} — {desc}")
+    return suivi
+
+
 def prompt_objet(description):
     return f"{description.rstrip('. ')}. {STYLE_3D}, {modele3d.OBJET_SEUL}"
 
@@ -258,15 +344,20 @@ def dessiner(dossier, table, garder_dessin=False, graine=0, progress=gr.Progress
     sorties = [d / "rendus" / f"{p['nom']}.png" for p in pieces]
     prompts = [prompt_objet(p["description"]) for p in pieces]
     graines = [graine + i for i in range(len(pieces))]
+    n = len(pieces)
     if garder_dessin:
         for i, p in enumerate(pieces):
-            progress(i / len(pieces), desc=f"Rendu 3D de {p['nom']} ({i + 1}/{len(pieces)}, FLUX.2 klein)…")
             largeur, hauteur = _format(p["reference"])
             diffusion.personnage(f"{prompts[i]}. {RENDU_3D}.", [p["reference"]], [sorties[i]], [graines[i]], largeur,
-                                 hauteur)
+                                 hauteur, progress=_partie(progress, i / n, (i + 1) / n,
+                                                           f"{p['nom']} ({i + 1}/{n})"))
     else:
-        progress(0, desc=f"Dessin de {len(pieces)} objet(s) (Z-Image)…")
-        diffusion.image(prompts if len(prompts) > 1 else prompts[0], sorties, graines, 1024, 1024)
+        # par paquets : la progression avance (une seule tâche de 34 images restait à 0 % une dizaine de minutes chez
+        # l'utilisateur, faute de progression transmise) ; l'encodeur ne passe sur la carte qu'une fois par paquet
+        for i in range(0, n, PAQUET):
+            j = min(n, i + PAQUET)
+            diffusion.image(prompts[i:j] if j - i > 1 else prompts[i], sorties[i:j], graines[i:j], 1024, 1024,
+                            progress=_partie(progress, i / n, j / n, f"objets {i + 1} à {j} sur {n}"))
     for p, sortie, g, prompt in zip(pieces, sorties, graines, prompts):
         p.update(rendu=str(sortie), graine_rendu=g, prompt=prompt, description_rendu=p["description"],
                  moteur_rendu="klein" if garder_dessin else "zimage")
@@ -294,11 +385,12 @@ def generer(dossier, table, garder_dessin=False, qualite=QUALITE, texture=True, 
     graine = int(graine or 0) or lot.get("graine") or diffusion.graines(1)[0]
     lignes, produits, dernier = [], [], None
     for i, p in enumerate(pieces):
-        progress(i / len(pieces), desc=f"Modèle 3D de {p['nom']} ({i + 1}/{len(pieces)}, Hunyuan3D)…")
         try:
             msg, glb, _, _, creation = modele3d.generer(
                 p["rendu"], f"{lot['atlas'].rsplit('.', 1)[0]}_{p['nom']}", qualite, texture, graine + i, ["glb"],
-                description=p.get("prompt"), projet=projet)
+                description=p.get("prompt"), projet=projet,
+                progress=_partie(progress, i / len(pieces), (i + 1) / len(pieces),
+                                 f"modèle 3D de {p['nom']} ({i + 1}/{len(pieces)})"))
         except gr.Error as e:
             lignes.append(f"- ❌ {p['nom']} : {getattr(e, 'message', e)}")
             continue
