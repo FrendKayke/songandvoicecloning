@@ -31,6 +31,9 @@ QUALITES = {
     "Web léger (jeu dans le navigateur)": {"etapes": 5, "octree": 192, "faces": 10000, "web": True},
     # objets d'un tileset en 3D (onglet « Tileset en objets 3D ») : formes simples, détails dans la texture
     "Low poly (jeu : formes simples, détails dans la texture)": {"etapes": 5, "octree": 256, "faces": 8000},
+    # style des jeux de construction de ville : faces planes de couleur unie (modele_facettes.glb), lues dans la
+    # texture peinte d'un modèle plus fin
+    "Low poly facetté (couleurs unies, ~3 000 faces)": {"etapes": 5, "octree": 256, "faces": 20000, "facettes": 3000},
     # modèle de forme complet (non distillé) : 50 pas au lieu de 5, détails plus fins ; une à deux minutes de plus
     "Maximale (modèle complet, 50 étapes, la plus détaillée)": {"etapes": 50, "octree": 384, "faces": 150000,
                                                                "complet": True},
@@ -178,8 +181,9 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
         dos = dossier / ("image_dos" + Path(image_dos).suffix.lower())
         shutil.copy(image_dos, dos)
     res = diffusion.forme3d(image, dossier, q["etapes"], q["octree"], q["faces"], graine, texture, formats, progress,
-                            web=q.get("web", False), complet=q.get("complet", False), dos=dos)
-    fichier = res.get("texture") or res["forme"]
+                            web=q.get("web", False), complet=q.get("complet", False), dos=dos,
+                            facettes=q.get("facettes"))
+    fichier = res.get("facettes") or res.get("texture") or res["forme"]
     nom = nettoyer_nom(nom)
     ecrire_creation(dossier, {
         "type": "3d", "nom": nom, "projet": projets.nom(projet), "image": image.name, "qualite": qualite if qualite in QUALITES else QUALITE_DEFAUT,
@@ -189,7 +193,7 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
         "faces_obtenues": res.get("faces"), "image_dos": dos.name if dos else None,
         "revision": (revision or "").strip() or None, "revision_de": revision_de or None,
         "versions": [{"graine": res["graine"], "dossier": ".", "fichier": fichier, "forme": res["forme"],
-                      "obj": res.get("obj"), "web": res.get("web")}],
+                      "obj": res.get("obj"), "web": res.get("web"), "facettes": res.get("facettes")}],
     })
     note = ""
     if texture and not res.get("texture"):
@@ -198,6 +202,8 @@ def generer(image_path, nom, qualite, texture, graine, formats, description=None
         note += f" ; version web légère : {Path(res['web']).name}"
     if dos:
         note += " ; forme sculptée d'après la face et le dos (Hunyuan3D-2mv)"
+    if res.get("facettes"):
+        note += f" ; version facettée (couleurs unies) : {Path(res['facettes']).name}"
     msg = f"✅ Modèle « {nom} » : {res.get('faces')} faces, graine {res['graine']}{note}. Dossier : {dossier}"
     detouree = dossier / "image_detouree.png"
     return (msg, fichier, str(detouree) if detouree.exists() else None, fichiers_produits(dossier, image.name),
@@ -223,6 +229,21 @@ def alleger(dossier, progress=gr.Progress()):
     else:
         msg = f"🪶 {Path(res['sortie']).name} : {_taille(res['avant'])} → {_taille(res['apres'])} (texture 1024 px en JPEG)."
     return msg, fichiers_produits(d, next((p.name for p in d.glob("image.*")), None))
+
+
+def facetter(dossier, faces=3000, couleurs=24, progress=gr.Progress()):
+    """Version « low poly facettée » du dernier modèle créé : modele_facettes.glb (faces planes de couleur unie, lue
+    dans la texture). Renvoie (message, GLB, fichiers)."""
+    if not dossier or not Path(dossier).is_dir():
+        raise gr.Error("Crée d'abord un modèle 3D (ou ouvre-le depuis la galerie).")
+    d = Path(dossier)
+    source = d / "modele.glb" if (d / "modele.glb").exists() else d / "forme.glb"
+    if not source.exists():
+        raise gr.Error(f"Aucun modèle GLB dans {d}.")
+    res = diffusion.facetter(source, d / "modele_facettes.glb", int(faces), int(couleurs), progress=progress)
+    blanc = "" if source.name == "modele.glb" else " (forme sans texture : faces blanches)"
+    return (f"🔷 {Path(res['sortie']).name} : {res['faces']} faces, {res['couleurs']} couleurs{blanc}.",
+            res["sortie"], fichiers_produits(d, next((p.name for p in d.glob("image.*")), None)))
 
 
 def generer_lot(images, prefixe, qualite, texture, graine, formats, projet=None, progress=gr.Progress()):

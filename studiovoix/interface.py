@@ -9,7 +9,8 @@ from types import SimpleNamespace
 import gradio as gr
 
 from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, hd2d, histoire,
-                      fluidite, illustrations, images, modeles, modeles_3d, parlante, pdf, photos, pixel_art, plans,
+                      fluidite, kit3d, illustrations, images, modeles, modeles_3d, parlante, pdf, photos,
+                      pixel_art, plans,
                       remix, serie, serie_musique,
                       sous_titres, synthese, tileset3d, videos)
 from .onglets.chanson import apercu_description, maj_mode
@@ -49,6 +50,7 @@ GROUPES = [
         ("modeles_3d", modeles_3d, "🧊 Modèles 3D"),
         ("hd2d", hd2d, "🏔️ Passer en HD-2D"),
         ("tileset3d", tileset3d, "🧱 Tileset en objets 3D"),
+        ("kit3d", kit3d, "🏙️ Kit d'objets 3D"),
     ]),
     ("🧰 Outils", [
         ("galerie", galerie, "🗃️ Galerie (toutes mes créations)"),

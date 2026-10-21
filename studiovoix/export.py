@@ -208,7 +208,8 @@ def visuels_du_projet(projet):
     pris = set()
     for nom, dossier, infos in _plus_recents(cfg.MODELS3D_DIR, "*/creation.json",
                                              lambda i: i.get("type") == "3d" and i.get("projet") == projet):
-        candidats = [dossier / "modele_web.glb", dossier / "modele.glb", dossier / "forme.glb"]
+        candidats = [dossier / "modele_facettes.glb", dossier / "modele_web.glb", dossier / "modele.glb",
+                     dossier / "forme.glb"]
         source = next((c for c in candidats if c.exists()), None)
         if source:
             elements.append(("modeles3d", _slug(nom, pris), source, infos))

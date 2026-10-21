@@ -73,6 +73,10 @@ def construire():
             m3_detouree = gr.Image(label="Image détourée", interactive=False)
             m3_fichiers = gr.File(label="Fichiers produits", file_count="multiple", interactive=False)
             btn_m3_web = gr.Button("🪶 Alléger pour le web (texture 1024 px en JPEG)")
+            with gr.Row():
+                m3_facettes = gr.Number(value=3000, precision=0, minimum=200, maximum=50000,
+                                        label="Faces de la version facettée")
+                btn_m3_facettes = gr.Button("🔷 Version facettée (low poly, couleurs unies)")
             btn_m3_dossier = gr.Button("📂 Ouvrir le dossier")
     with gr.Accordion("🦴 Squelette pour l'animation (rigging automatique)", open=False):
         gr.Markdown("UniRig (licence MIT) place un squelette dans le modèle et calcule l'influence de chaque os sur la "
@@ -121,6 +125,7 @@ def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     # Modèles 3D
     c.btn_m3_web.click(modele3d.alleger, c.m3_dossier, [c.m3_statut, c.m3_fichiers])
+    c.btn_m3_facettes.click(modele3d.facetter, [c.m3_dossier, c.m3_facettes], [c.m3_statut, c.m3_vue, c.m3_fichiers])
     c.btn_m3_rig.click(rigging.animer, [c.m3_dossier, c.m3_rig_fichier, c.m3_rig_graine],
                        [c.m3_rig_statut, c.m3_vue, c.m3_fichiers])
     c.btn_m3_lot.click(modele3d.generer_lot, [c.m3_lot, c.m3_lot_prefixe, c.m3_qualite, c.m3_texture, c.m3_graine, c.m3_formats,

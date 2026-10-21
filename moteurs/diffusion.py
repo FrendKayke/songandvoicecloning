@@ -441,6 +441,12 @@ CONSIGNES = {
                  "situation mentioned). No song titles, no artist or existing work, no lyrics. Answer with exactly "
                  "the same number of lines, numbered 1., 2., 3. and so on, one description per line, nothing "
                  "else:\n\n"),
+    # onglet « Kit d'objets 3D » : un objet par ligne (souvent en français) → description anglaise d'un objet seul
+    "objets": ("Translate each numbered line below into a short English description of ONE object for a 3D game "
+               "asset generator: what the object is, its shape, parts, materials and colors (keep every detail "
+               "given: colors, number of floors, signs, wheels…). No brand, no game or existing work, no background. "
+               "Answer with exactly the same number of lines, numbered 1., 2., 3. and so on, one description per "
+               "line, nothing else:\n\n"),
     # onglet « Vidéo parlante » (StableAvatar) : forme conseillée par ses auteurs, « première image - ce que fait la
     # personne - décor »
     "parlante": ("The attached image is the first frame of a video in which this person talks or sings, with lips "
@@ -494,7 +500,8 @@ RAPPEL_HISTOIRE = ("\n\nEnd of the story. Now write exactly {n} numbered prompts
                    "everything except the characters' names), nothing else.")
 RAPPEL_MUSIQUES = "\n\nEnd of the lines. Now write exactly {n} numbered lines, IN ENGLISH, nothing else."
 # Modes qui répondent par une liste numérotée (une ligne par élément) : jetons par élément, rappel ajouté au texte
-LISTES_NUMEROTEES = {"histoire": (180, RAPPEL_HISTOIRE), "musiques": (50, RAPPEL_MUSIQUES)}
+LISTES_NUMEROTEES = {"histoire": (180, RAPPEL_HISTOIRE), "musiques": (50, RAPPEL_MUSIQUES),
+                     "objets": (50, RAPPEL_MUSIQUES)}
 
 # Plan d'une suite (plusieurs plans enchaînés) : chaque plan était reformulé seul, sans les autres ; « A kraken
 # appears » devenait un océan sans les aventuriers, « They are fighting him » une ruelle à néons avec d'autres
@@ -1410,6 +1417,9 @@ def forme3d(chemin_tache):
     if not texture:
         if "obj" in formats:
             resultat["obj"] = _exporter_obj(mesh, dossier / "forme.obj")
+        if t.get("facettes"):  # sans texture : facettes blanches
+            resultat["facettes"] = _facetter_glb(forme, dossier / "modele_facettes.glb", int(t["facettes"]),
+                                                 int(t.get("couleurs", 24)))["sortie"]
         _resultat(resultat)
         print(f"TERMINE {forme}", flush=True)
         return
@@ -1450,6 +1460,9 @@ def forme3d(chemin_tache):
         resultat["obj"] = _exporter_obj(texture_mesh, dossier / "modele.obj")
     if t.get("web"):
         resultat["web"] = _alleger_glb(modele, dossier / "modele_web.glb", int(t.get("texture_web", 1024)))["sortie"]
+    if t.get("facettes"):
+        resultat["facettes"] = _facetter_glb(modele, dossier / "modele_facettes.glb", int(t["facettes"]),
+                                             int(t.get("couleurs", 24)))["sortie"]
     _resultat(resultat)
     print(f"TERMINE {modele}", flush=True)
 
@@ -1533,6 +1546,109 @@ def alleger(chemin_tache):
     t = _lire(chemin_tache)
     print("PROGRESSION 1/1 allègement du modèle", flush=True)
     res = _alleger_glb(t["entree"], t["sortie"], int(t.get("texture_max", 1024)))
+    _resultat(res)
+    print(f"TERMINE {res['sortie']}", flush=True)
+
+
+def _simplifier(mesh, faces):
+    """Maillage (sans texture) réduit à `faces` faces : pymeshlab (quadriques, formes planes gardées), sinon
+    fast_simplification par trimesh s'il est installé, sinon tel quel."""
+    import trimesh
+
+    if len(mesh.faces) <= faces:
+        return mesh
+    try:
+        import pymeshlab
+
+        ms = pymeshlab.MeshSet()
+        ms.add_mesh(pymeshlab.Mesh(vertex_matrix=mesh.vertices, face_matrix=mesh.faces))
+        ms.meshing_decimation_quadric_edge_collapse(targetfacenum=int(faces), preservenormal=True,
+                                                    preservetopology=True, planarquadric=True, qualitythr=0.3)
+        m = ms.current_mesh()
+        return trimesh.Trimesh(m.vertex_matrix(), m.face_matrix(), process=True)
+    except Exception as e:  # noqa: BLE001 - greffon pymeshlab absent (Linux sans libOpenGL)
+        try:
+            return mesh.simplify_quadric_decimation(face_count=int(faces))
+        except Exception:  # noqa: BLE001
+            print(f"AVERTISSEMENT : simplification impossible ({e}) ; faces gardées.", flush=True)
+            return mesh
+
+
+def _palette_kmeans(couleurs, poids, n, tours=12):
+    """n couleurs représentatives (k-moyennes pondérées par l'aire des faces, départ sur les plus fréquentes)."""
+    import numpy as np
+
+    n = max(1, min(int(n), len(couleurs)))
+    ordre = np.argsort(-poids)
+    centres = [couleurs[ordre[0]]]
+    for i in ordre[1:]:  # départ : couleurs fréquentes et éloignées les unes des autres
+        if len(centres) >= n:
+            break
+        if np.min(np.abs(np.array(centres) - couleurs[i]).sum(axis=1)) > 24:
+            centres.append(couleurs[i])
+    centres = np.array(centres, float)
+    for _ in range(tours):
+        etiquettes = np.argmin(((couleurs[:, None, :] - centres[None]) ** 2).sum(-1), axis=1)
+        for k in range(len(centres)):
+            m = etiquettes == k
+            if m.any():
+                centres[k] = np.average(couleurs[m], axis=0, weights=poids[m] + 1e-9)
+    return centres, etiquettes
+
+
+def _facetter_glb(entree, sortie, faces=3000, couleurs=24):
+    """Version « low poly facettée » d'un modèle de Hunyuan3D (style des jeux de construction de ville) : forme
+    réduite à `faces` faces, une couleur unie par face (lue dans la texture d'origine : plusieurs points de la face,
+    couleur médiane des faces d'origine les plus proches), couleurs ramenées à une palette de `couleurs` teintes,
+    arêtes nettes (sommets non partagés : normale de la face). Sans texture, faces blanches."""
+    import numpy as np
+    import trimesh
+    from scipy.spatial import cKDTree
+
+    origine = trimesh.load(str(entree), force="mesh")
+    visuel = getattr(origine, "visual", None)
+    image = getattr(getattr(visuel, "material", None), "baseColorTexture", None)
+    if image is None:
+        image = getattr(getattr(visuel, "material", None), "image", None)
+    uv = getattr(visuel, "uv", None)
+    # couleur de chaque face d'origine : texture lue en 4 points (centre et vers chaque sommet)
+    if image is not None and uv is not None and len(uv) == len(origine.vertices):
+        tex = np.asarray(image.convert("RGB"), dtype=float)
+        h, w = tex.shape[:2]
+        uv_faces = uv[origine.faces]  # (n, 3, 2)
+        points = [uv_faces.mean(axis=1)] + [0.5 * uv_faces.mean(axis=1) + 0.5 * uv_faces[:, k] for k in range(3)]
+        lectures = []
+        for p in points:
+            x = np.clip((p[:, 0] % 1.0) * (w - 1), 0, w - 1).round().astype(int)
+            y = np.clip((1 - p[:, 1] % 1.0) * (h - 1), 0, h - 1).round().astype(int)
+            lectures.append(tex[y, x])
+        couleurs_origine = np.median(np.stack(lectures), axis=0)
+    else:
+        couleurs_origine = np.full((len(origine.faces), 3), 235.0)
+    arbre = cKDTree(origine.triangles_center)
+    forme = _simplifier(trimesh.Trimesh(origine.vertices, origine.faces, process=True), int(faces))
+    tri = forme.triangles
+    centres = tri.mean(axis=1)
+    echantillons = np.concatenate([centres] + [0.6 * centres + 0.4 * tri[:, k] for k in range(3)])
+    _, voisins = arbre.query(echantillons, k=3)
+    lus = couleurs_origine[voisins].reshape(4, len(centres), 3, 3).transpose(1, 0, 2, 3).reshape(len(centres), 12, 3)
+    teintes = np.median(lus, axis=1)
+    if couleurs and int(couleurs) > 0:
+        palette, etiquettes = _palette_kmeans(teintes, forme.area_faces, int(couleurs))
+        teintes = palette[etiquettes]
+    final = trimesh.Trimesh(forme.vertices, forme.faces, process=False)
+    final.unmerge_vertices()  # arêtes nettes : chaque face a ses propres sommets (normale de la face)
+    rgba = np.concatenate([np.clip(teintes, 0, 255), np.full((len(teintes), 1), 255.0)], axis=1).astype(np.uint8)
+    final.visual = trimesh.visual.ColorVisuals(final, face_colors=rgba)
+    final.export(str(sortie), include_normals=True)
+    return {"sortie": str(sortie), "faces": int(len(final.faces)), "couleurs": int(len(np.unique(rgba, axis=0)))}
+
+
+def facetter(chemin_tache):
+    """Tâche : {entree, sortie, faces, couleurs}. RESULTAT {sortie, faces, couleurs}."""
+    t = _lire(chemin_tache)
+    print("PROGRESSION 1/1 version facettée", flush=True)
+    res = _facetter_glb(t["entree"], t["sortie"], int(t.get("faces", 3000)), int(t.get("couleurs", 24)))
     _resultat(res)
     print(f"TERMINE {res['sortie']}", flush=True)
 
@@ -2048,6 +2164,7 @@ def _retirer_ckpt_inutiles():
 
 ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
            "assembler": assembler, "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger,
+           "facetter": facetter,
            "transcrire": transcrire, "fluidifier": fluidifier, "parler": parler}
 
 

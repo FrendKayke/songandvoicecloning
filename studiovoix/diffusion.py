@@ -333,15 +333,18 @@ def ameliorer(entree, sortie, echelle=2, rapide=False, visages=True, force=0.7, 
 
 
 def forme3d(image_path, dossier, etapes, octree, faces, graine, texture, formats=("glb",), progress=None, web=False,
-            complet=False, dos=None):
+            complet=False, dos=None, facettes=None, couleurs=24):
     """Image → forme.glb (+ modele.glb texturé si `texture` et carte graphique ; + OBJ si demandé).
     complet : modèle de forme complet (hunyuan3d-dit-v2-0, non distillé : 30 à 50 pas) au lieu du turbo.
     dos : vue de dos → forme par Hunyuan3D-2mv (face + dos, turbo : 5 pas).
+    facettes : nombre de faces de la version « low poly facettée » (modele_facettes.glb, couleurs unies).
     RESULTAT {forme, faces, graine, texture: chemin ou None, obj: chemin ou None}."""
     _verifier("forme3d", *(["forme3d_vues"] if dos else []), *(["texture3d"] if texture else []))
     tache = {"image": str(image_path), "dossier": str(dossier), "etapes": int(etapes), "octree": int(octree),
              "faces": int(faces), "graine": int(graine or 0), "texture": bool(texture), "formats": list(formats),
              "web": bool(web)}
+    if facettes:
+        tache.update(facettes=int(facettes), couleurs=int(couleurs))
     if dos:
         tache.update(dos=str(dos), etapes=5)  # seul le modèle multi-vues turbo (distillé : 5 pas) est installé
     elif complet:
@@ -358,6 +361,14 @@ def alleger(entree, sortie, texture_max=1024, progress=None):
     _installe()
     return lancer("alleger", {"entree": str(entree), "sortie": str(sortie), "texture_max": int(texture_max)},
                   Path(sortie).parent, "Allègement", progress, {1: "allègement du modèle"}, gpu=False)
+
+
+def facetter(entree, sortie, faces=3000, couleurs=24, progress=None):
+    """Version « low poly facettée » d'un GLB (faces planes de couleur unie, palette réduite), sur le processeur."""
+    _installe()
+    return lancer("facetter", {"entree": str(entree), "sortie": str(sortie), "faces": int(faces),
+                               "couleurs": int(couleurs)},
+                  Path(sortie).parent, "Facettes", progress, {1: "version facettée"}, gpu=False)
 
 
 # --- Onglet Modèles ---------------------------------------------------------------------------------------

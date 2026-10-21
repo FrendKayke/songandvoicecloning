@@ -32,6 +32,7 @@ FAUX_MOTEUR = textwrap.dedent("""
     if action == "decrire":
         print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
         if t["mode"] == "style": texte = "watercolor painting, soft washes, paper texture"
+        elif t["mode"] == "objets": texte = chr(10).join(f"{i}. object number {i}" for i in range(1, t["nombre"] + 1))
         elif t.get("image"): texte = "metal clink on a table"
         else: texte = "wooden door creaking then slamming" if t["mode"] == "bruitage" else "a red potion bottle"
         print("RESULTAT " + json.dumps({"texte": texte}), flush=True)
@@ -67,6 +68,8 @@ FAUX_MOTEUR = textwrap.dedent("""
             (d / "modele.glb").write_bytes(b"glTF"); res["texture"] = str(d / "modele.glb")
             if t.get("web"):
                 (d / "modele_web.glb").write_bytes(b"g"); res["web"] = str(d / "modele_web.glb")
+        if t.get("facettes"):
+            (d / "modele_facettes.glb").write_bytes(b"f"); res["facettes"] = str(d / "modele_facettes.glb")
         if "obj" in t["formats"]:
             base = "modele" if t["texture"] else "forme"
             (d / f"{base}.obj").write_text("o x"); (d / "material.mtl").write_text("newmtl material_0")
@@ -140,6 +143,10 @@ FAUX_MOTEUR = textwrap.dedent("""
         duree = round(info.frames / 16000, 2)
         print("RESULTAT " + json.dumps({"sortie": t["sortie"], "graine": t["graine"], "images": int(duree * 25),
                                         "duree": duree, "largeur": t["largeur"], "hauteur": t["hauteur"]}), flush=True)
+    elif action == "facetter":
+        print("PROGRESSION 1/1 x", flush=True)
+        Path(t["sortie"]).write_bytes(b"f")
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "faces": t["faces"], "couleurs": 12}), flush=True)
     elif action == "alleger":
         print("PROGRESSION 1/1 x", flush=True)
         Path(t["sortie"]).write_bytes(b"g" * 100)
@@ -178,9 +185,9 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets"}
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
-    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite"}
+    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 
@@ -1643,3 +1650,83 @@ def test_tileset_en_objets_3d(faux_diffusion):
     assert tileset3d.RENDU_3D in klein["prompt"] and klein["references"][0].endswith("objet_03_reference.png")
     with pytest.raises(gr.Error, match="Identifie d'abord"):
         tileset3d.dessiner(dossier, [], progress=no_progress)
+
+
+def test_kit_d_objets_3d(faux_diffusion):
+    """Kit : une ligne = un objet (puces retirées), traduit par Qwen (mode « objets », liste numérotée), dessiné par
+    Z-Image avec le style commun (paquets de 8), puis Hunyuan3D en « Low poly facetté » (modele_facettes.glb, le
+    fichier gardé) ; GLB nommés d'après l'objet et archive .zip ; un dessin déjà fait n'est pas refait."""
+    import zipfile
+
+    from studiovoix import kit3d
+
+    texte = "- un taxi jaune\n\n2. un arbre rond vert\n" + "\n".join(f"maison {i}" for i in range(8))
+    table, msg, dossier = kit3d.preparer(texte, True, "ville", progress=no_progress)
+    assert len(table) == 10 and table[0][:2] == ["01_un_taxi_jaune", "un taxi jaune"]
+    assert table[0][2] == "object number 1" and table[9][2] == "object number 10"
+    traductions = [e["tache"] for e in _journal() if e["action"] == "decrire"]
+    assert [t_["mode"] for t_ in traductions] == ["objets"] and traductions[0]["nombre"] == 10
+    table[0][2] = "a yellow taxi car"
+    galerie, _, _ = kit3d.dessiner(dossier, table, kit3d.STYLE_DEFAUT, 5, progress=no_progress)
+    images = [e["tache"] for e in _journal() if e["action"] == "image"]
+    assert [len(t_["sorties"]) for t_ in images] == [8, 2] and images[0]["graines"][:2] == [5, 6]
+    assert images[0]["prompts"][0].startswith("a yellow taxi car, " + kit3d.STYLE_DEFAUT)
+    assert len(galerie) == 10
+    n = len(_journal())
+    texte_, glb, produits, _ = kit3d.generer(dossier, table[:2], kit3d.STYLE_DEFAUT, kit3d.QUALITE, True, 5,
+                                             progress=no_progress)
+    assert [e["action"] for e in _journal()[n:]] == ["forme3d", "forme3d"]  # dessins déjà faits
+    forme = _journal()[n]["tache"]
+    assert forme["facettes"] == 3000 and forme["faces"] == 20000
+    assert Path(produits[0]).name == "ville.zip" and [Path(p).name for p in produits[1:]] == [
+        "01_un_taxi_jaune.glb", "02_un_arbre_rond_vert.glb"]
+    assert Path(produits[1]).read_bytes() == b"f"  # la version facettée
+    assert zipfile.ZipFile(produits[0]).namelist() == ["01_un_taxi_jaune.glb", "02_un_arbre_rond_vert.glb"]
+    assert "2/2 objet(s) en 3D" in texte_
+    infos = json.loads((Path(_journal()[n]["tache"]["dossier"]) / "creation.json").read_text(encoding="utf-8"))
+    assert infos["versions"][0]["facettes"].endswith("modele_facettes.glb") and infos["description_fr"] == "un taxi jaune"
+    with pytest.raises(gr.Error, match="Écris les objets"):
+        kit3d.preparer(" \n ", progress=no_progress)
+
+
+def test_version_facettee(faux_diffusion):
+    """Bouton « Version facettée » : action facetter sur le processeur, depuis modele.glb (texture)."""
+    from PIL import Image
+
+    image = faux_diffusion / "objet.png"
+    Image.new("RGB", (64, 64), "white").save(image)
+    _, _, _, _, dossier = modele3d.generer(str(image), "Banc", "Normale", True, 0, ["glb"], progress=no_progress)
+    msg, glb, fichiers = modele3d.facetter(dossier, 2500, progress=no_progress)
+    tache = _journal()[-1]["tache"]
+    assert _journal()[-1]["action"] == "facetter" and tache["faces"] == 2500
+    assert Path(tache["entree"]).name == "modele.glb" and Path(glb).name == "modele_facettes.glb"
+    assert "2500 faces, 12 couleurs" in msg and any(f.endswith("modele_facettes.glb") for f in fichiers)
+
+
+def test_facettes_du_moteur(tmp_path):
+    """Version facettée calculée par le moteur (trimesh, scipy, pymeshlab : ignoré sans eux) : forme simplifiée,
+    une couleur unie par face lue dans la texture (haut rouge, bas bleu), palette réduite, sommets non partagés,
+    GLB avec couleurs par sommet et normales."""
+    trimesh = pytest.importorskip("trimesh")
+    pytest.importorskip("scipy")
+    pytest.importorskip("pymeshlab")
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    m = trimesh.creation.icosphere(subdivisions=4)
+    v = m.vertices
+    uv = np.stack([0.5 + np.arctan2(v[:, 1], v[:, 0]) / (2 * np.pi),
+                   0.5 + np.arcsin(np.clip(v[:, 2], -1, 1)) / np.pi], 1)
+    tex = Image.new("RGB", (256, 256), (40, 90, 200))
+    ImageDraw.Draw(tex).rectangle((0, 0, 255, 127), fill=(220, 50, 40))  # haut de l'image = haut de la sphère
+    m.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(baseColorTexture=tex))
+    entree, sortie = tmp_path / "modele.glb", tmp_path / "modele_facettes.glb"
+    m.export(str(entree))
+    res = moteur._facetter_glb(entree, sortie, 300, 8)
+    f = trimesh.load(str(sortie), force="mesh")
+    assert res["faces"] == len(f.faces) <= 320 and len(f.vertices) == 3 * len(f.faces)  # arêtes nettes
+    couleurs = f.visual.face_colors[:, :3].astype(int)
+    assert len(np.unique(couleurs, axis=0)) <= 8
+    haut = f.triangles_center[:, 2] > 0.5
+    bas = f.triangles_center[:, 2] < -0.5
+    assert (couleurs[haut, 0] > 150).mean() > 0.9 and (couleurs[bas, 2] > 150).mean() > 0.9
