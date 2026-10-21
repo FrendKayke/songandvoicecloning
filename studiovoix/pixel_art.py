@@ -33,23 +33,44 @@ STYLE_DEFAUT = {"toile": 64, "hauteur": 60, "couleurs": 20, "agrandissement": 2,
 
 
 # --- Lecture du style de sprites d'exemple -------------------------------------------------------------------
-def _facteur(a):
-    """Agrandissement entier d'un sprite (pixels répétés en carrés k×k, avec un décalage éventuel) : 1 à 8."""
+def _facteur(a, avec_decalage=False):
+    """Agrandissement entier d'un sprite (pixels répétés en carrés k×k, avec un décalage éventuel) : 1 à 8.
+    avec_decalage : renvoie (k, (décalage vertical, décalage horizontal)) — un des sprites d'exemple de
+    l'utilisateur commence au milieu d'un carré."""
     for k in range(8, 1, -1):
         if a.shape[0] < 2 * k or a.shape[1] < 2 * k:
             continue
-        ok = True
+        decalages = []
         for axe in (0, 1):
-            meilleur = 0.0
+            scores = []
             for decalage in range(k):
                 b = np.moveaxis(a, axe, 0)[decalage:]
                 n = b.shape[0] // k * k
                 b = b[:n].reshape(n // k, k, *b.shape[1:])
-                meilleur = max(meilleur, float((b == b[:, :1]).all(axis=-1).all(axis=1).mean()))
-            ok = ok and meilleur > 0.97
-        if ok:
-            return k
-    return 1
+                scores.append(float((b == b[:, :1]).all(axis=-1).all(axis=1).mean()))
+            decalages.append(int(np.argmax(scores)) if max(scores) > 0.99 else None)
+        if None not in decalages:
+            return (k, tuple(decalages)) if avec_decalage else k
+    return (1, (0, 0)) if avec_decalage else 1
+
+
+def reduire(a):
+    """Pixel art agrandi → ses vrais pixels (un par carré, décalage compris). Renvoie (tableau, k, décalage)."""
+    k, (dy, dx) = _facteur(a, avec_decalage=True)
+    if k == 1:
+        return a, 1, (0, 0)
+    h, w = (a.shape[0] - dy) // k, (a.shape[1] - dx) // k
+    return a[dy:dy + h * k:k, dx:dx + w * k:k], k, (dy, dx)
+
+
+def remettre(petit, k, decalage, forme):
+    """Inverse de `reduire` : agrandi ×k au plus proche et replacé au même décalage, dans une image de la taille
+    d'origine (les bandes du bord recopient le pixel voisin) : une carte se superpose exactement à l'original."""
+    grand = np.repeat(np.repeat(petit, k, axis=0), k, axis=1)
+    dy, dx = decalage
+    pad = [(dy, max(0, forme[0] - dy - grand.shape[0])), (dx, max(0, forme[1] - dx - grand.shape[1]))]
+    pad += [(0, 0)] * (grand.ndim - 2)
+    return np.pad(grand, pad, mode="edge")[:forme[0], :forme[1]]
 
 
 def analyser_style(fichiers):
@@ -412,11 +433,8 @@ TAILLE_VIDEO = 704  # côté de la vidéo carrée de Wan (multiple de 32)
 
 def _sprite_de(source):
     """Sprite à la taille d'origine : une image agrandie (carrés k×k) est ramenée à 1 pixel par carré."""
-    im = Image.open(getattr(source, "name", source)).convert("RGBA")
-    k = _facteur(np.array(im))
-    if k > 1:
-        im = im.resize((im.width // k, im.height // k), Image.Resampling.NEAREST)
-    return im, k
+    a, k, _ = reduire(np.array(Image.open(getattr(source, "name", source)).convert("RGBA")))
+    return Image.fromarray(np.ascontiguousarray(a), "RGBA"), k
 
 
 def _fond_eloigne(palette):

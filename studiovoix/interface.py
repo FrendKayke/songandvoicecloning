@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import gradio as gr
 
-from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, histoire,
+from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, hd2d, histoire,
                       fluidite, illustrations, images, modeles, modeles_3d, parlante, pdf, photos, pixel_art, plans,
                       remix, serie, serie_musique,
                       sous_titres, synthese, videos)
@@ -47,6 +47,7 @@ GROUPES = [
         ("bruitages", bruitages, "🔊 Bruitages"),
         ("illustrations", illustrations, "🃏 Illustrations de cartes"),
         ("modeles_3d", modeles_3d, "🧊 Modèles 3D"),
+        ("hd2d", hd2d, "🏔️ Passer en HD-2D"),
     ]),
     ("🧰 Outils", [
         ("galerie", galerie, "🗃️ Galerie (toutes mes créations)"),
