@@ -185,9 +185,9 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets", "costume", "tenue"}
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
-    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets"}
+    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets", "tenue"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 
@@ -1761,3 +1761,65 @@ def test_sans_veille(monkeypatch):
     monkeypatch.setattr(outils.subprocess, "run", lambda cmd, check: appels.append(cmd))
     monkeypatch.setattr(outils.sys, "platform", "win32")
     assert outils.eteindre_plus_tard(10)[:4] == ["shutdown", "/s", "/t", "10"] and len(appels) == 1
+
+
+def test_changer_les_vetements(faux_diffusion, tmp_path, monkeypatch):
+    """Costume : Qwen décrit la tenue d'après l'image (mode « costume », précisions ajoutées), puis FLUX.2 klein reçoit
+    chaque photo (image 1) et le costume (image 2), au format de la photo, avec les mêmes graines pour toutes ; sans
+    image, la tenue décrite en français (mode « tenue ») ; une photo en échec n'arrête pas les autres."""
+    import zipfile
+
+    from PIL import Image
+
+    from studiovoix import costumes
+
+    bebe = tmp_path / "bébé 1.jpg"
+    Image.new("RGB", (600, 800), "pink").save(bebe)
+    autre = tmp_path / "bebe2.png"
+    Image.new("RGB", (800, 600), "blue").save(autre)
+    costume = tmp_path / "ninja.png"
+    Image.new("RGB", (300, 300), "orange").save(costume)
+    msg, galerie, fichiers, dossier, tenue = costumes.habiller(
+        [str(bebe), str(autre)], str(costume), "sans l'épée", "", variantes=2, graine=7, nom="Ninja",
+        progress=no_progress)
+    d = Path(dossier)
+    assert d.parent == cfg.COSTUMES_DIR and tenue == "metal clink on a table"  # réponse du faux Qwen avec image
+    qwen = [e["tache"] for e in _journal() if e["action"] == "decrire"]
+    assert [q["mode"] for q in qwen] == ["costume"] and qwen[0]["texte"] == "sans l'épée"
+    klein = [e["tache"] for e in _journal() if e["action"] == "personnage"]
+    assert len(klein) == 2 and klein[0]["graines"][0] == 7 and klein[0]["graines"] == klein[1]["graines"]
+    assert [Path(r).name for r in klein[0]["references"]] == ["01_bebe_1.jpg", "costume.png"]
+    assert (klein[0]["largeur"], klein[0]["hauteur"]) == costumes.images.format_pour(costumes.images.AUTO, bebe)
+    assert klein[1]["largeur"] > klein[1]["hauteur"]  # paysage
+    p = klein[0]["prompt"]
+    assert p.startswith("Dress the person in image 1 in the outfit of image 2: metal clink on a table.")
+    assert "same hair" in p and costumes.RENDU_PHOTO in p
+    assert len(galerie) == 4 and Path(fichiers[0]).name == "Ninja.zip"
+    assert len(zipfile.ZipFile(fichiers[0]).namelist()) == 4 and "4 image(s) pour 2/2 photo(s)" in msg
+    lot = json.loads((d / "lot.json").read_text(encoding="utf-8"))
+    assert lot["costume"] == "costume.png" and lot["photos"][1]["resultats"] == ["resultats/02_bebe2_1.png",
+                                                                                 "resultats/02_bebe2_2.png"]
+    # sans image : la tenue décrite en français ; coiffure et rendu ; description déjà écrite = pas de Qwen
+    assert costumes.decrire_tenue(None, "un kimono rouge", progress=no_progress) == "a red potion bottle"
+    assert _journal()[-1]["tache"]["mode"] == "tenue"
+    n = len(_journal())
+    costumes.habiller([str(bebe)], None, "", "a red kimono", coiffure=True, variantes=1, progress=no_progress)
+    j = _journal()[n:]
+    assert [e["action"] for e in j] == ["personnage"]
+    assert "in the reference image" in j[0]["tache"]["prompt"] and costumes.COIFFURE in j[0]["tache"]["prompt"]
+    assert "same hair" not in j[0]["tache"]["prompt"] and len(j[0]["tache"]["references"]) == 1
+    p = costumes.prompt_costume("a cape", True, "dessin")
+    assert costumes.RENDU_DESSIN in p and costumes.RENDU_PHOTO not in p
+    with pytest.raises(gr.Error, match="au moins une photo"):
+        costumes.habiller([], str(costume), progress=no_progress)
+    vrai = diffusion.personnage
+
+    def premiere_en_echec(prompt, refs, *a, **k):
+        if Path(refs[0]).name.startswith("01_"):
+            raise gr.Error("carte graphique saturée")
+        return vrai(prompt, refs, *a, **k)
+    monkeypatch.setattr(diffusion, "personnage", premiere_en_echec)
+    msg, galerie, _, _, _ = costumes.habiller([str(bebe), str(autre)], None, "", "a cape", progress=no_progress)
+    assert len(galerie) == 1 and "1/2 photo(s)" in msg and "photo 1 (bébé 1.jpg) : carte graphique saturée" in msg
+    with pytest.raises(gr.Error, match="image du costume"):
+        costumes.decrire_tenue(None, " ", progress=no_progress)

@@ -472,6 +472,20 @@ CONSIGNES = {
                 "as in the image. If it is a floor feature (a hole with a ladder, a trapdoor, a carpet), describe "
                 "only the physical object (for example: a wooden ladder with five rungs). One or two sentences in "
                 "English, no mention of pixels, tiles, games or background. Answer with the description only."),
+    # onglet « Changer les vêtements » : la tenue d'une image (souvent un personnage d'animé), décrite seule pour en
+    # habiller une autre personne (FLUX.2 klein reçoit la photo et cette image)
+    "costume": ("The attached image shows a costume or an outfit, often worn by an anime, cartoon or game character. "
+                "Describe ONLY the outfit, for an image editing model that will dress another person in it: every "
+                "garment with its cut, colors, patterns and materials, the accessories, the shoes, and any headwear, "
+                "hood, mask or wig. Nothing about the face, the body, the pose, the background or the drawing style; "
+                "no name of any character, anime, game or existing work. Two or three sentences in English. Answer "
+                "with the description only."),
+    # même onglet sans image du costume : la tenue décrite en français
+    "tenue": ("Rewrite the following outfit request into an English description of the outfit only, for an image "
+              "editing model that will dress a person in it: every garment with its cut, colors, patterns and "
+              "materials, the accessories, the shoes, and any headwear or wig. No name of any character, anime, game "
+              "or existing work (describe what they wear instead). Two or three sentences. Answer with the "
+              "description only:\n\n"),
     # onglet « Images », « Modifier la photo » : consigne de retouche pour FLUX.2 klein (image de référence)
     "retouche": ("The attached image must be edited. Rewrite the following edit request into ONE short, precise "
                  "English instruction for an image editing model: say exactly what to change, and keep the people, "
@@ -567,6 +581,9 @@ def decrire(chemin_tache):
     if mode == "parlante" and (t.get("texte") or "").strip():  # souhaits de l'utilisateur (souvent en français)
         consigne += (" Include these wishes from the user, translated into English: "
                      + " ".join(t["texte"].split()))
+    if mode == "costume" and (t.get("texte") or "").strip():  # précisions de l'utilisateur sur la tenue
+        consigne += (" The user adds: " + " ".join(t["texte"].split())
+                     + " (translate into English and follow it).")
     if mode == "tuile3d" and (t.get("texte") or "").strip():  # ce que l'utilisateur dit de l'objet
         consigne += (" The user says this object is: " + " ".join(t["texte"].split())
                      + " (translate into English and follow it).")
@@ -835,10 +852,12 @@ def personnage(chemin_tache):
     from diffusers import (AutoencoderKLFlux2, FlowMatchEulerDiscreteScheduler, Flux2KleinPipeline,
                            Flux2Transformer2DModel, GGUFQuantizationConfig)
     from huggingface_hub import hf_hub_download
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     t = _lire(chemin_tache)
-    references = [Image.open(r).convert("RGB") for r in t.get("references") or []][:REFERENCES_MAX]
+    # photos de téléphone : l'orientation est dans l'EXIF (sinon la référence arrive couchée)
+    references = [ImageOps.exif_transpose(Image.open(r)).convert("RGB")
+                  for r in t.get("references") or []][:REFERENCES_MAX]
     if not references:
         _erreur("il faut au moins une image de référence du personnage.")
     device = _device()

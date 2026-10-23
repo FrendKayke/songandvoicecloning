@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 import gradio as gr
 
-from .onglets import (bande_son, bibliotheque, bruitages, chanson, entrainement, espace, galerie, hd2d, histoire,
+from .onglets import (bande_son, bibliotheque, bruitages, chanson, costumes, entrainement, espace, galerie, hd2d,
+                      histoire,
                       fluidite, kit3d, illustrations, images, modeles, modeles_3d, parlante, pdf, photos,
                       pixel_art, plans,
                       remix, serie, serie_musique,
@@ -42,6 +43,7 @@ GROUPES = [
         ("fluidite", fluidite, "⏩ Fluidifier ou ralentir une vidéo"),
         ("pixel_art", pixel_art, "👾 Pixel art et sprites"),
         ("photos", photos, "📷 Retoucher une photo"),
+        ("costumes", costumes, "👗 Changer les vêtements"),
     ]),
     ("🎮 Jeu", [
         ("bande_son", bande_son, "🎼 Musiques de jeu"),
