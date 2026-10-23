@@ -81,6 +81,23 @@ def test_convertir_depuis_l_onglet(env, monkeypatch):
         pixel_art.convertir([], None, 0, 0, 0, 0, True, False, progress=no_progress)
 
 
+def test_sprite_a_palette_deja_transparent(env, monkeypatch):
+    """PNG à palette avec couleur transparente (sprites de l'utilisateur) : « Retirer le fond » ne passe pas par
+    BiRefNet (le moteur échouait : « The image has no channel "A" ») ; converti tel quel."""
+    monkeypatch.setattr(diffusion, "present", lambda nom: True)
+
+    def interdit(*a, **k):
+        raise AssertionError("BiRefNet appelé pour un sprite déjà transparent")
+    monkeypatch.setattr(diffusion, "detourer", interdit)
+    src = cfg.DATA_DIR.parent / "trainer105.png"
+    pixel_art.agrandir(_sprite(), 2).quantize(16).save(src, transparency=0)  # mode P, couleur 0 transparente
+    sprite = Image.open(src)
+    assert sprite.mode == "P" and "transparency" in sprite.info
+    assert pixel_art._transparent(sprite) and not pixel_art._transparent(Image.new("RGB", (8, 8)))
+    msg, apercus, _, _ = pixel_art.convertir([str(src)], [str(src)], 0, 0, 0, 0, True, True, progress=no_progress)
+    assert "1 sprite" in msg
+
+
 def test_respiration_et_fichiers_de_l_animation(env):
     images = pixel_art.respiration(_sprite())
     assert len(images) == 30 and any((np.array(i) != np.array(images[0])).any() for i in images)

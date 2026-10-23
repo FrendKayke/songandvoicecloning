@@ -1823,3 +1823,16 @@ def test_changer_les_vetements(faux_diffusion, tmp_path, monkeypatch):
     assert len(galerie) == 1 and "1/2 photo(s)" in msg and "photo 1 (bébé 1.jpg) : carte graphique saturée" in msg
     with pytest.raises(gr.Error, match="image du costume"):
         costumes.decrire_tenue(None, " ", progress=no_progress)
+
+
+def test_photo_a_palette_transparente_ouverte_par_le_moteur(tmp_path):
+    """PNG à palette avec une couleur transparente : le moteur en tire bien le masque (getchannel("A") échouait)."""
+    from PIL import Image
+
+    im = Image.new("P", (8, 8), 0)
+    im.putpalette([0, 0, 0, 255, 0, 0] + [0] * 762)
+    im.paste(1, (2, 2, 6, 6))
+    chemin = tmp_path / "sprite.png"
+    im.save(chemin, transparency=0)
+    rgb, alpha = moteur._ouvrir_photo(chemin)
+    assert rgb.mode == "RGB" and alpha.getpixel((0, 0)) == 0 and alpha.getpixel((3, 3)) == 255

@@ -302,6 +302,13 @@ def lire_style(exemples):
     return (style["hauteur"], style["couleurs"], style["toile"], style["agrandissement"], resume_style(style))
 
 
+def _transparent(im):
+    """L'image a déjà des pixels transparents (canal alpha ou couleur transparente d'une palette)."""
+    if im.mode not in ("RGBA", "LA") and "transparency" not in im.info:
+        return False
+    return im.convert("RGBA").getchannel("A").getextrema()[0] < 128
+
+
 def _detourer(source, dossier, progress):
     """Fond retiré par BiRefNet si le modèle est là, sinon fond uni retiré par `pixeliser`."""
     if not diffusion.present("photo_detourage"):
@@ -327,7 +334,7 @@ def convertir(images, exemples, hauteur, couleurs, toile, agrandissement, contou
             with Image.open(source) as im:
                 im = ImageOps.exif_transpose(im)
                 im.load()
-            if detourer:
+            if detourer and not _transparent(im):  # sprite déjà détouré : BiRefNet adoucirait ses bords
                 copie = dossier / f"{base}_source.png"
                 im.save(copie)
                 im = _detourer(copie, dossier, progress)

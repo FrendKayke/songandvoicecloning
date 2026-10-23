@@ -1111,7 +1111,11 @@ def _ouvrir_photo(chemin):
 
     with Image.open(chemin) as im:
         im = ImageOps.exif_transpose(im)
-        alpha = im.getchannel("A") if im.mode in ("RGBA", "LA") or "transparency" in im.info else None
+        if "transparency" in im.info and im.mode not in ("RGBA", "LA"):
+            # PNG à palette ou GIF transparents (sprites de pixel art) : pas de canal « A » avant conversion
+            # (« The image has no channel "A" », constaté chez l'utilisateur)
+            im = im.convert("RGBA")
+        alpha = im.getchannel("A") if im.mode in ("RGBA", "LA") else None
         if alpha is not None and alpha.getextrema() == (255, 255):
             alpha = None  # canal alpha entièrement opaque : inutile
         return im.convert("RGB"), alpha
