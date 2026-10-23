@@ -436,6 +436,16 @@ MOUVEMENT_DEFAUT = ("The pixel art character stays in place in an idle stance an
                     "movements of the head, arms, hair and clothes, the feet do not move, the camera does not move, "
                     "plain flat background")
 TAILLE_VIDEO = 704  # côté de la vidéo carrée de Wan (multiple de 32)
+# Wan changeait la couleur du fond en cours de vidéo (gris, brun : constaté chez l'utilisateur le 23/10) : la couleur
+# est nommée dans le prompt, le changement interdit par le négatif, et le fond est retiré image par image
+NOMS_FONDS = {(0, 255, 0): "bright green", (255, 0, 255): "bright magenta", (0, 128, 255): "bright blue",
+              (255, 255, 0): "bright yellow"}
+FOND_FIXE = ("The plain flat solid {couleur} background stays exactly the same color in every frame: no floor, no "
+             "shadow, no scenery, no lighting change")
+NEGATIF_SPRITE = ("background changing color, gray background, floor, ground, shadow, scenery, room, landscape, "
+                  "scene transition, camera movement, zoom")
+MARGE_MOUVEMENT = 6  # pixels du sprite autour de sa silhouette où le personnage peut bouger ; au-delà : du fond
+ECART_FOND = 60  # écart de couleur (0–441) en dessous duquel un pixel de la vidéo est pris pour du fond
 
 
 def _sprite_de(source):
@@ -493,18 +503,24 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress):
     if (mouvement or "").strip():
         prompt = diffusion.decrire("video", mouvement.strip() + ". " + MOUVEMENT_DEFAUT, image=dossier / "depart.png",
                                    progress=progress) if diffusion.present("qwen") else mouvement.strip()
+    prompt = f"{prompt.rstrip('. ')}. {FOND_FIXE.format(couleur=NOMS_FONDS.get(fond, 'bright'))}."
     graine = int(graine or 0) or diffusion.graines(1)[0]
     # 2,5 s suffisent : l'aller-retour donne les 5 s de la boucle
     res = diffusion.video(prompt, dossier / "video.mp4", dossier / "depart.png", TAILLE_VIDEO, TAILLE_VIDEO, 61,
-                          etapes, graine, progress=progress)
+                          etapes, graine, progress=progress, negatif_ajout=NEGATIF_SPRITE)
     trames = _lire_video(res["sortie"])
     palette_fond = np.vstack([palette, np.zeros((1, 3), np.uint8)])  # dernier indice = transparent
     cadre = (marge, marge, facteur)
+    zone = _zone_du_personnage(opaque, facteur, marge, trames[0].shape[:2])
+    masques = _masques_birefnet(trames, dossier, progress)
     indices = []
-    for t in trames:
-        im = Image.fromarray(t, "RGB").convert("RGBA")
-        # le fond uni (couleur vive) devient transparent dans pixeliser ; le reste prend la couleur du sprite la plus
-        # proche (bruit de compression de la vidéo écarté)
+    for n, t in enumerate(trames):
+        im = Image.fromarray(np.dstack([t, _alpha_personnage(t, zone, fond, None if masques is None else masques[n])]),
+                             "RGBA")
+        # fond déjà transparent ; le reste prend la couleur du sprite la plus proche (bruit de compression écarté)
+        if not np.array(im)[..., 3].any():  # image sans personnage : reprend la précédente
+            indices.append(indices[-1] if indices else np.full((toile, toile), len(palette)))
+            continue
         s_ = np.array(pixeliser(im, toile, 0, toile, None, palette=palette, cadre=cadre)[0])
         ind = _plus_proche(s_[..., :3].reshape(-1, 3), palette).reshape(toile, toile)
         indices.append(np.where(s_[..., 3] == 0, len(palette), ind))
@@ -520,6 +536,52 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress):
     (dossier / "animation.json").write_text(json.dumps({"prompt": prompt, "graine": res["graine"], "fond": fond},
                                                        ensure_ascii=False), encoding="utf-8")
     return aller_retour(images)
+
+
+def _zone_du_personnage(opaque, facteur, marge, forme):
+    """Où le personnage peut être dans la vidéo : sa silhouette élargie de MARGE_MOUVEMENT pixels du sprite (une
+    idle ou un geste ne le déplace pas plus loin). Tout ce qui est au-delà est du fond, quelle que soit sa couleur."""
+    from scipy import ndimage
+
+    large = ndimage.binary_dilation(opaque, iterations=MARGE_MOUVEMENT)
+    grand = np.repeat(np.repeat(large, facteur, axis=0), facteur, axis=1)
+    zone = np.zeros(forme, bool)
+    h, w = min(grand.shape[0], forme[0] - marge), min(grand.shape[1], forme[1] - marge)
+    zone[marge:marge + h, marge:marge + w] = grand[:h, :w]
+    return zone
+
+
+def _masques_birefnet(trames, dossier, progress):
+    """Silhouette de chaque image de la vidéo par BiRefNet s'il est installé (un fond devenu gris ou brun ne se
+    distingue pas d'un pantalon gris par la couleur) ; None sinon (repli : écart à la couleur du fond)."""
+    if not diffusion.present("photo_detourage"):
+        return None
+    d = Path(dossier) / "trames"
+    d.mkdir(exist_ok=True)
+    entrees, sorties = [], []
+    for n, t in enumerate(trames):
+        entrees.append(d / f"{n:03d}.png")
+        sorties.append(d / f"{n:03d}_detouree.png")
+        Image.fromarray(t, "RGB").save(entrees[-1])
+    try:
+        diffusion.detourer_lot(entrees, sorties, progress=progress)
+        return [np.array(Image.open(s).convert("RGBA"))[..., 3] >= 128 for s in sorties]
+    except (gr.Error, RuntimeError, OSError) as e:
+        print(f"Détourage des images de l'animation impossible ({e}) : fond retiré d'après sa couleur.", flush=True)
+        return None
+
+
+def _alpha_personnage(trame, zone, fond, masque=None):
+    """Canal alpha d'une image de la vidéo : personnage dans la zone permise ; fond = hors de la zone, ou proche de
+    la couleur vive demandée, ou de la couleur que le fond a prise dans cette image (médiane hors de la zone)."""
+    if masque is not None:
+        garde = masque
+    else:
+        t = trame.astype(int)
+        actuel = np.median(trame[~zone], axis=0) if (~zone).any() else np.array(fond)
+        ecart = np.minimum(np.sqrt(((t - np.array(fond)) ** 2).sum(-1)), np.sqrt(((t - actuel) ** 2).sum(-1)))
+        garde = ecart > ECART_FOND
+    return np.where(garde & zone, 255, 0).astype(np.uint8)
 
 
 def _lire_video(chemin):

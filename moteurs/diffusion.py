@@ -909,6 +909,12 @@ def personnage(chemin_tache):
 
 
 # --- Wan 2.2 : vidéo à partir d'un texte ou d'une image ----------------------------------------------------
+def _negatif_video(t):
+    """Négatif de Wan : celui de la tâche ou celui par défaut, plus `negatif_ajout` (sprites : fond qui change)."""
+    negatif = t.get("negatif") or NEGATIF_VIDEO
+    return f"{negatif}, {t['negatif_ajout']}" if t.get("negatif_ajout") else negatif
+
+
 def _encoder_texte_video(t, device, dtype):
     """Phase 1 : umT5-xxl (11,4 Go en bf16, trop gros pour 12 Go d'un bloc) encode le prompt et le négatif.
     Sur la carte graphique, par groupes de 4 blocs chargés tour à tour (diffusers.hooks.apply_group_offloading) ;
@@ -939,7 +945,7 @@ def _encoder_texte_video(t, device, dtype):
                        expand_timesteps=True)
     with torch.no_grad():
         try:
-            prompt, negatif = pipe.encode_prompt(prompt=t["prompt"], negative_prompt=t.get("negatif") or NEGATIF_VIDEO,
+            prompt, negatif = pipe.encode_prompt(prompt=t["prompt"], negative_prompt=_negatif_video(t),
                                                  do_classifier_free_guidance=True, max_sequence_length=512,
                                                  device=cible)
         except Exception as e:  # noqa: BLE001
@@ -951,7 +957,7 @@ def _encoder_texte_video(t, device, dtype):
             pipe = WanPipeline(tokenizer=tokeniseur, text_encoder=encodeur, vae=None, scheduler=None,
                                transformer=None, expand_timesteps=True)
             prompt, negatif = pipe.encode_prompt(prompt=t["prompt"],
-                                                 negative_prompt=t.get("negatif") or NEGATIF_VIDEO,
+                                                 negative_prompt=_negatif_video(t),
                                                  do_classifier_free_guidance=True, max_sequence_length=512,
                                                  device="cpu")
     prompt, negatif = prompt.to("cpu", dtype), negatif.to("cpu", dtype)

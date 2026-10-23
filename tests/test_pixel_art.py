@@ -123,16 +123,21 @@ def test_animation_d_apres_une_video(env, monkeypatch):
 
     appels = []
 
-    def faux_wan(prompt, sortie, image, largeur, hauteur, images, etapes, graine, progress=None):
-        appels.append((prompt, largeur, hauteur, images, etapes))
+    def faux_wan(prompt, sortie, image, largeur, hauteur, images, etapes, graine, progress=None, negatif_ajout=None):
+        appels.append((prompt, largeur, hauteur, images, etapes, negatif_ajout))
         depart = np.array(Image.open(image).convert("RGB"))
+        fond = depart[0, 0].copy()
         with av.open(str(sortie), "w") as c:
             v = c.add_stream("libx264", rate=24)
             v.width, v.height, v.pix_fmt = largeur, hauteur, "yuv420p"
             for i in range(images):
                 d = int(round(11 * np.sin(2 * np.pi * i / images)))  # 11 px de vidéo = 1 pixel du sprite
-                for paquet in v.encode(av.VideoFrame.from_ndarray(np.roll(depart, d, axis=0) if i else depart,
-                                                                  format="rgb24")):
+                trame = np.roll(depart, d, axis=0) if i else depart.copy()
+                if 0 < i < 12:  # comme chez l'utilisateur : le fond devient gris foncé, avec un pavé brun à gauche
+                    sur_fond = (trame == fond).all(-1)
+                    trame[sur_fond] = (85, 85, 90)
+                    trame[:, :60][sur_fond[:, :60]] = (170, 130, 90)
+                for paquet in v.encode(av.VideoFrame.from_ndarray(trame, format="rgb24")):
                     c.mux(paquet)
             for paquet in v.encode(None):
                 c.mux(paquet)
@@ -145,15 +150,44 @@ def test_animation_d_apres_une_video(env, monkeypatch):
     pixel_art.agrandir(sprite, 2).save(source)  # importé agrandi : ramené à 64×64
     msg, gif, fichiers, dossier = pixel_art.animer(str(source), pixel_art.IA, "", 5, 20, "heros",
                                                    progress=no_progress)
-    assert appels[0][1:] == (704, 704, 61, 20) and "30 images" in msg and gif.endswith("_x2.gif")
+    assert appels[0][1:5] == (704, 704, 61, 20) and "30 images" in msg and gif.endswith("_x2.gif")
+    assert "background stays exactly the same color" in appels[0][0] and "gray background" in appels[0][5]
     images = [np.array(Image.open(f)) for f in sorted(Path(dossier, "images").glob("*.png"))]
     ref = np.array(sprite)
     assert len(images) == 30 and ((images[0][..., 3] > 0) == (ref[..., 3] > 0)).all()
     assert (images[0][..., :3][ref[..., 3] > 0] == ref[..., :3][ref[..., 3] > 0]).all()
-    decale = np.roll(ref, 1, axis=0)  # image 5 : sprite descendu d'un pixel, exactement
-    assert ((images[4][..., 3] > 0) == (decale[..., 3] > 0)).all()
-    assert (images[4][..., :3][decale[..., 3] > 0] == decale[..., :3][decale[..., 3] > 0]).all()
+    # image 5 : sprite descendu d'un pixel, exactement (la ligne 0 reçoit les pieds enroulés par np.roll de la fausse
+    # vidéo : hors de la zone où le personnage peut bouger, elle est vide, à juste titre)
+    decale = np.roll(ref, 1, axis=0)[1:]
+    assert ((images[4][1:, :, 3] > 0) == (decale[..., 3] > 0)).all()
+    assert (images[4][1:][..., :3][decale[..., 3] > 0] == decale[..., :3][decale[..., 3] > 0]).all()
+    for i in images[1:6]:  # images tirées du passage où le fond était gris et brun : fond retiré quand même
+        assert not (i[..., 3] > 0)[ref[..., 3] == 0].sum() > 40
     couleurs = {tuple(p) for i in images for p in i[..., :3][i[..., 3] > 0]}
     assert couleurs <= {tuple(p) for p in ref[..., :3][ref[..., 3] > 0]}  # aucune couleur hors palette
     with pytest.raises(gr.Error, match="sprite"):
         pixel_art.animer(None, progress=no_progress)
+
+
+def test_silhouettes_de_l_animation_par_birefnet(env, monkeypatch):
+    """BiRefNet installé : chaque image de la vidéo lui est donnée (un seul lot) et sa silhouette décide du fond,
+    limitée à la zone où le personnage peut bouger."""
+    lots = []
+
+    def faux_lot(entrees, sorties, progress=None):
+        lots.append(len(entrees))
+        for e, s in zip(entrees, sorties):
+            a = np.array(Image.open(e).convert("RGBA"))
+            a[..., 3] = 0
+            a[2:6, 2:6, 3] = 255  # silhouette trouvée
+            a[0, 0, 3] = 255  # tache hors de la zone permise
+            Image.fromarray(a).save(s)
+    monkeypatch.setattr(diffusion, "present", lambda nom: True)
+    monkeypatch.setattr(diffusion, "detourer_lot", faux_lot)
+    trames = [np.full((8, 8, 3), 90, np.uint8) for _ in range(3)]
+    masques = pixel_art._masques_birefnet(trames, env, no_progress)
+    assert lots == [3] and masques[0][3, 3] and masques[0][0, 0]
+    zone = np.zeros((8, 8), bool)
+    zone[1:7, 1:7] = True
+    alpha = pixel_art._alpha_personnage(trames[0], zone, (0, 255, 0), masques[0])
+    assert alpha[3, 3] == 255 and alpha[0, 0] == 0 and alpha[1, 1] == 0

@@ -247,13 +247,13 @@ def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024
 
 
 def video(prompt, sortie, image=None, largeur=1280, hauteur=704, images=121, etapes=30, graine=0, negatif=None,
-          progress=None):
+          progress=None, negatif_ajout=None):
     """Wan 2.2 TI2V-5B : vidéo MP4 (24 images/s) à partir du prompt anglais, et de l'image de départ si donnée.
     RESULTAT {sortie, graine, images, duree, largeur, hauteur, derniere_image}."""
     _verifier("video")
     tache = {"prompt": prompt, "negatif": negatif or None, "image": str(image) if image else None,
              "sortie": str(sortie), "largeur": int(largeur), "hauteur": int(hauteur), "images": int(images),
-             "etapes": int(etapes), "graine": int(graine)}
+             "etapes": int(etapes), "graine": int(graine), "negatif_ajout": negatif_ajout or None}
     libelles = {1: "lecture du texte (une à deux minutes)", 2: "chargement de Wan 2.2",
                 int(etapes) + 3: "enregistrement de la vidéo"}
     libelles.update({k + 3: f"génération, étape {k + 1}/{int(etapes)}" for k in range(int(etapes))})
