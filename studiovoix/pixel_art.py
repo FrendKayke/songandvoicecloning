@@ -430,12 +430,21 @@ def creer_personnages(photo, texte, exemples, hauteur, couleurs, toile, agrandis
 
 # --- Onglet : animer un sprite ---------------------------------------------------------------------------------
 SIMPLE = "Respiration (instantané)"
-IA = "Mouvement libre avec Wan 2.2 (~10 min)"
+IA = "Mouvement libre avec Wan 2.2 (10 à 25 min)"
 MODES_ANIMATION = [SIMPLE, IA]
 MOUVEMENT_DEFAUT = ("The pixel art character stays in place in an idle stance and breathes slowly, small natural "
                     "movements of the head, arms, hair and clothes, the feet do not move, the camera does not move, "
                     "plain flat background")
 TAILLE_VIDEO = 704  # côté de la vidéo carrée de Wan (multiple de 32)
+# Action décrite (« il va chercher une peluche et la câline », essai de l'utilisateur du 23/10 : le personnage restait
+# figé) : la consigne « reste sur place, pieds immobiles » n'est plus ajoutée, le personnage peut aller partout dans
+# l'image, un objet qui apparaît garde ses couleurs, la vidéo dure 5 s et se joue une fois (pas d'aller-retour)
+STYLE_ACTION = ("2D pixel art video game sprite animation: the same character with exactly the same colors, clothes "
+                "and proportions as in the first frame, crisp pixels, the whole action fully visible, the camera "
+                "does not move")
+IMAGES_VIDEO = {False: 61, True: 121}  # 2,5 s en boucle (aller-retour) ; 5 s pour une action jouée une fois
+COULEURS_EN_PLUS = 8  # couleurs ajoutées à la palette du sprite pour un objet qui apparaît
+ECART_NOUVELLE = 60  # écart à la palette au-delà duquel une couleur est nouvelle
 # Wan changeait la couleur du fond en cours de vidéo (gris, brun : constaté chez l'utilisateur le 23/10) : la couleur
 # est nommée dans le prompt, le changement interdit par le négatif, et le fond est retiré image par image
 NOMS_FONDS = {(0, 255, 0): "bright green", (255, 0, 255): "bright magenta", (0, 128, 255): "bright blue",
@@ -480,8 +489,9 @@ def animer(sprite_source, mode=SIMPLE, mouvement="", graine=0, etapes=25, nom="a
         images = _animer_ia(sprite, dossier, mouvement, graine, etapes, progress)
     fichiers = ecrire_animation(images, dossier, _slug(nom, "animation"), k)
     gif = str([f for f in fichiers if f.suffix == ".gif"][-1])
+    lecture = "jouée une fois puis reprise" if mode == IA and (mouvement or "").strip() else "en boucle"
     msg = (f"✅ Animation de {len(images)} images sur {DUREE_ANIMATION:g} s ({len(images) / DUREE_ANIMATION:g} "
-           f"images/s), en boucle, en {time.monotonic() - debut:.0f} s : GIF, planche de sprites et images séparées "
+           f"images/s), {lecture}, en {time.monotonic() - debut:.0f} s : GIF, planche de sprites et images séparées "
            f"dans {dossier}.")
     return msg, gif, [str(f) for f in fichiers], str(dossier)
 
@@ -499,24 +509,31 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress):
     marge = (TAILLE_VIDEO - toile * facteur) // 2
     depart.paste(agrandir(sprite, facteur), (marge, marge), agrandir(sprite, facteur))
     depart.save(dossier / "depart.png")
-    prompt = MOUVEMENT_DEFAUT
-    if (mouvement or "").strip():
-        prompt = diffusion.decrire("video", mouvement.strip() + ". " + MOUVEMENT_DEFAUT, image=dossier / "depart.png",
-                                   progress=progress) if diffusion.present("qwen") else mouvement.strip()
+    action = bool((mouvement or "").strip())
+    if action:  # la consigne d'immobilité contredisait l'action demandée
+        texte = f"{mouvement.strip()}. {STYLE_ACTION}"
+        prompt = diffusion.decrire("video", texte, image=dossier / "depart.png", progress=progress) \
+            if diffusion.present("qwen") else texte
+    else:
+        prompt = MOUVEMENT_DEFAUT
     prompt = f"{prompt.rstrip('. ')}. {FOND_FIXE.format(couleur=NOMS_FONDS.get(fond, 'bright'))}."
     graine = int(graine or 0) or diffusion.graines(1)[0]
-    # 2,5 s suffisent : l'aller-retour donne les 5 s de la boucle
-    res = diffusion.video(prompt, dossier / "video.mp4", dossier / "depart.png", TAILLE_VIDEO, TAILLE_VIDEO, 61,
-                          etapes, graine, progress=progress, negatif_ajout=NEGATIF_SPRITE)
+    res = diffusion.video(prompt, dossier / "video.mp4", dossier / "depart.png", TAILLE_VIDEO, TAILLE_VIDEO,
+                          IMAGES_VIDEO[action], etapes, graine, progress=progress, negatif_ajout=NEGATIF_SPRITE)
     trames = _lire_video(res["sortie"])
-    palette_fond = np.vstack([palette, np.zeros((1, 3), np.uint8)])  # dernier indice = transparent
     cadre = (marge, marge, facteur)
-    zone = _zone_du_personnage(opaque, facteur, marge, trames[0].shape[:2])
+    # une action peut emmener le personnage partout dans l'image ; une boucle reste près de la silhouette
+    zone = (np.ones(trames[0].shape[:2], bool) if action
+            else _zone_du_personnage(opaque, facteur, marge, trames[0].shape[:2]))
     masques = _masques_birefnet(trames, dossier, progress)
+    alphas = [_alpha_personnage(t, zone, fond, None if masques is None else masques[n]) for n, t in enumerate(trames)]
+    trames = _corriger_couleurs(trames, alphas)  # Wan assombrissait le personnage (pantalon gris devenu noir)
+    if action:  # un objet qui apparaît (une peluche jaune) garde ses couleurs
+        palette = _palette_avec_nouvelles(palette, trames, alphas)
+    palette_fond = np.vstack([palette, np.zeros((1, 3), np.uint8)])  # dernier indice = transparent
     indices = []
-    for n, t in enumerate(trames):
-        im = Image.fromarray(np.dstack([t, _alpha_personnage(t, zone, fond, None if masques is None else masques[n])]),
-                             "RGBA")
+    for t, alpha in zip(trames, alphas):
+        im = Image.fromarray(np.dstack([t, alpha]), "RGBA")
         # fond déjà transparent ; le reste prend la couleur du sprite la plus proche (bruit de compression écarté)
         if not np.array(im)[..., 3].any():  # image sans personnage : reprend la précédente
             indices.append(indices[-1] if indices else np.full((toile, toile), len(palette)))
@@ -533,9 +550,49 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress):
         b[..., :3] = palette_fond[ind]
         b[..., 3] = np.where(ind == len(palette), 0, 255)
         images.append(Image.fromarray(b, "RGBA"))
-    (dossier / "animation.json").write_text(json.dumps({"prompt": prompt, "graine": res["graine"], "fond": fond},
+    (dossier / "animation.json").write_text(json.dumps({"prompt": prompt, "graine": res["graine"], "fond": fond,
+                                                        "action": action, "couleurs": len(palette)},
                                                        ensure_ascii=False), encoding="utf-8")
-    return aller_retour(images)
+    return une_fois(images) if action else aller_retour(images)
+
+
+def une_fois(images, n=IMAGES_ANIMATION):
+    """n images réparties sur toute la vidéo, dans l'ordre : l'action est jouée une fois (puis le GIF recommence)."""
+    return [images[round(i * (len(images) - 1) / (n - 1))] for i in range(n)]
+
+
+def _corriger_couleurs(trames, alphas):
+    """Couleurs du personnage ramenées à celles de la première image (le sprite) : moyenne et écart type de chaque
+    canal sur les pixels du personnage, correction bornée (un objet qui apparaît change un peu ces mesures)."""
+    ref = trames[0][alphas[0] > 0].astype(np.float32)
+    if len(ref) < 16:
+        return trames
+    m0, s0 = ref.mean(axis=0), ref.std(axis=0) + 1
+    sorties = [trames[0]]
+    for t, alpha in zip(trames[1:], alphas[1:]):
+        px = t[alpha > 0].astype(np.float32)
+        if len(px) < 16:
+            sorties.append(t)
+            continue
+        m, s_ = px.mean(axis=0), px.std(axis=0) + 1
+        gain = np.clip(s0 / s_, 0.75, 1.33)
+        decalage = np.clip(m0 - m * gain, -40, 40)
+        sorties.append(np.clip(t.astype(np.float32) * gain + decalage, 0, 255).astype(np.uint8))
+    return sorties
+
+
+def _palette_avec_nouvelles(palette, trames, alphas):
+    """Palette du sprite + jusqu'à COULEURS_EN_PLUS couleurs nouvelles (pixels du personnage loin de toutes les
+    couleurs du sprite sur au moins 0,5 % des pixels : un objet, pas du bruit de compression)."""
+    pixels = np.concatenate([t[a > 0] for t, a in zip(trames[::4], alphas[::4])])
+    pixels = pixels[::max(1, len(pixels) // 200_000)]  # 200 000 pixels suffisent (sinon plusieurs Go de calcul)
+    if not len(pixels):
+        return palette
+    d = np.sqrt(((pixels[:, None, :].astype(int) - palette[None, :, :].astype(int)) ** 2).sum(-1)).min(axis=1)
+    loin = pixels[d > ECART_NOUVELLE]
+    if len(loin) < max(50, 0.005 * len(pixels)):
+        return palette
+    return np.vstack([palette, _palette(loin, COULEURS_EN_PLUS)]).astype(np.uint8)
 
 
 def _zone_du_personnage(opaque, facteur, marge, forme):

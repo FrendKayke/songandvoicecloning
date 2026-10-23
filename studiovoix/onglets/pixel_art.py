@@ -59,7 +59,9 @@ def construire():
         with gr.Column():
             px_mode = gr.Radio(pixel_art.MODES_ANIMATION, value=pixel_art.SIMPLE, label="Animation")
             px_mouvement = gr.Textbox(label="Mouvement (facultatif, Wan 2.2)", lines=2,
-                                      placeholder="il lance sa balle d'une main à l'autre, sa cape flotte")
+                                      placeholder="il lance sa balle d'une main à l'autre, sa cape flotte",
+                                      info="Décrit : une action jouée une fois sur 5 s (~25 min). Vide : petits "
+                                           "mouvements sur place, en boucle (~10 min).")
             with gr.Row():
                 px_anim_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
                 px_anim_etapes = gr.Slider(10, 50, value=25, step=1, label="Étapes (Wan 2.2)")

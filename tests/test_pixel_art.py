@@ -169,6 +169,60 @@ def test_animation_d_apres_une_video(env, monkeypatch):
         pixel_art.animer(None, progress=no_progress)
 
 
+def test_action_jouee_une_fois(env, monkeypatch):
+    """Action décrite (essai de l'utilisateur : « il va chercher une peluche et la câline », personnage resté figé) :
+    pas de consigne d'immobilité, vidéo de 5 s jouée une fois, le personnage va loin de sa place, un objet jaune
+    qui apparaît garde sa couleur, et l'assombrissement de la vidéo est corrigé."""
+    import av
+
+    appels = []
+
+    def faux_wan(prompt, sortie, image, largeur, hauteur, images, etapes, graine, progress=None, negatif_ajout=None):
+        appels.append((prompt, images))
+        depart = np.array(Image.open(image).convert("RGB"))
+        fond = depart[0, 0].copy()
+        perso = ~(depart == fond).all(-1)
+        with av.open(str(sortie), "w") as c:
+            v = c.add_stream("libx264", rate=24)
+            v.width, v.height, v.pix_fmt = largeur, hauteur, "yuv420p"
+            for i in range(images):
+                trame = depart.copy()
+                if i:
+                    trame[perso] = (trame[perso] * 0.45).astype(np.uint8)  # Wan assombrit le personnage
+                    d = 11 * round(15 * i / (images - 1))  # il part vers la droite : 15 pixels du sprite
+                    trame = np.roll(trame, d, axis=1)
+                    if i > images // 2:  # la peluche jaune apparaît
+                        trame[330:418, 100:188] = (250, 215, 30)
+                for paquet in v.encode(av.VideoFrame.from_ndarray(trame, format="rgb24")):
+                    c.mux(paquet)
+            for paquet in v.encode(None):
+                c.mux(paquet)
+        return {"sortie": str(sortie), "graine": graine}
+
+    monkeypatch.setattr(diffusion, "video", faux_wan)
+    monkeypatch.setattr(diffusion, "present", lambda nom: False)
+    source = env / "sprite.png"
+    a = np.array(_sprite())
+    a[(a[..., :3] == (40, 60, 160)).all(-1)] = (60, 60, 64, 255)  # pantalon gris, devenu noir chez l'utilisateur
+    sprite = Image.fromarray(a)
+    sprite.save(source)
+    msg, _, _, dossier = pixel_art.animer(str(source), pixel_art.IA, "il va chercher une peluche et la câline", 5,
+                                          20, "action", progress=no_progress)
+    prompt, n = appels[0]
+    assert n == 121 and "stays in place" not in prompt and "il va chercher une peluche" in prompt
+    assert "jouée une fois" in msg
+    images = [np.array(Image.open(f)) for f in sorted(Path(dossier, "images").glob("*.png"))]
+    ref = np.array(sprite)
+    fin = images[-1]  # dernière image de la vidéo, pas un retour au début
+    assert ((fin[..., 3] > 0) == (np.roll(ref, 15, axis=1)[..., 3] > 0))[:, 30:].mean() > 0.97
+    jaune = (np.abs(fin[..., :3].astype(int) - (250, 215, 30)).max(-1) < 40) & (fin[..., 3] > 0)
+    assert jaune.sum() >= 40  # la peluche : 8×8 pixels du sprite
+    # couleurs du personnage remises : le pantalon gris reste gris malgré l'assombrissement
+    gris = (fin[..., :3] == (60, 60, 64)).all(-1) & (fin[..., 3] > 0)
+    assert gris.sum() > 0.8 * ((ref[..., :3] == (60, 60, 64)).all(-1) & (ref[..., 3] > 0)).sum()
+    assert json.loads((Path(dossier) / "animation.json").read_text(encoding="utf-8"))["action"] is True
+
+
 def test_silhouettes_de_l_animation_par_birefnet(env, monkeypatch):
     """BiRefNet installé : chaque image de la vidéo lui est donnée (un seul lot) et sa silhouette décide du fond,
     limitée à la zone où le personnage peut bouger."""
