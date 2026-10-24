@@ -1920,3 +1920,20 @@ def test_decoupe_de_la_tete_du_moteur():
     assert h < 110 and w <= 64  # pas le corps entier, pas l'épaule voisine
     assert tete[h // 3, w // 2, 3] == 255 and tete[-3, w // 2, 3] < 128  # cou coupé en fondu
     assert moteur._decouper_tete(np.zeros((50, 50, 4), np.uint8), (10, 10, 20, 20)) is None
+
+
+def test_son_de_la_video_parlante_sans_librosa(tmp_path):
+    """Vidéo parlante : le moteur lisait le son avec librosa, absent de l'environnement de diffusion (« No module
+    named 'librosa' » chez l'utilisateur) ; soundfile, mono, 16 kHz même si le fichier ne l'est pas."""
+    import ast
+
+    import numpy as np
+
+    arbre = ast.parse((Path(moteur.__file__)).read_text(encoding="utf-8"))
+    importes = {a.name.split(".")[0] for n in ast.walk(arbre) if isinstance(n, ast.Import) for a in n.names}
+    importes |= {n.module.split(".")[0] for n in ast.walk(arbre) if isinstance(n, ast.ImportFrom) and n.module}
+    assert "librosa" not in importes  # pas dans installation/diffusion.txt
+    f = tmp_path / "voix.wav"
+    sf.write(str(f), np.stack([np.sin(np.arange(44100) / 10), np.zeros(44100)], axis=1).astype("float32"), 44100)
+    voix, sr = moteur._son_16k(f)
+    assert sr == 16000 and voix.ndim == 1 and abs(len(voix) - 16000) <= 1 and voix.dtype == np.float32

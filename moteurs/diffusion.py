@@ -1997,6 +1997,21 @@ def format_parlante(largeur, hauteur):
     return min(FORMATS_PARLANTE, key=lambda f: abs(math.log(rapport * f[1] / f[0])))
 
 
+def _son_16k(chemin):
+    """Son mono à 16 kHz (float32) pour wav2vec. L'application écrit déjà audio_16k.wav en 16 kHz mono ; librosa
+    n'est pas dans l'environnement de diffusion (« No module named 'librosa' » chez l'utilisateur le 24/10) :
+    soundfile, et un rééchantillonnage linéaire au cas où le fichier ne serait pas à 16 kHz."""
+    import numpy as np
+    import soundfile as sf
+
+    voix, sr = sf.read(str(chemin), dtype="float32", always_2d=True)
+    voix = voix.mean(axis=1)
+    if sr != 16000 and len(voix):
+        n = max(1, round(len(voix) * 16000 / sr))
+        voix = np.interp(np.linspace(0, len(voix) - 1, n), np.arange(len(voix)), voix).astype(np.float32)
+    return voix, 16000
+
+
 def parler(chemin_tache):
     """Tâche : {image, audio (WAV 16 kHz mono, lu par le modèle : voix seule si elle a été isolée), son (son de la
     vidéo, complet ; par défaut audio), sortie (MP4), prompt, largeur/hauteur
@@ -2011,7 +2026,6 @@ def parler(chemin_tache):
     import contextlib
 
     import imageio_ffmpeg
-    import librosa
     import numpy as np
     import torch
     from PIL import Image, ImageOps
@@ -2036,7 +2050,7 @@ def parler(chemin_tache):
     reference = Path(t["sortie"]).with_name("reference.png")
     reference.parent.mkdir(parents=True, exist_ok=True)
     ImageOps.fit(image, (largeur, hauteur), Image.LANCZOS).save(reference)
-    voix, sr = librosa.load(t["audio"], sr=16000)
+    voix, sr = _son_16k(t["audio"])
     if len(voix) < sr:
         _erreur("le son doit durer au moins une seconde.")
     # Le pipeline avance par fenêtres de 81 images (21 latents, 3,24 s à 25 images/s) : avec moins de son, la boucle
