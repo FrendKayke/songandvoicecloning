@@ -93,19 +93,24 @@ FAUX_MOTEUR = textwrap.dedent("""
                                         "duree": 2.0 * len(t["clips"])}), flush=True)
     elif action == "detourer" and "entrees" in t:  # lot : fond retiré (alpha nul) partout sauf au centre
         from PIL import Image
+        # comme le vrai moteur : une image en échec (« SANS_VISAGE » dans le nom) est consignée, le lot continue
         n = len(t["entrees"]) + 1
+        erreurs, tetes = [], []
         for i, (e, s) in enumerate(zip(t["entrees"], t["sorties"]), 2):
             print(f"PROGRESSION {i}/{n} x", flush=True)
-            if "DETOURAGE_IMPOSSIBLE" in e:
-                print("ERREUR : image illisible.", flush=True); sys.exit(3)
+            if "SANS_VISAGE" in e:
+                erreurs.append({"index": i - 2, "fichier": Path(e).name, "message": "aucun visage trouvé"})
+                tetes.append([]); continue
             im = Image.open(e).convert("RGBA"); alpha = Image.new("L", im.size, 0)
             alpha.paste(255, (im.width // 4, im.height // 4, 3 * im.width // 4, 3 * im.height // 4))
             im.putalpha(alpha); im.save(s)
-        res = {"sorties": t["sorties"], "couvertures": [0.25] * len(t["sorties"])}
-        if t.get("tete"):  # une tête par visage : « DEUX » dans le nom = deux visages
-            res["tetes"] = [[s] + ([s.replace(".png", "_2.png")] if "DEUX" in s else []) for s in t["sorties"]]
-            for liste in res["tetes"]:
-                for f in liste[1:]: Image.new("RGBA", (4, 4)).save(f)
+            tetes.append([s] + ([s.replace(".png", "_2.png")] if "DEUX" in s else []))  # « DEUX » = deux visages
+            for f in tetes[-1][1:]: Image.new("RGBA", (4, 4)).save(f)
+        if len(erreurs) == len(t["entrees"]):
+            print("ERREUR : aucune image n'a pu être traitée.", flush=True); sys.exit(2)
+        res = {"sorties": t["sorties"], "couvertures": [0.25] * len(t["sorties"]), "erreurs": erreurs}
+        if t.get("tete"):
+            res["tetes"] = tetes
         print("RESULTAT " + json.dumps(res), flush=True)
     elif action == "detourer":
         from PIL import Image
@@ -1890,6 +1895,17 @@ def test_plusieurs_photos_d_un_coup(faux_diffusion):
     assert sorted(zipfile.ZipFile(fichiers[0]).namelist()) == sorted(Path(f).name for f in fichiers[1:])
     assert len(galerie) == 4 and "4 image(s) tête(s) isolée(s) à partir de 3 photo(s)" in msg
     assert "notes.txt : format non pris en charge" in msg
+    # une photo sans visage n'arrête plus le lot (constaté chez l'utilisateur : tout échouait)
+    sans = cfg.DATA_DIR.parent / "paysage SANS_VISAGE.jpg"
+    Image.new("RGB", (40, 40), "green").save(sans)
+    msg, galerie, fichiers, _ = photos.traiter_lot(
+        [str(sources[0]), str(sans), str(sources[2])], "🙂 Garder seulement la tête (PNG transparent)", "×2", False,
+        True, 0.7, photos.FOND_DEFAUT, None, progress=no_progress)
+    assert [Path(f).name for f in fichiers[1:]] == ["Lea.png", "chat.png"] and len(galerie) == 2
+    assert "paysage SANS_VISAGE.jpg : aucun visage trouvé" in msg and "2 image(s)" in msg
+    with pytest.raises(gr.Error, match="aucune image"):
+        photos.traiter_lot([str(sans)], "🙂 Garder seulement la tête (PNG transparent)", "×2", False, True, 0.7,
+                           photos.FOND_DEFAUT, None, progress=no_progress)
     # détourage simple : lot BiRefNet « general », sans tête
     photos.traiter_lot([str(s) for s in sources[:2]], "✂️ Détourer (objet, animal, personne…)", "×2", False, True,
                        0.7, photos.FOND_DEFAUT, None, progress=no_progress)

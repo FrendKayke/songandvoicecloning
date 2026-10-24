@@ -166,6 +166,9 @@ def traiter_lot(fichiers, action_label, echelle_label, rapide, visages, force, f
                                          modele="general" if action == "detourer" else "personne",
                                          tete=action == "tete")
             produits = [f for liste in res["tetes"] for f in liste] if action == "tete" else res["sorties"]
+            produits = [f for f in produits if Path(f).exists()]  # une photo en échec n'arrête plus le lot
+            origine = {e.name: p.name for e, p in zip(entrees, sources)}  # le nom de la photo, pas de sa copie
+            erreurs += [f"{origine.get(e['fichier'], e['fichier'])} : {e['message']}" for e in res.get("erreurs") or []]
     if not produits:
         raise gr.Error("Aucune photo traitée : " + " ; ".join(erreurs))
     archive = dossier / f"{dossier.name}.zip"

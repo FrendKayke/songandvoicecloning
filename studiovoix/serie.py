@@ -502,8 +502,10 @@ def _executer(dossier, progress):
             if transparent:
                 prets = [i for i, b in enumerate(bruts) if b.exists()]
                 if prets:
-                    diffusion.detourer_lot([bruts[i] for i in prets], [sorties[i] for i in prets],
-                                           progress=partie(suivi, 0.8, 1))
+                    res = diffusion.detourer_lot([bruts[i] for i in prets], [sorties[i] for i in prets],
+                                                 progress=partie(suivi, 0.8, 1))
+                    # une image en échec n'arrête plus le paquet : signalée, « Reprendre » la refera
+                    erreurs += [f"détourage de {e['fichier']} : {e['message']}" for e in res.get("erreurs") or []]
             echecs_suite = 0
         except gr.Error as e:  # le paquet suivant repart d'un moteur neuf ; « Reprendre » refera celles-ci
             erreurs.append(f"images {paquet[0]['numero']}–{paquet[-1]['numero']} : {getattr(e, 'message', e)}")

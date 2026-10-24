@@ -1156,21 +1156,39 @@ def detourer(chemin_tache):
         1.0, vers_cpu=lambda m: m.to("cpu"), vers_gpu=lambda m: m.to(device))
     tete = bool(t.get("tete"))  # « Garder seulement la tête » : détourage puis tête autour de chaque visage
     if lot:
-        couvertures, tetes = [], []
+        # une image en échec (aucun visage, fichier illisible…) est consignée et le lot continue : avant, un seul
+        # échec faisait échouer tout le lot (constaté chez l'utilisateur le 24/10)
+        couvertures, tetes, erreurs = [], [], []
         for i, (entree, sortie) in enumerate(zip(t["entrees"], t["sorties"]), 2):
             print(f"PROGRESSION {i}/{n} détourage de {Path(sortie).name}", flush=True)
-            image, _, couverture = _detourer_image(modele, cote, device, dtype, entree, sortie)
+            try:
+                image, _, couverture = _detourer_image(modele, cote, device, dtype, entree, sortie)
+                trouvees = _tetes(sortie, image, _dossier_photos()) if tete else None
+            except torch.cuda.OutOfMemoryError:
+                raise  # la carte n'est plus fiable : le moteur résident sera relancé
+            except Exception as e:  # noqa: BLE001
+                print(f"AVERTISSEMENT : {Path(entree).name} non traitée ({e}).", flush=True)
+                erreurs.append({"index": i - 2, "fichier": Path(entree).name, "message": str(e)})
+                Path(sortie).unlink(missing_ok=True)
+                couverture, trouvees = None, []
             couvertures.append(couverture)
             if tete:
-                tetes.append(_tetes(sortie, image, _dossier_photos()))
-        _resultat({"sorties": t["sorties"], "couvertures": couvertures, **({"tetes": tetes} if tete else {})})
+                tetes.append(trouvees)
+        if len(erreurs) == len(t["entrees"]):
+            _erreur("aucune image n'a pu être traitée : " + " ; ".join(f"{e['fichier']} : {e['message']}"
+                                                                         for e in erreurs))
+        _resultat({"sorties": t["sorties"], "couvertures": couvertures, "erreurs": erreurs,
+                   **({"tetes": tetes} if tete else {})})
         print(f"TERMINE {t['sorties'][-1]}", flush=True)
         return
     image, masque, couverture = _detourer_image(modele, cote, device, dtype, t["entree"], t["sortie"],
                                                 None if tete else t.get("fond"), etapes=True)
     if t.get("masque"):
         masque.save(t["masque"])
-    tetes = _tetes(t["sortie"], image, _dossier_photos()) if tete else None
+    try:
+        tetes = _tetes(t["sortie"], image, _dossier_photos()) if tete else None
+    except _EchecImage as e:
+        _erreur(str(e))
     _resultat({"sortie": t["sortie"], "masque": t.get("masque"), "largeur": image.width, "hauteur": image.height,
                "couverture": couverture, **({"tetes": tetes} if tete else {})})
     print(f"TERMINE {t['sortie']}", flush=True)
@@ -1340,6 +1358,10 @@ def _decouper_tete(rgba, boite):
     return sortie
 
 
+class _EchecImage(Exception):
+    """Une image d'un lot n'a pas pu être traitée (aucun visage…) : consignée, le lot continue."""
+
+
 def _tetes(sortie, image, dossier):
     """La photo détourée (`sortie`, PNG transparent) devient la tête du plus grand visage ; les autres visages vont
     dans <nom>_2.png, <nom>_3.png… Renvoie la liste des fichiers ; erreur si aucun visage."""
@@ -1350,8 +1372,8 @@ def _tetes(sortie, image, dossier):
     bgr = cv2.cvtColor(np.asarray(image.convert("RGB")), cv2.COLOR_RGB2BGR)
     visages = _visages_yunet(bgr, dossier, cote_min=24)
     if not visages:
-        _erreur(f"aucun visage trouvé sur {Path(sortie).name} : « Garder seulement la tête » a besoin d'un visage "
-                "bien visible.")
+        raise _EchecImage(f"aucun visage trouvé sur {Path(sortie).name} : « Garder seulement la tête » a besoin "
+                          "d'un visage bien visible.")
     rgba = np.asarray(Image.open(sortie).convert("RGBA"))
     fichiers = []
     for i, v in enumerate(visages, 1):
@@ -1362,7 +1384,7 @@ def _tetes(sortie, image, dossier):
         Image.fromarray(tete, "RGBA").save(chemin)
         fichiers.append(str(chemin))
     if not fichiers:
-        _erreur(f"la tête n'a pas pu être isolée sur {Path(sortie).name}.")
+        raise _EchecImage(f"la tête n'a pas pu être isolée sur {Path(sortie).name}.")
     return fichiers
 
 

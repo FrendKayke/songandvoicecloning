@@ -409,6 +409,8 @@ def creer_personnages(photo, texte, exemples, hauteur, couleurs, toile, agrandis
     if diffusion.present("photo_detourage"):
         detoures = [s.with_name(s.stem.replace("_source", "_detoure") + ".png") for s in sources]
         diffusion.detourer_lot(sources, detoures, progress=progress)
+        # une image en échec dans le lot : la source (fond uni retiré par pixeliser)
+        detoures = [d if d.exists() else s for d, s in zip(detoures, sources)]
     else:
         detoures = sources
     apercus, fichiers, infos = [], [], []
@@ -744,7 +746,8 @@ def _masques_birefnet(trames, dossier, progress):
         Image.fromarray(t, "RGB").save(entrees[-1])
     try:
         diffusion.detourer_lot(entrees, sorties, progress=progress)
-        return [np.array(Image.open(s).convert("RGBA"))[..., 3] >= 128 for s in sorties]
+        # image en échec dans le lot : None, son fond est retiré d'après sa couleur
+        return [np.array(Image.open(s).convert("RGBA"))[..., 3] >= 128 if s.exists() else None for s in sorties]
     except (gr.Error, RuntimeError, OSError) as e:
         print(f"Détourage des images de l'animation impossible ({e}) : fond retiré d'après sa couleur.", flush=True)
         return None
