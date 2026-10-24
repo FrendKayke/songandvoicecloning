@@ -17,7 +17,8 @@ def construire():
     )
     with gr.Accordion("🎨 Style : sprites d'exemple", open=True):
         with gr.Row():
-            px_exemples = gr.File(file_count="multiple", file_types=["image"], label="Sprites d'exemple (PNG)")
+            px_exemples = gr.File(file_count="multiple", file_types=["image"],
+                                  label="Sprites d'exemple (PNG, ou GIF animés : leur rythme sert aux animations)")
             with gr.Column():
                 btn_px_style = gr.Button("🔍 Lire le style des exemples")
                 px_style_msg = gr.Markdown()
@@ -53,15 +54,16 @@ def construire():
     px_galerie = gr.Gallery(label="Sprites (clique sur un sprite pour l'animer)", columns=6, height=300,
                             object_fit="contain")
     px_fichiers = gr.File(label="Fichiers produits", file_count="multiple", interactive=False)
-    gr.Markdown("### 🎞️ Animer un sprite (30 images, 5 secondes, en boucle)")
+    gr.Markdown("### 🎞️ Animer un sprite")
     with gr.Row():
         px_sprite = gr.Image(type="filepath", image_mode="RGBA", label="Sprite à animer", height=260)
         with gr.Column():
             px_mode = gr.Radio(pixel_art.MODES_ANIMATION, value=pixel_art.SIMPLE, label="Animation")
             px_mouvement = gr.Textbox(label="Mouvement (facultatif, Wan 2.2)", lines=2,
                                       placeholder="il lance sa balle d'une main à l'autre, sa cape flotte",
-                                      info="Décrit : une action jouée une fois sur 5 s (~25 min). Vide : petits "
-                                           "mouvements sur place, en boucle (~10 min).")
+                                      info="Décrit : un geste joué une fois, au rythme des sprites animés "
+                                           "(50 ms par image, pose finale tenue). Vide : petits mouvements sur "
+                                           "place, en boucle. Une dizaine de minutes.")
             with gr.Row():
                 px_anim_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
                 px_anim_etapes = gr.Slider(10, 50, value=25, step=1, label="Étapes (Wan 2.2)")
@@ -101,6 +103,6 @@ def brancher(c, demo, o):
                          [*sorties, c.px_sprite])
     c.px_galerie.select(_choisir, c.px_apercus, c.px_sprite)
     c.btn_px_animer.click(pixel_art.animer, [c.px_sprite, c.px_mode, c.px_mouvement, c.px_anim_graine,
-                                            c.px_anim_etapes, c.px_anim_nom],
+                                            c.px_anim_etapes, c.px_anim_nom, c.px_exemples],
                           [c.px_anim_statut, c.px_anim, c.px_anim_fichiers, c.px_dossier])
     c.btn_px_dossier.click(lambda d: open_folder(d) if d else None, c.px_dossier)

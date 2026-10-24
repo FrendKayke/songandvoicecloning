@@ -150,17 +150,20 @@ def test_animation_d_apres_une_video(env, monkeypatch):
     pixel_art.agrandir(sprite, 2).save(source)  # importé agrandi : ramené à 64×64
     msg, gif, fichiers, dossier = pixel_art.animer(str(source), pixel_art.IA, "", 5, 20, "heros",
                                                    progress=no_progress)
-    assert appels[0][1:5] == (704, 704, 61, 20) and "30 images" in msg and gif.endswith("_x2.gif")
+    assert appels[0][1:5] == (704, 704, 61, 20) and "50 ms par image" in msg and gif.endswith("_x2.gif")
     assert "background stays exactly the same color" in appels[0][0] and "gray background" in appels[0][5]
     images = [np.array(Image.open(f)) for f in sorted(Path(dossier, "images").glob("*.png"))]
     ref = np.array(sprite)
-    assert len(images) == 30 and ((images[0][..., 3] > 0) == (ref[..., 3] > 0)).all()
+    assert 10 < len(images) <= 84 and ((images[0][..., 3] > 0) == (ref[..., 3] > 0)).all()
     assert (images[0][..., :3][ref[..., 3] > 0] == ref[..., :3][ref[..., 3] > 0]).all()
-    # image 5 : sprite descendu d'un pixel, exactement (la ligne 0 reçoit les pieds enroulés par np.roll de la fausse
-    # vidéo : hors de la zone où le personnage peut bouger, elle est vide, à juste titre)
+    gif_ = Image.open(Path(dossier) / "heros.gif")
+    durees = [gif_.seek(i) or gif_.info["duration"] for i in range(gif_.n_frames)]
+    assert set(durees) <= {50 * k for k in range(1, 20)} and sum(durees) == 84 * 50  # aller-retour à 50 ms
+    # une des images : sprite descendu d'un pixel, exactement (la ligne 0 reçoit les pieds enroulés par np.roll de la
+    # fausse vidéo : hors de la zone où le personnage peut bouger, elle est vide, à juste titre)
     decale = np.roll(ref, 1, axis=0)[1:]
-    assert ((images[4][1:, :, 3] > 0) == (decale[..., 3] > 0)).all()
-    assert (images[4][1:][..., :3][decale[..., 3] > 0] == decale[..., :3][decale[..., 3] > 0]).all()
+    assert any(((i[1:, :, 3] > 0) == (decale[..., 3] > 0)).all()
+               and (i[1:][..., :3][decale[..., 3] > 0] == decale[..., :3][decale[..., 3] > 0]).all() for i in images)
     for i in images[1:6]:  # images tirées du passage où le fond était gris et brun : fond retiré quand même
         assert not (i[..., 3] > 0)[ref[..., 3] == 0].sum() > 40
     couleurs = {tuple(p) for i in images for p in i[..., :3][i[..., 3] > 0]}
@@ -171,8 +174,9 @@ def test_animation_d_apres_une_video(env, monkeypatch):
 
 def test_action_jouee_une_fois(env, monkeypatch):
     """Action décrite (essai de l'utilisateur : « il va chercher une peluche et la câline », personnage resté figé) :
-    pas de consigne d'immobilité, vidéo de 5 s jouée une fois, le personnage va loin de sa place, un objet jaune
-    qui apparaît garde sa couleur, et l'assombrissement de la vidéo est corrigé."""
+    pas de consigne d'immobilité, geste joué une fois au rythme des dresseurs animés (50 ms, poses tenues), le
+    personnage va loin de sa place, un objet jaune qui apparaît garde sa couleur, l'assombrissement de la vidéo est
+    corrigé et le liseré du fond vert ne devient pas une couleur."""
     import av
 
     appels = []
@@ -193,6 +197,10 @@ def test_action_jouee_une_fois(env, monkeypatch):
                     trame = np.roll(trame, d, axis=1)
                     if i > images // 2:  # la peluche jaune apparaît
                         trame[330:418, 100:188] = (250, 215, 30)
+                    # liseré : la vidéo mélange le fond vert au bord du personnage (teinte verte chez l'utilisateur)
+                    p_ = ~(trame == fond).all(-1)
+                    bord = p_ & ~(np.roll(p_, 3, 0) & np.roll(p_, -3, 0) & np.roll(p_, 3, 1) & np.roll(p_, -3, 1))
+                    trame[bord] = (trame[bord] // 2 + fond // 2).astype(np.uint8)
                 for paquet in v.encode(av.VideoFrame.from_ndarray(trame, format="rgb24")):
                     c.mux(paquet)
             for paquet in v.encode(None):
@@ -209,8 +217,13 @@ def test_action_jouee_une_fois(env, monkeypatch):
     msg, _, _, dossier = pixel_art.animer(str(source), pixel_art.IA, "il va chercher une peluche et la câline", 5,
                                           20, "action", progress=no_progress)
     prompt, n = appels[0]
-    assert n == 121 and "stays in place" not in prompt and "il va chercher une peluche" in prompt
+    assert n == 61 and "stays in place" not in prompt and "il va chercher une peluche" in prompt
     assert "jouée une fois" in msg
+    gif_ = Image.open(Path(dossier) / "action.gif")
+    durees = [gif_.seek(i) or gif_.info["duration"] for i in range(gif_.n_frames)]
+    # 42 pas de 50 ms sur 2,1 s : 150 ms au début, 600 ms à la fin, images identiques fusionnées
+    assert durees[0] >= 150 and durees[-1] >= 600 and all(d % 50 == 0 for d in durees)
+    assert sum(durees) == 150 + 40 * 50 + 600
     images = [np.array(Image.open(f)) for f in sorted(Path(dossier, "images").glob("*.png"))]
     ref = np.array(sprite)
     fin = images[-1]  # dernière image de la vidéo, pas un retour au début
@@ -221,6 +234,9 @@ def test_action_jouee_une_fois(env, monkeypatch):
     gris = (fin[..., :3] == (60, 60, 64)).all(-1) & (fin[..., 3] > 0)
     assert gris.sum() > 0.8 * ((ref[..., :3] == (60, 60, 64)).all(-1) & (ref[..., 3] > 0)).sum()
     assert json.loads((Path(dossier) / "animation.json").read_text(encoding="utf-8"))["action"] is True
+    for i in images:  # aucun pixel teinté par le fond vert
+        r, g, b_ = (i[..., :3].astype(int)[i[..., 3] > 0]).T
+        assert not ((g > r + 60) & (g > b_ + 60)).any()
 
 
 def test_silhouettes_de_l_animation_par_birefnet(env, monkeypatch):
@@ -245,3 +261,39 @@ def test_silhouettes_de_l_animation_par_birefnet(env, monkeypatch):
     zone[1:7, 1:7] = True
     alpha = pixel_art._alpha_personnage(trames[0], zone, (0, 255, 0), masques[0])
     assert alpha[3, 3] == 255 and alpha[0, 0] == 0 and alpha[1, 1] == 0
+
+
+def test_rythme_lu_sur_des_gif_d_exemple(env):
+    """GIF animés d'exemple (dresseurs de l'utilisateur) : médianes du pas, des poses tenues et de la durée ; un PNG
+    fixe est ignoré."""
+    gif = env / "dresseur.gif"
+    cadres = [Image.new("RGBA", (8, 8), (i * 40, 0, 0, 255)) for i in range(5)]
+    cadres[0].save(gif, save_all=True, append_images=cadres[1:], duration=[300, 50, 50, 50, 600], loop=0)
+    png = env / "fixe.png"
+    cadres[0].save(png)
+    assert pixel_art.lire_rythme([str(gif), str(png)]) == {"image_ms": 50, "debut_ms": 300, "fin_ms": 600,
+                                                           "duree_ms": 1050}
+    assert pixel_art.lire_rythme([str(png)]) is None
+    assert pixel_art.durees_rythme(4, pixel_art.RYTHME_DEFAUT) == [150, 50, 50, 600]
+
+
+def test_liseré_du_fond_pas_pris_pour_une_couleur():
+    """Couleurs nouvelles (objet qui apparaît) : le bord de la silhouette, mélangé au fond vert par la vidéo, n'en
+    fait pas partie (sinon le pantalon gris assombri prenait ce vert, constaté chez l'utilisateur le 24/10)."""
+    palette = np.array([(60, 60, 64), (230, 180, 150), (0, 0, 0)], np.uint8)
+    fond = (0, 255, 0)
+    trames, alphas = [], []
+    for _ in range(8):
+        t = np.zeros((120, 120, 3), np.uint8)
+        t[:] = fond
+        t[20:100, 20:100] = (60, 60, 64)
+        t[20:100, 20:23] = t[20:100, 97:100] = (30, 150, 34)  # liseré vert-gris de 3 px
+        t[20:23, 20:100] = t[97:100, 20:100] = (30, 150, 34)
+        t[50:70, 50:70] = (250, 215, 30)  # objet jaune
+        a = np.zeros((120, 120), np.uint8)
+        a[20:100, 20:100] = 255
+        trames.append(t)
+        alphas.append(a)
+    nouvelle = pixel_art._palette_avec_nouvelles(palette, trames, alphas, fond, 11)[len(palette):].astype(int)
+    assert len(nouvelle) and (np.abs(nouvelle - (250, 215, 30)).max(axis=1) < 30).any()
+    assert not ((nouvelle[:, 1] > nouvelle[:, 0] + 60) & (nouvelle[:, 1] > nouvelle[:, 2] + 60)).any()

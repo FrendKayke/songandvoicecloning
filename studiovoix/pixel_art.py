@@ -243,12 +243,12 @@ def aller_retour(images, n=IMAGES_ANIMATION):
     return choisies + choisies[-2:0:-1]
 
 
-def ecrire_animation(images, dossier, nom, agrandissement):
-    """GIF transparent en boucle (5 s), planche de sprites (toutes les images côte à côte) et images séparées, à la
-    taille d'origine et agrandies. Renvoie la liste des fichiers."""
+def ecrire_animation(images, dossier, nom, agrandissement, durees=None):
+    """GIF transparent en boucle (5 s, ou une durée par image en ms : `durees`), planche de sprites (toutes les
+    images côte à côte) et images séparées, à la taille d'origine et agrandies. Renvoie la liste des fichiers."""
     dossier = Path(dossier)
     (dossier / "images").mkdir(parents=True, exist_ok=True)
-    duree_ms = int(round(DUREE_ANIMATION * 1000 / len(images)))
+    duree_ms = list(durees) if durees else int(round(DUREE_ANIMATION * 1000 / len(images)))
     fichiers = []
     for facteur, suffixe in [(1, "")] + ([(agrandissement, f"_x{agrandissement}")] if agrandissement > 1 else []):
         cadres = [agrandir(im, facteur) for im in images]
@@ -430,7 +430,7 @@ def creer_personnages(photo, texte, exemples, hauteur, couleurs, toile, agrandis
 
 # --- Onglet : animer un sprite ---------------------------------------------------------------------------------
 SIMPLE = "Respiration (instantané)"
-IA = "Mouvement libre avec Wan 2.2 (10 à 25 min)"
+IA = "Mouvement libre avec Wan 2.2 (~10 min)"
 MODES_ANIMATION = [SIMPLE, IA]
 MOUVEMENT_DEFAUT = ("The pixel art character stays in place in an idle stance and breathes slowly, small natural "
                     "movements of the head, arms, hair and clothes, the feet do not move, the camera does not move, "
@@ -442,7 +442,12 @@ TAILLE_VIDEO = 704  # côté de la vidéo carrée de Wan (multiple de 32)
 STYLE_ACTION = ("2D pixel art video game sprite animation: the same character with exactly the same colors, clothes "
                 "and proportions as in the first frame, crisp pixels, the whole action fully visible, the camera "
                 "does not move")
-IMAGES_VIDEO = {False: 61, True: 121}  # 2,5 s en boucle (aller-retour) ; 5 s pour une action jouée une fois
+IMAGES_VIDEO = 61  # 2,5 s de vidéo : un geste de dresseur dure ~2 s
+# Rythme des sprites animés de dresseurs (187 GIF d'exemple de l'utilisateur, 24/10) : médiane 23 images sur 2,1 s,
+# 50 ms par image au milieu, première image tenue ~150 ms, dernière 600 ms (pose finale). Lu sur des GIF d'exemple
+# s'il y en a (`lire_rythme`). L'ancien rythme (30 images sur 5 s, 6 images/s) était saccadé.
+RYTHME_DEFAUT = {"image_ms": 50, "debut_ms": 150, "fin_ms": 600, "duree_ms": 2100}
+ECART_FOND_NOUVELLE = 140  # une « nouvelle » couleur aussi proche du fond vif est un reste du fond (liseré vert)
 COULEURS_EN_PLUS = 8  # couleurs ajoutées à la palette du sprite pour un objet qui apparaît
 ECART_NOUVELLE = 60  # écart à la palette au-delà duquel une couleur est nouvelle
 # Wan changeait la couleur du fond en cours de vidéo (gris, brun : constaté chez l'utilisateur le 23/10) : la couleur
@@ -470,8 +475,37 @@ def _fond_eloigne(palette):
     return tuple(int(x) for x in candidates[d.argmax()])
 
 
-def animer(sprite_source, mode=SIMPLE, mouvement="", graine=0, etapes=25, nom="animation", progress=gr.Progress()):
-    """30 images en boucle sur 5 s. Renvoie (message, GIF agrandi, fichiers, dossier)."""
+def lire_rythme(fichiers):
+    """Rythme de GIF animés d'exemple : {image_ms, debut_ms, fin_ms, duree_ms} (médianes), ou None sans GIF animé."""
+    mesures = []
+    for f in fichiers or []:
+        try:
+            with Image.open(getattr(f, "name", f)) as im:
+                if getattr(im, "n_frames", 1) < 3:
+                    continue
+                d = []
+                for i in range(im.n_frames):
+                    im.seek(i)
+                    d.append(int(im.info.get("duration") or 100))
+        except OSError:
+            continue
+        mesures.append({"image_ms": float(np.median(d[1:-1])), "debut_ms": d[0], "fin_ms": d[-1], "duree_ms": sum(d)})
+    if not mesures:
+        return None
+    return {c: int(np.median([m[c] for m in mesures])) for c in RYTHME_DEFAUT}
+
+
+def durees_rythme(n, rythme):
+    """Durée de chaque image (ms) : première et dernière tenues, les autres au pas du rythme."""
+    if n == 1:
+        return [rythme["fin_ms"]]
+    return [rythme["debut_ms"]] + [rythme["image_ms"]] * (n - 2) + [rythme["fin_ms"]]
+
+
+def animer(sprite_source, mode=SIMPLE, mouvement="", graine=0, etapes=25, nom="animation", exemples=None,
+           progress=gr.Progress()):
+    """Respiration : 30 images en boucle sur 5 s. Wan 2.2 : au rythme des GIF d'exemple (sinon celui des dresseurs
+    animés : 50 ms par image). Renvoie (message, GIF agrandi, fichiers, dossier)."""
     if not sprite_source:
         raise gr.Error("Choisis le sprite à animer (créé ici ou importé).")
     sprite, k = _sprite_de(sprite_source)
@@ -483,20 +517,24 @@ def animer(sprite_source, mode=SIMPLE, mouvement="", graine=0, etapes=25, nom="a
     dossier = nouveau_dossier(cfg.PIXEL_DIR, _slug(nom, "animation"))
     sprite.save(dossier / "sprite.png")
     debut = time.monotonic()
+    durees, rythme_lu = None, None
     if mode != IA:
         images = respiration(sprite)
     else:
-        images = _animer_ia(sprite, dossier, mouvement, graine, etapes, progress)
-    fichiers = ecrire_animation(images, dossier, _slug(nom, "animation"), k)
+        rythme_lu = lire_rythme(exemples)
+        images, durees = _animer_ia(sprite, dossier, mouvement, graine, etapes, progress, rythme_lu or RYTHME_DEFAUT)
+    fichiers = ecrire_animation(images, dossier, _slug(nom, "animation"), k, durees)
     gif = str([f for f in fichiers if f.suffix == ".gif"][-1])
+    total = sum(durees) / 1000 if durees else DUREE_ANIMATION
     lecture = "jouée une fois puis reprise" if mode == IA and (mouvement or "").strip() else "en boucle"
-    msg = (f"✅ Animation de {len(images)} images sur {DUREE_ANIMATION:g} s ({len(images) / DUREE_ANIMATION:g} "
-           f"images/s), {lecture}, en {time.monotonic() - debut:.0f} s : GIF, planche de sprites et images séparées "
-           f"dans {dossier}.")
+    origine = (" (rythme lu sur les GIF d'exemple)" if rythme_lu else
+               " (rythme des dresseurs animés : 50 ms par image)" if durees else "")
+    msg = (f"✅ Animation de {len(images)} images sur {total:g} s{origine}, {lecture}, en "
+           f"{time.monotonic() - debut:.0f} s : GIF, planche de sprites et images séparées dans {dossier}.")
     return msg, gif, [str(f) for f in fichiers], str(dossier)
 
 
-def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress):
+def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress, rythme=RYTHME_DEFAUT):
     """Wan 2.2 anime le sprite agrandi sur un fond de couleur vive ; chaque image est ramenée sur la grille, la
     palette et le cadrage du sprite (le fond retombe sur sa couleur et redevient transparent)."""
     a = np.array(sprite)
@@ -519,7 +557,7 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress):
     prompt = f"{prompt.rstrip('. ')}. {FOND_FIXE.format(couleur=NOMS_FONDS.get(fond, 'bright'))}."
     graine = int(graine or 0) or diffusion.graines(1)[0]
     res = diffusion.video(prompt, dossier / "video.mp4", dossier / "depart.png", TAILLE_VIDEO, TAILLE_VIDEO,
-                          IMAGES_VIDEO[action], etapes, graine, progress=progress, negatif_ajout=NEGATIF_SPRITE)
+                          IMAGES_VIDEO, etapes, graine, progress=progress, negatif_ajout=NEGATIF_SPRITE)
     trames = _lire_video(res["sortie"])
     cadre = (marge, marge, facteur)
     # une action peut emmener le personnage partout dans l'image ; une boucle reste près de la silhouette
@@ -529,7 +567,7 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress):
     alphas = [_alpha_personnage(t, zone, fond, None if masques is None else masques[n]) for n, t in enumerate(trames)]
     trames = _corriger_couleurs(trames, alphas)  # Wan assombrissait le personnage (pantalon gris devenu noir)
     if action:  # un objet qui apparaît (une peluche jaune) garde ses couleurs
-        palette = _palette_avec_nouvelles(palette, trames, alphas)
+        palette = _palette_avec_nouvelles(palette, trames, alphas, fond, facteur)
     palette_fond = np.vstack([palette, np.zeros((1, 3), np.uint8)])  # dernier indice = transparent
     indices = []
     for t, alpha in zip(trames, alphas):
@@ -551,9 +589,32 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress):
         b[..., 3] = np.where(ind == len(palette), 0, 255)
         images.append(Image.fromarray(b, "RGBA"))
     (dossier / "animation.json").write_text(json.dumps({"prompt": prompt, "graine": res["graine"], "fond": fond,
-                                                        "action": action, "couleurs": len(palette)},
+                                                        "action": action, "couleurs": len(palette),
+                                                        "rythme": rythme},
                                                        ensure_ascii=False), encoding="utf-8")
-    return une_fois(images) if action else aller_retour(images)
+    # autant d'images que le rythme en demande sur la durée du geste ; les images identiques à la suivante sont
+    # fusionnées (leur durée s'additionne), comme les poses tenues des sprites d'exemple
+    # au plus une image par image de la vidéo (des exemples plus longs, comme les Pokémon en boucle de 5,8 s,
+    # donneraient sinon un ralenti fait d'images répétées)
+    n = max(4, min(len(images), round(rythme["duree_ms"] / rythme["image_ms"])))
+    if action:
+        choisies = une_fois(images, n)
+        durees = durees_rythme(len(choisies), rythme)
+    else:
+        choisies = aller_retour(images, 2 * n)
+        durees = [rythme["image_ms"]] * len(choisies)
+    return _fusionner_identiques(choisies, durees)
+
+
+def _fusionner_identiques(images, durees):
+    sorties, temps = [images[0]], [durees[0]]
+    for im, d in zip(images[1:], durees[1:]):
+        if np.array_equal(np.array(im), np.array(sorties[-1])):
+            temps[-1] += d
+        else:
+            sorties.append(im)
+            temps.append(d)
+    return sorties, temps
 
 
 def une_fois(images, n=IMAGES_ANIMATION):
@@ -581,10 +642,18 @@ def _corriger_couleurs(trames, alphas):
     return sorties
 
 
-def _palette_avec_nouvelles(palette, trames, alphas):
+def _palette_avec_nouvelles(palette, trames, alphas, fond=None, facteur=1):
     """Palette du sprite + jusqu'à COULEURS_EN_PLUS couleurs nouvelles (pixels du personnage loin de toutes les
-    couleurs du sprite sur au moins 0,5 % des pixels : un objet, pas du bruit de compression)."""
-    pixels = np.concatenate([t[a > 0] for t, a in zip(trames[::4], alphas[::4])])
+    couleurs du sprite sur au moins 0,5 % des pixels : un objet, pas du bruit de compression). Le bord de la
+    silhouette (mélangé au fond par la vidéo) et les couleurs proches du fond vif sont écartés : sinon un liseré vert
+    devenait une couleur et teintait le pantalon et la tête (constaté chez l'utilisateur le 24/10)."""
+    from scipy import ndimage
+
+    marge = max(1, facteur // 2)
+    interieurs = [ndimage.binary_erosion(a > 0, iterations=marge) for a in alphas[::4]]
+    pixels = np.concatenate([t[m] for t, m in zip(trames[::4], interieurs)])
+    if fond is not None and len(pixels):
+        pixels = pixels[np.sqrt(((pixels.astype(int) - np.array(fond)) ** 2).sum(-1)) > ECART_FOND_NOUVELLE]
     pixels = pixels[::max(1, len(pixels) // 200_000)]  # 200 000 pixels suffisent (sinon plusieurs Go de calcul)
     if not len(pixels):
         return palette
