@@ -13,6 +13,8 @@ def construire():
         "le bruit, les artefacts JPEG et le flou (×1 nettoie sans agrandir) ; GFPGAN redonne des visages nets. "
         "**Détourer** : BiRefNet garde le sujet (même les cheveux fins) sur un fond transparent, une couleur ou "
         "son propre fond flouté. **Isoler une personne** : le même outil, entraîné sur des personnes. "
+        "**Garder seulement la tête** : la tête de chaque visage, sur fond transparent, recadrée (un PNG par "
+        "visage). Pour **plusieurs photos d'un coup**, ouvre le volet sous les réglages. "
         "Licences libres (usage commercial permis). Pour enchaîner (améliorer puis détourer), clique sur "
         "« Continuer avec ce résultat ». ACE-Step est arrêté automatiquement pendant le traitement."
     )
@@ -32,6 +34,15 @@ def construire():
                 ph_fond = gr.Radio(list(photos.FONDS), value=photos.FOND_DEFAUT, label="Fond")
                 ph_couleur = gr.ColorPicker(value="#3a6ea5", label="Couleur du fond", visible=False)
             btn_ph = gr.Button("🖼️ Traiter la photo", variant="primary")
+    with gr.Accordion("📦 Plusieurs photos d'un coup (même traitement pour toutes)", open=False):
+        with gr.Row():
+            ph_lot = gr.File(file_count="multiple", file_types=["image"], label="Photos (jusqu'à 200)")
+            with gr.Column():
+                ph_lot_nom = gr.Textbox(label="Nom du lot", value="photos")
+                btn_ph_lot = gr.Button("📦 Traiter toutes les photos", variant="primary")
+        ph_lot_statut = gr.Markdown()
+        ph_lot_galerie = gr.Gallery(label="Résultats", columns=6, height=320, object_fit="contain")
+        ph_lot_fichiers = gr.File(label="Archive .zip et images", file_count="multiple", interactive=False)
     ph_statut = gr.Markdown()
     ph_dossier = gr.State()
     ph_comparaison = gr.ImageSlider(label="Avant / après (fais glisser le curseur)", type="filepath", height=560)
@@ -52,4 +63,8 @@ def brancher(c, demo, o):
                     c.ph_couleur, c.ph_nom],
                    [c.ph_statut, c.ph_comparaison, c.ph_fichiers, c.ph_dossier])
     c.btn_ph_continuer.click(photos.continuer, c.ph_dossier, c.ph_image)
+    c.btn_ph_lot.click(photos.traiter_lot,
+                       [c.ph_lot, c.ph_action, c.ph_echelle, c.ph_rapide, c.ph_visages, c.ph_force, c.ph_fond,
+                        c.ph_couleur, c.ph_lot_nom],
+                       [c.ph_lot_statut, c.ph_lot_galerie, c.ph_lot_fichiers, c.ph_dossier])
     c.btn_ph_dossier.click(lambda d: open_folder(d) if d else None, c.ph_dossier)

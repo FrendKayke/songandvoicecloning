@@ -101,7 +101,12 @@ FAUX_MOTEUR = textwrap.dedent("""
             im = Image.open(e).convert("RGBA"); alpha = Image.new("L", im.size, 0)
             alpha.paste(255, (im.width // 4, im.height // 4, 3 * im.width // 4, 3 * im.height // 4))
             im.putalpha(alpha); im.save(s)
-        print("RESULTAT " + json.dumps({"sorties": t["sorties"], "couvertures": [0.25] * len(t["sorties"])}), flush=True)
+        res = {"sorties": t["sorties"], "couvertures": [0.25] * len(t["sorties"])}
+        if t.get("tete"):  # une tête par visage : « DEUX » dans le nom = deux visages
+            res["tetes"] = [[s] + ([s.replace(".png", "_2.png")] if "DEUX" in s else []) for s in t["sorties"]]
+            for liste in res["tetes"]:
+                for f in liste[1:]: Image.new("RGBA", (4, 4)).save(f)
+        print("RESULTAT " + json.dumps(res), flush=True)
     elif action == "detourer":
         from PIL import Image
         for i in (1, 2, 3): print(f"PROGRESSION {i}/3 x", flush=True)
@@ -109,8 +114,12 @@ FAUX_MOTEUR = textwrap.dedent("""
         Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True); im.save(t["sortie"])
         if t["masque"]: Image.new("L", im.size, 255).save(t["masque"])
         couverture = 0.0 if im.width < 10 else 0.5  # image minuscule : « sujet non reconnu »
-        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "masque": t["masque"], "largeur": im.width,
-                                        "hauteur": im.height, "couverture": couverture}), flush=True)
+        res = {"sortie": t["sortie"], "masque": t["masque"], "largeur": im.width, "hauteur": im.height,
+               "couverture": couverture}
+        if t.get("tete"):
+            assert not t["fond"] and t["modele"] == "personne"
+            res["tetes"] = [t["sortie"]]
+        print("RESULTAT " + json.dumps(res), flush=True)
     elif action == "ameliorer":
         from PIL import Image
         for i in (1, 2, 3): print(f"PROGRESSION {i}/3 x", flush=True)
@@ -1836,3 +1845,78 @@ def test_photo_a_palette_transparente_ouverte_par_le_moteur(tmp_path):
     im.save(chemin, transparency=0)
     rgb, alpha = moteur._ouvrir_photo(chemin)
     assert rgb.mode == "RGB" and alpha.getpixel((0, 0)) == 0 and alpha.getpixel((3, 3)) == 255
+
+
+def test_garder_seulement_la_tete(faux_diffusion):
+    """« Garder seulement la tête » : BiRefNet-portrait puis la tête autour du visage, PNG transparent ; il faut
+    aussi les modèles des photos (YuNet)."""
+    from PIL import Image
+
+    from studiovoix import photos
+
+    src = cfg.DATA_DIR.parent / "portrait.jpg"
+    Image.new("RGB", (64, 80), "white").save(src)
+    msg, _, fichiers, dossier = photos.traiter(str(src), "🙂 Garder seulement la tête (PNG transparent)", "×2",
+                                               False, True, 0.7, photos.FOND_DEFAUT, None, progress=no_progress)
+    tache = [e["tache"] for e in _journal() if e["action"] == "detourer"][-1]
+    assert tache["tete"] is True and tache["modele"] == "personne" and tache["fond"] is None
+    assert "Tête isolée" in msg and fichiers == [str(Path(dossier) / "resultat.png")]
+    assert photos.maj_action("🙂 Garder seulement la tête (PNG transparent)")[1]["visible"] is False
+
+
+def test_plusieurs_photos_d_un_coup(faux_diffusion):
+    """Lot : têtes de toutes les photos en un seul passage du moteur (un PNG par visage), archive .zip ; amélioration
+    photo par photo, une en échec n'arrête pas les autres ; formats refusés signalés."""
+    import zipfile
+
+    from PIL import Image
+
+    from studiovoix import photos
+
+    sources = []
+    for nom in ("Léa.jpg", "groupe DEUX.png", "chat.webp"):
+        sources.append(cfg.DATA_DIR.parent / nom)
+        Image.new("RGB", (40, 40), "white").save(sources[-1])
+    (cfg.DATA_DIR.parent / "notes.txt").write_text("x", encoding="utf-8")
+    sources.append(cfg.DATA_DIR.parent / "notes.txt")
+    msg, galerie, fichiers, dossier = photos.traiter_lot(
+        [str(s) for s in sources], "🙂 Garder seulement la tête (PNG transparent)", "×2", False, True, 0.7,
+        photos.FOND_DEFAUT, None, "famille", progress=no_progress)
+    lots = [e["tache"] for e in _journal() if e["action"] == "detourer"]
+    assert len(lots) == 1 and lots[0]["tete"] and lots[0]["modele"] == "personne" and len(lots[0]["entrees"]) == 3
+    d = Path(dossier)
+    assert d.parent == cfg.PHOTOS_DIR and d.name.endswith("lot_famille") and not (d / "creation.json").exists()
+    assert [Path(f).name for f in fichiers[1:]] == ["Lea.png", "groupe_DEUX.png", "groupe_DEUX_2.png", "chat.png"]
+    assert sorted(zipfile.ZipFile(fichiers[0]).namelist()) == sorted(Path(f).name for f in fichiers[1:])
+    assert len(galerie) == 4 and "4 image(s) tête(s) isolée(s) à partir de 3 photo(s)" in msg
+    assert "notes.txt : format non pris en charge" in msg
+    # détourage simple : lot BiRefNet « general », sans tête
+    photos.traiter_lot([str(s) for s in sources[:2]], "✂️ Détourer (objet, animal, personne…)", "×2", False, True,
+                       0.7, photos.FOND_DEFAUT, None, progress=no_progress)
+    lot = [e["tache"] for e in _journal() if e["action"] == "detourer"][-1]
+    assert lot["modele"] == "general" and not lot["tete"]
+    # amélioration une à une
+    n = len(_journal())
+    msg, galerie, _, _ = photos.traiter_lot([str(s) for s in sources[:3]], photos.ACTION_DEFAUT, "×2", False, True,
+                                            0.7, photos.FOND_DEFAUT, None, progress=no_progress)
+    assert [e["action"] for e in _journal()[n:]] == ["ameliorer"] * 3 and len(galerie) == 3
+    with pytest.raises(gr.Error, match="Ajoute les photos"):
+        photos.traiter_lot([], photos.ACTION_DEFAUT, "×2", False, True, 0.7, photos.FOND_DEFAUT, None,
+                           progress=no_progress)
+
+
+def test_decoupe_de_la_tete_du_moteur():
+    """Tête autour du visage : transparence hors de la boîte de la tête, cou coupé en fondu, épaule d'un voisin
+    (zone non reliée) retirée, recadrage au plus près."""
+    import numpy as np
+
+    rgba = np.zeros((200, 200, 4), np.uint8)
+    rgba[..., :3] = 120
+    rgba[40:200, 70:130, 3] = 255  # tête puis corps d'une personne
+    rgba[60:80, 20:50, 3] = 255  # épaule d'un voisin, dans la boîte de la tête mais non reliée
+    boite = (80, 60, 40, 40)  # visage : x, y, l, h
+    tete = moteur._decouper_tete(rgba, boite)
+    h, w = tete.shape[:2]
+    assert h < 110 and w <= 64  # pas le corps entier, pas l'épaule voisine
+    assert tete[h // 3, w // 2, 3] == 255 and tete[-3, w // 2, 3] < 128  # cou coupé en fondu
+    assert moteur._decouper_tete(np.zeros((50, 50, 4), np.uint8), (10, 10, 20, 20)) is None

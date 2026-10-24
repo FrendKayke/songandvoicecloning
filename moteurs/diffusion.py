@@ -1154,20 +1154,25 @@ def detourer(chemin_tache):
         lambda: AutoModelForImageSegmentation.from_pretrained(depot, trust_remote_code=True, revision=revision)
         .to(device=device, dtype=dtype).eval(),
         1.0, vers_cpu=lambda m: m.to("cpu"), vers_gpu=lambda m: m.to(device))
+    tete = bool(t.get("tete"))  # « Garder seulement la tête » : détourage puis tête autour de chaque visage
     if lot:
-        couvertures = []
+        couvertures, tetes = [], []
         for i, (entree, sortie) in enumerate(zip(t["entrees"], t["sorties"]), 2):
             print(f"PROGRESSION {i}/{n} détourage de {Path(sortie).name}", flush=True)
-            couvertures.append(_detourer_image(modele, cote, device, dtype, entree, sortie)[2])
-        _resultat({"sorties": t["sorties"], "couvertures": couvertures})
+            image, _, couverture = _detourer_image(modele, cote, device, dtype, entree, sortie)
+            couvertures.append(couverture)
+            if tete:
+                tetes.append(_tetes(sortie, image, _dossier_photos()))
+        _resultat({"sorties": t["sorties"], "couvertures": couvertures, **({"tetes": tetes} if tete else {})})
         print(f"TERMINE {t['sorties'][-1]}", flush=True)
         return
-    image, masque, couverture = _detourer_image(modele, cote, device, dtype, t["entree"], t["sortie"], t.get("fond"),
-                                                etapes=True)
+    image, masque, couverture = _detourer_image(modele, cote, device, dtype, t["entree"], t["sortie"],
+                                                None if tete else t.get("fond"), etapes=True)
     if t.get("masque"):
         masque.save(t["masque"])
+    tetes = _tetes(t["sortie"], image, _dossier_photos()) if tete else None
     _resultat({"sortie": t["sortie"], "masque": t.get("masque"), "largeur": image.width, "hauteur": image.height,
-               "couverture": couverture})
+               "couverture": couverture, **({"tetes": tetes} if tete else {})})
     print(f"TERMINE {t['sortie']}", flush=True)
 
 
@@ -1272,6 +1277,95 @@ def _ovale_visage():
     return cv2.GaussianBlur(m, (0, 0), 28)
 
 
+def _visages_yunet(bgr, dossier, cote_min=48):
+    """Visages trouvés par YuNet (MIT, dans OpenCV), du plus grand au plus petit : tableaux de 15 valeurs (boîte
+    x, y, l, h, 5 points du visage, score) dans les coordonnées de l'image."""
+    import cv2
+
+    h, w = bgr.shape[:2]
+    reduction = min(1.0, 1600 / max(h, w))  # détection sur une copie réduite des grandes images
+    petite = cv2.resize(bgr, (round(w * reduction), round(h * reduction)), interpolation=cv2.INTER_AREA)
+    detecteur = cv2.FaceDetectorYN.create(str(dossier / "face_detection_yunet_2023mar.onnx"), "",
+                                          (petite.shape[1], petite.shape[0]), 0.7, 0.3, 5000)
+    _, visages = detecteur.detect(petite)
+    if visages is None:
+        return []
+    visages = [v.copy() for v in visages]
+    for v in visages:
+        v[:14] /= reduction
+    return sorted((v for v in visages if v[2] >= cote_min), key=lambda v: -v[2] * v[3])
+
+
+# Boîte de la tête autour du visage trouvé par YuNet (largeur l, hauteur h du visage) : les cheveux au-dessus et
+# sur les côtés ; en bas, coupe juste sous le menton (le bas de la boîte de YuNet), sans le cou (demande de
+# l'utilisateur du 24/10 : « que la tête »), avec un fondu très court
+TETE_HAUT, TETE_COTES, TETE_BAS, TETE_FONDU = 0.8, 0.5, 0.08, 0.05
+
+
+def _decouper_tete(rgba, boite):
+    """Image détourée (H×W×4) → la tête seule autour du visage `boite` (x, y, l, h) : transparence hors de la boîte
+    de la tête, cou coupé en fondu, seulement la zone reliée au visage (pas l'épaule d'un voisin), recadrée au plus
+    près. Renvoie un tableau RGBA ou None si rien ne reste."""
+    import numpy as np
+    from scipy import ndimage
+
+    x, y, l, h = (float(v) for v in boite[:4])
+    hauteur, largeur = rgba.shape[:2]
+    x0, x1 = max(0, int(x - TETE_COTES * l)), min(largeur, int(np.ceil(x + l + TETE_COTES * l)))
+    y0, y1 = max(0, int(y - TETE_HAUT * h)), min(hauteur, int(np.ceil(y + h + TETE_BAS * h)))
+    alpha = np.zeros((hauteur, largeur), np.float32)
+    alpha[y0:y1, x0:x1] = rgba[y0:y1, x0:x1, 3]
+    lignes = np.arange(hauteur, dtype=np.float32)[:, None]
+    debut_fondu = y + h + (TETE_BAS - TETE_FONDU) * h
+    alpha *= np.clip(1 - (lignes - debut_fondu) / max(1.0, TETE_FONDU * h), 0, 1)
+    zones, n = ndimage.label(alpha > 32)
+    if n:
+        cy, cx = min(hauteur - 1, int(y + h / 2)), min(largeur - 1, int(x + l / 2))
+        garde = zones[cy, cx]
+        if not garde:  # centre du visage pas opaque : la zone la plus présente dans la boîte du visage
+            dans = zones[int(y):int(y + h), int(x):int(x + l)]
+            valeurs, nombres = np.unique(dans[dans > 0], return_counts=True)
+            garde = valeurs[nombres.argmax()] if len(valeurs) else 0
+        if garde:
+            proche = ndimage.binary_dilation(zones == garde, iterations=2)
+            alpha *= proche
+    if alpha.max() < 1:
+        return None
+    ys, xs = np.where(alpha > 0)
+    m = 2
+    a0, a1 = max(0, ys.min() - m), min(hauteur, ys.max() + 1 + m)
+    b0, b1 = max(0, xs.min() - m), min(largeur, xs.max() + 1 + m)
+    sortie = rgba[a0:a1, b0:b1].copy()
+    sortie[..., 3] = np.round(alpha[a0:a1, b0:b1]).astype(np.uint8)
+    return sortie
+
+
+def _tetes(sortie, image, dossier):
+    """La photo détourée (`sortie`, PNG transparent) devient la tête du plus grand visage ; les autres visages vont
+    dans <nom>_2.png, <nom>_3.png… Renvoie la liste des fichiers ; erreur si aucun visage."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    bgr = cv2.cvtColor(np.asarray(image.convert("RGB")), cv2.COLOR_RGB2BGR)
+    visages = _visages_yunet(bgr, dossier, cote_min=24)
+    if not visages:
+        _erreur(f"aucun visage trouvé sur {Path(sortie).name} : « Garder seulement la tête » a besoin d'un visage "
+                "bien visible.")
+    rgba = np.asarray(Image.open(sortie).convert("RGBA"))
+    fichiers = []
+    for i, v in enumerate(visages, 1):
+        tete = _decouper_tete(rgba, v)
+        if tete is None:
+            continue
+        chemin = Path(sortie) if i == 1 else Path(sortie).with_name(f"{Path(sortie).stem}_{i}.png")
+        Image.fromarray(tete, "RGBA").save(chemin)
+        fichiers.append(str(chemin))
+    if not fichiers:
+        _erreur(f"la tête n'a pas pu être isolée sur {Path(sortie).name}.")
+    return fichiers
+
+
 def _restaurer_visages(bgr, dossier, device, force=0.7, cote_min=48):
     """GFPGAN 1.4 sur chaque visage trouvé par YuNet : alignement sur le gabarit, restauration 512×512, recollage
     fondu. On appelle le réseau directement (entrée et sortie en [-1, 1]) : le descripteur de spandrel travaille
@@ -1282,14 +1376,7 @@ def _restaurer_visages(bgr, dossier, device, force=0.7, cote_min=48):
     from spandrel import ModelLoader
 
     h, w = bgr.shape[:2]
-    reduction = min(1.0, 1600 / max(h, w))  # détection sur une copie réduite des grandes images
-    petite = cv2.resize(bgr, (round(w * reduction), round(h * reduction)), interpolation=cv2.INTER_AREA)
-    detecteur = cv2.FaceDetectorYN.create(str(dossier / "face_detection_yunet_2023mar.onnx"), "",
-                                          (petite.shape[1], petite.shape[0]), 0.7, 0.3, 5000)
-    _, visages = detecteur.detect(petite)
-    if visages is None:
-        return bgr, 0
-    visages = [v for v in visages if v[2] / reduction >= cote_min]
+    visages = _visages_yunet(bgr, dossier, cote_min)
     if not visages:
         return bgr, 0
     def charger():
@@ -1302,7 +1389,7 @@ def _restaurer_visages(bgr, dossier, device, force=0.7, cote_min=48):
     gabarit = np.array(GABARIT_VISAGE, np.float32)
     ovale = _ovale_visage()
     for v in visages:
-        points = v[4:14].reshape(5, 2) / reduction
+        points = v[4:14].reshape(5, 2)
         a, _ = cv2.estimateAffinePartial2D(points, gabarit, method=cv2.LMEDS)
         if a is None:
             continue

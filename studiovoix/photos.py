@@ -4,12 +4,16 @@ Trois traitements du moteur de diffusion (moteurs/diffusion.py) :
   - amélioration : Real-ESRGAN (BSD-3) agrandit ×2 ou ×4 et restaure (bruit, artefacts JPEG, flou) ; ×1 restaure
     sans agrandir ; GFPGAN 1.4 (Apache 2.0) restaure les visages ;
   - détourage : BiRefNet HR-matting (MIT), masque doux pour les cheveux ;
-  - personne : BiRefNet-portrait (MIT), entraîné sur des personnes.
+  - personne : BiRefNet-portrait (MIT), entraîné sur des personnes ;
+  - tête : la personne isolée, puis seulement la tête autour de chaque visage trouvé par YuNet (MIT), recadrée.
+Plusieurs photos d'un coup (`traiter_lot`) : data/photos/<horodatage>_lot_<nom>/ (hors galerie), archive .zip.
 Le fond peut rester transparent (PNG), devenir une couleur ou le fond d'origine flouté (effet portrait).
 Rangement : data/photos/<horodatage>/ : originale.<ext>, resultat.png, masque.png (détourage), creation.json
 (type « photo »). « Continuer avec ce résultat » enchaîne les traitements (améliorer puis détourer, par exemple).
 """
 import shutil
+import time
+import zipfile
 from pathlib import Path
 
 import gradio as gr
@@ -22,6 +26,7 @@ ACTIONS = {
     "✨ Améliorer la qualité (agrandir, nettoyer, visages)": "ameliorer",
     "✂️ Détourer (objet, animal, personne…)": "detourer",
     "🧍 Isoler une personne": "personne",
+    "🙂 Garder seulement la tête (PNG transparent)": "tete",
 }
 ACTION_DEFAUT = next(iter(ACTIONS))
 ECHELLES = {"×1 (nettoyer sans agrandir)": 1, "×2": 2, "×4": 4}
@@ -73,6 +78,12 @@ def traiter(image, action_label, echelle_label, rapide, visages, force, fond_lab
                   "plus)" if obtenue < echelle else "")
         msg = f"✅ Photo améliorée : {res['largeur']}×{res['hauteur']}{limite}{visages_msg}."
         fichiers = [str(sortie)]
+    elif action == "tete":
+        res = diffusion.detourer(originale, sortie, "personne", None, dossier / "masque.png", progress=progress,
+                                 tete=True)
+        fichiers = res["tetes"]
+        msg = (f"✅ Tête isolée (fond transparent, recadrée)" if len(fichiers) == 1 else
+               f"✅ {len(fichiers)} têtes isolées (une par visage, fond transparent)") + "."
     else:
         fond = FONDS.get(fond_label)
         if fond == "couleur":
@@ -94,6 +105,83 @@ def traiter(image, action_label, echelle_label, rapide, visages, force, fond_lab
     return f"{msg} Dans {dossier}.", (str(originale), str(sortie)), fichiers, str(dossier)
 
 
+PHOTOS_LOT_MAX = 200
+
+
+def traiter_lot(fichiers, action_label, echelle_label, rapide, visages, force, fond_label, couleur, nom="",
+                progress=gr.Progress()):
+    """Le traitement choisi sur plusieurs photos. Détourage, personne, tête : un seul passage du moteur (BiRefNet
+    chargé une fois) ; amélioration : une photo après l'autre, une en échec n'arrête pas les autres. Renvoie
+    (message, galerie [(image, légende)], fichiers, dossier)."""
+    sources = [Path(getattr(f, "name", f)) for f in (fichiers or []) if f]
+    if not sources:
+        raise gr.Error("Ajoute les photos à traiter (plusieurs à la fois).")
+    if len(sources) > PHOTOS_LOT_MAX:
+        raise gr.Error(f"{len(sources)} photos : {PHOTOS_LOT_MAX} au plus à la fois.")
+    refusees = [p.name for p in sources if p.suffix.lower() not in EXTENSIONS]
+    sources = [p for p in sources if p.suffix.lower() in EXTENSIONS]
+    if not sources:
+        raise gr.Error("Aucune photo dans un format pris en charge (PNG, JPG, WebP, BMP ou TIFF).")
+    action = ACTIONS.get(action_label, "ameliorer")
+    from .serie import _slug
+
+    debut = time.monotonic()
+    dossier = nouveau_dossier(cfg.PHOTOS_DIR, "lot_" + _slug(nom, action))
+    (dossier / "originales").mkdir()
+    (dossier / "resultats").mkdir()
+    entrees, sorties, pris = [], [], set()
+    for i, p in enumerate(sources, 1):
+        base = _slug(p.stem, f"photo_{i}")
+        if base.lower() in pris:
+            base = f"{base}_{i}"
+        pris.add(base.lower())
+        entrees.append(dossier / "originales" / f"{base}{p.suffix.lower()}")
+        shutil.copy(p, entrees[-1])
+        sorties.append(dossier / "resultats" / f"{base}.png")
+    produits, erreurs = [], [f"{n} : format non pris en charge" for n in refusees]
+    if action == "ameliorer":
+        echelle = ECHELLES.get(echelle_label, 2)
+        for i, (e, s_) in enumerate(zip(entrees, sorties)):
+            def suivi(f, desc="", i=i):
+                progress((i + f) / len(entrees), desc=f"Photo {i + 1}/{len(entrees)} — {desc}")
+            try:
+                diffusion.ameliorer(e, s_, echelle, rapide, visages, force, progress=suivi)
+                produits.append(str(s_))
+            except gr.Error as err:
+                erreurs.append(f"{e.name} : {getattr(err, 'message', err)}")
+    else:
+        fond = FONDS.get(fond_label)
+        if fond == "couleur":
+            fond = _couleur(couleur)
+        if action != "tete" and fond:  # fond de couleur ou flou : une photo après l'autre (le lot ne fait que PNG)
+            for i, (e, s_) in enumerate(zip(entrees, sorties)):
+                try:
+                    diffusion.detourer(e, s_, "personne" if action == "personne" else "general", fond,
+                                       progress=lambda f, desc="", i=i: progress((i + f) / len(entrees), desc=desc))
+                    produits.append(str(s_))
+                except gr.Error as err:
+                    erreurs.append(f"{e.name} : {getattr(err, 'message', err)}")
+        else:
+            res = diffusion.detourer_lot(entrees, sorties, progress=progress,
+                                         modele="general" if action == "detourer" else "personne",
+                                         tete=action == "tete")
+            produits = [f for liste in res["tetes"] for f in liste] if action == "tete" else res["sorties"]
+    if not produits:
+        raise gr.Error("Aucune photo traitée : " + " ; ".join(erreurs))
+    archive = dossier / f"{dossier.name}.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as z:  # PNG déjà compressés
+        for f in produits:
+            z.write(f, Path(f).name)
+    quoi = {"ameliorer": "améliorée(s)", "detourer": "détourée(s)", "personne": "personne(s) isolée(s)",
+            "tete": "tête(s) isolée(s)"}[action]
+    msg = (f"✅ {len(produits)} image(s) {quoi} à partir de {len(sources)} photo(s), en "
+           f"{time.monotonic() - debut:.0f} s, dans {dossier} (archive {archive.name}).")
+    if erreurs:
+        msg += "\n\n⚠️ " + " ; ".join(erreurs)
+    galerie = [(f, Path(f).stem) for f in produits]
+    return msg, galerie, [str(archive)] + produits, str(dossier)
+
+
 def continuer(dossier):
     """Le résultat devient la photo de départ (pour enchaîner : améliorer puis détourer…)."""
     if not dossier or not (Path(dossier) / "resultat.png").exists():
@@ -103,8 +191,8 @@ def continuer(dossier):
 
 def maj_action(action_label):
     """Réglages visibles selon le traitement : agrandissement pour l'amélioration, fond pour le détourage."""
-    ameliorer = ACTIONS.get(action_label) == "ameliorer"
-    return gr.update(visible=ameliorer), gr.update(visible=not ameliorer)
+    action = ACTIONS.get(action_label)
+    return gr.update(visible=action == "ameliorer"), gr.update(visible=action in ("detourer", "personne"))
 
 
 def maj_fond(fond_label):

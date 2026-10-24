@@ -269,22 +269,25 @@ def assembler(clips, sortie, fps=24, progress=None, enchaines=True):
                   Path(sortie).parent, "Assemblage", progress, gpu=False)
 
 
-def detourer(entree, sortie, modele="general", fond=None, masque=None, progress=None):
+def detourer(entree, sortie, modele="general", fond=None, masque=None, progress=None, tete=False):
     """BiRefNet : PNG transparent (fond None) ou sujet sur une couleur « #rrggbb » ou sur son fond flouté (« flou »).
-    modele : « general » (tout sujet, cheveux fins) ou « personne ». RESULTAT {sortie, masque, couverture…}."""
-    _verifier("photo_detourage")
+    modele : « general » (tout sujet, cheveux fins) ou « personne ». tete : seulement la tête de chaque visage
+    (YuNet, des modèles des photos), PNG transparent recadré ; `tetes` dans le résultat.
+    RESULTAT {sortie, masque, couverture…}."""
+    _verifier("photo_detourage", *(["photo_qualite"] if tete else []))
     tache = {"entree": str(entree), "sortie": str(sortie), "modele": modele, "fond": fond,
-             "masque": str(masque) if masque else None}
+             "masque": str(masque) if masque else None, "tete": bool(tete)}
     return lancer("detourer", tache, Path(sortie).parent, "Détourage", progress,
                   {1: "chargement du modèle de détourage", 2: "détourage", 3: "finitions des bords"})
 
 
-def detourer_lot(entrees, sorties, progress=None):
-    """BiRefNet (modèle « general ») sur plusieurs images d'un coup : chaque sortie est un PNG (ou WebP)
-    transparent. Le modèle n'est chargé qu'une fois. RESULTAT {sorties, couvertures}."""
-    _verifier("photo_detourage")
+def detourer_lot(entrees, sorties, progress=None, modele="general", tete=False):
+    """BiRefNet sur plusieurs images d'un coup : chaque sortie est un PNG (ou WebP) transparent. Le modèle n'est
+    chargé qu'une fois. tete : seulement la tête de chaque visage. RESULTAT {sorties, couvertures[, tetes]}."""
+    _verifier("photo_detourage", *(["photo_qualite"] if tete else []))
     sorties = [str(s) for s in sorties]
-    return lancer("detourer", {"entrees": [str(e) for e in entrees], "sorties": sorties, "modele": "general"},
+    return lancer("detourer", {"entrees": [str(e) for e in entrees], "sorties": sorties, "modele": modele,
+                               "tete": bool(tete)},
                   Path(sorties[0]).parent, "Détourage", progress,
                   {1: "chargement du modèle de détourage",
                    **{i: f"fond retiré : image {i - 1}/{len(sorties)}" for i in range(2, len(sorties) + 2)}})
