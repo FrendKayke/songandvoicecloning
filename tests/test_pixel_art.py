@@ -158,7 +158,8 @@ def test_animation_d_apres_une_video(env, monkeypatch):
     assert (images[0][..., :3][ref[..., 3] > 0] == ref[..., :3][ref[..., 3] > 0]).all()
     gif_ = Image.open(Path(dossier) / "heros.gif")
     durees = [gif_.seek(i) or gif_.info["duration"] for i in range(gif_.n_frames)]
-    assert set(durees) <= {50 * k for k in range(1, 20)} and sum(durees) == 84 * 50  # aller-retour à 50 ms
+    # aller-retour à 50 ms, même durée que le geste (2,1 s ; avant : le double, 4,7 s chez l'utilisateur)
+    assert set(durees) <= {50 * k for k in range(1, 20)} and sum(durees) == pixel_art.RYTHME_DEFAUT["duree_ms"]
     # une des images : sprite descendu d'un pixel, exactement (la ligne 0 reçoit les pieds enroulés par np.roll de la
     # fausse vidéo : hors de la zone où le personnage peut bouger, elle est vide, à juste titre)
     decale = np.roll(ref, 1, axis=0)[1:]
@@ -221,9 +222,10 @@ def test_action_jouee_une_fois(env, monkeypatch):
     assert "jouée une fois" in msg
     gif_ = Image.open(Path(dossier) / "action.gif")
     durees = [gif_.seek(i) or gif_.info["duration"] for i in range(gif_.n_frames)]
-    # 42 pas de 50 ms sur 2,1 s : 150 ms au début, 600 ms à la fin, images identiques fusionnées
+    # 2,1 s en tout, première et dernière images tenues comprises (avant : 3,15 s au lieu de 2,35 s chez
+    # l'utilisateur), images identiques fusionnées
     assert durees[0] >= 150 and durees[-1] >= 600 and all(d % 50 == 0 for d in durees)
-    assert sum(durees) == 150 + 40 * 50 + 600
+    assert sum(durees) == pixel_art.RYTHME_DEFAUT["duree_ms"]
     images = [np.array(Image.open(f)) for f in sorted(Path(dossier, "images").glob("*.png"))]
     ref = np.array(sprite)
     fin = images[-1]  # dernière image de la vidéo, pas un retour au début
@@ -297,3 +299,58 @@ def test_liseré_du_fond_pas_pris_pour_une_couleur():
     nouvelle = pixel_art._palette_avec_nouvelles(palette, trames, alphas, fond, 11)[len(palette):].astype(int)
     assert len(nouvelle) and (np.abs(nouvelle - (250, 215, 30)).max(axis=1) < 30).any()
     assert not ((nouvelle[:, 1] > nouvelle[:, 0] + 60) & (nouvelle[:, 1] > nouvelle[:, 2] + 60)).any()
+
+
+def test_recul_de_la_camera_et_personnage_change():
+    """Essai sur la RTX 4070 : Wan reculait à la fin du geste (personnage rapetissé dans la pose finale) et, sans
+    mouvement, changeait le personnage dès le début. La vidéo est coupée avant."""
+    vide = 9
+    sprite = np.full((64, 64), vide)
+    sprite[10:60, 20:44] = 1  # personnage de 50 pixels de haut
+    sprite[10:20, 26:38] = 2  # tête
+    petit = np.full((64, 64), vide)
+    petit[25:60, 24:40] = 1  # la caméra recule : 35 pixels
+    autre = sprite.copy()
+    autre[10:60, 20:44] = 3  # même silhouette, autres couleurs : un autre personnage
+    film = [sprite] * 30 + [petit] * 10
+    assert pixel_art._fin_utilisable(np.array(film), vide, True) == 30
+    assert pixel_art._fin_utilisable(np.array([sprite] * 20), vide, True) == 20  # rien à couper
+    assert pixel_art._fin_utilisable(np.array([sprite] * 2 + [autre] * 18), vide, False) == 2  # sans mouvement
+    assert pixel_art._fin_utilisable(np.array([sprite] * 2 + [autre] * 18), vide, True) == 20  # geste : autorisé
+
+
+def test_boucle_avec_personnage_change_par_wan(env, monkeypatch):
+    """Sans mouvement, Wan transforme le personnage dès la 2e image (cheveux sombres, autre tenue chez
+    l'utilisateur) : repli sur la respiration, avec un message ; Qwen décrit le personnage dans le prompt."""
+    import av
+
+    prompts = []
+
+    def faux_wan(prompt, sortie, image, largeur, hauteur, images, etapes, graine, progress=None, negatif_ajout=None):
+        prompts.append(prompt)
+        depart = np.array(Image.open(image).convert("RGB"))
+        fond = depart[0, 0].copy()
+        perso = ~(depart == fond).all(-1)
+        with av.open(str(sortie), "w") as c:
+            v = c.add_stream("libx264", rate=24)
+            v.width, v.height, v.pix_fmt = largeur, hauteur, "yuv420p"
+            for i in range(images):
+                trame = depart.copy()
+                if i:
+                    trame[perso] = (90, 60, 30)  # un autre personnage, tout marron
+                for paquet in v.encode(av.VideoFrame.from_ndarray(trame, format="rgb24")):
+                    c.mux(paquet)
+            for paquet in v.encode(None):
+                c.mux(paquet)
+        return {"sortie": str(sortie), "graine": graine}
+
+    monkeypatch.setattr(diffusion, "video", faux_wan)
+    monkeypatch.setattr(diffusion, "present", lambda nom: nom == "qwen")
+    monkeypatch.setattr(diffusion, "decrire", lambda mode, texte, image=None, progress=None:
+                        "A blond pixel art trainer in a red plaid shirt breathes slowly")
+    source = env / "sprite.png"
+    _sprite().save(source)
+    msg, _, _, dossier = pixel_art.animer(str(source), pixel_art.IA, "", 5, 20, "boucle", progress=no_progress)
+    assert prompts[0].startswith("A blond pixel art trainer")  # le personnage est décrit à Wan
+    assert "remplacée par la respiration" in msg
+    assert len(list(Path(dossier, "images").glob("*.png"))) == pixel_art.IMAGES_ANIMATION

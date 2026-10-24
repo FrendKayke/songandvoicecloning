@@ -436,6 +436,12 @@ MOUVEMENT_DEFAUT = ("The pixel art character stays in place in an idle stance an
                     "movements of the head, arms, hair and clothes, the feet do not move, the camera does not move, "
                     "plain flat background")
 TAILLE_VIDEO = 704  # côté de la vidéo carrée de Wan (multiple de 32)
+# Essai de l'utilisateur sur la RTX 4070 (24/10) : avec un geste, Wan reculait à la fin (personnage rapetissé dans la
+# pose finale tenue) ; sans mouvement, il transformait le dresseur en un autre personnage dès le début (le prompt ne
+# décrivait pas le personnage). Images coupées au premier recul ou changement de personnage.
+RECUL_MAX = 0.12  # variation de la hauteur du personnage (zoom de la caméra) au-delà de laquelle la suite est coupée
+RESSEMBLANCE_MIN = 0.6  # part des pixels du personnage restés de la même couleur que le sprite (sans mouvement)
+IMAGES_UTILES_MIN = 8  # en dessous, la vidéo est inutilisable (repli sur la respiration pour une boucle)
 # Action décrite (« il va chercher une peluche et la câline », essai de l'utilisateur du 23/10 : le personnage restait
 # figé) : la consigne « reste sur place, pieds immobiles » n'est plus ajoutée, le personnage peut aller partout dans
 # l'image, un objet qui apparaît garde ses couleurs, la vidéo dure 5 s et se joue une fois (pas d'aller-retour)
@@ -518,11 +524,13 @@ def animer(sprite_source, mode=SIMPLE, mouvement="", graine=0, etapes=25, nom="a
     sprite.save(dossier / "sprite.png")
     debut = time.monotonic()
     durees, rythme_lu = None, None
+    remarque = ""
     if mode != IA:
         images = respiration(sprite)
     else:
         rythme_lu = lire_rythme(exemples)
-        images, durees = _animer_ia(sprite, dossier, mouvement, graine, etapes, progress, rythme_lu or RYTHME_DEFAUT)
+        images, durees, remarque = _animer_ia(sprite, dossier, mouvement, graine, etapes, progress,
+                                              rythme_lu or RYTHME_DEFAUT)
     fichiers = ecrire_animation(images, dossier, _slug(nom, "animation"), k, durees)
     gif = str([f for f in fichiers if f.suffix == ".gif"][-1])
     total = sum(durees) / 1000 if durees else DUREE_ANIMATION
@@ -531,6 +539,8 @@ def animer(sprite_source, mode=SIMPLE, mouvement="", graine=0, etapes=25, nom="a
                " (rythme des dresseurs animés : 50 ms par image)" if durees else "")
     msg = (f"✅ Animation de {len(images)} images sur {total:g} s{origine}, {lecture}, en "
            f"{time.monotonic() - debut:.0f} s : GIF, planche de sprites et images séparées dans {dossier}.")
+    if remarque:
+        msg += f"\n\n⚠️ {remarque}"
     return msg, gif, [str(f) for f in fichiers], str(dossier)
 
 
@@ -552,8 +562,10 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress, rythme=RYTH
         texte = f"{mouvement.strip()}. {STYLE_ACTION}"
         prompt = diffusion.decrire("video", texte, image=dossier / "depart.png", progress=progress) \
             if diffusion.present("qwen") else texte
-    else:
-        prompt = MOUVEMENT_DEFAUT
+    else:  # Qwen décrit aussi le personnage : sans description, Wan en inventait un autre (constaté)
+        texte = f"{MOUVEMENT_DEFAUT}. {STYLE_ACTION}"
+        prompt = diffusion.decrire("video", texte, image=dossier / "depart.png", progress=progress) \
+            if diffusion.present("qwen") else texte
     prompt = f"{prompt.rstrip('. ')}. {FOND_FIXE.format(couleur=NOMS_FONDS.get(fond, 'bright'))}."
     graine = int(graine or 0) or diffusion.graines(1)[0]
     res = diffusion.video(prompt, dossier / "video.mp4", dossier / "depart.png", TAILLE_VIDEO, TAILLE_VIDEO,
@@ -582,6 +594,17 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress, rythme=RYTH
     indices = _lisser_temps(np.array(indices))
     indices[0] = _plus_proche(a[..., :3].reshape(-1, 3), palette_fond).reshape(toile, toile)
     indices[0][~opaque] = len(palette)
+    total_video = len(indices)
+    fin = _fin_utilisable(indices, len(palette), action)
+    indices = indices[:fin]
+    if not action and fin < IMAGES_UTILES_MIN:
+        (dossier / "animation.json").write_text(json.dumps({"prompt": prompt, "graine": res["graine"],
+                                                            "repli": "respiration"}, ensure_ascii=False),
+                                                encoding="utf-8")
+        return respiration(sprite), None, ("Wan a changé le personnage dès le début de la vidéo : animation "
+                                           "remplacée par la respiration (réessaie avec une autre graine).")
+    remarque = (f"Vidéo coupée à {fin}/{total_video} images (recul de la caméra ou personnage changé)."
+                if fin < total_video else "")
     images = []
     for ind in indices:
         b = np.zeros((toile, toile, 4), np.uint8)
@@ -590,20 +613,50 @@ def _animer_ia(sprite, dossier, mouvement, graine, etapes, progress, rythme=RYTH
         images.append(Image.fromarray(b, "RGBA"))
     (dossier / "animation.json").write_text(json.dumps({"prompt": prompt, "graine": res["graine"], "fond": fond,
                                                         "action": action, "couleurs": len(palette),
-                                                        "rythme": rythme},
+                                                        "rythme": rythme, "images_gardees": fin,
+                                                        "images_video": total_video},
                                                        ensure_ascii=False), encoding="utf-8")
     # autant d'images que le rythme en demande sur la durée du geste ; les images identiques à la suivante sont
     # fusionnées (leur durée s'additionne), comme les poses tenues des sprites d'exemple
     # au plus une image par image de la vidéo (des exemples plus longs, comme les Pokémon en boucle de 5,8 s,
     # donneraient sinon un ralenti fait d'images répétées)
-    n = max(4, min(len(images), round(rythme["duree_ms"] / rythme["image_ms"])))
+    # (la première et la dernière image sont tenues plus longtemps : elles comptent pour leur durée ; avant, le GIF
+    # durait 3,15 s au lieu de 2,35 s chez l'utilisateur)
+    milieu = max(0, rythme["duree_ms"] - rythme["debut_ms"] - rythme["fin_ms"])
     if action:
+        n = max(4, min(len(images), round(milieu / rythme["image_ms"]) + 2))
         choisies = une_fois(images, n)
         durees = durees_rythme(len(choisies), rythme)
-    else:
-        choisies = aller_retour(images, 2 * n)
+    else:  # boucle : même durée que le geste, aller puis retour
+        n = max(4, round(rythme["duree_ms"] / rythme["image_ms"]))
+        choisies = aller_retour(images, n)
         durees = [rythme["image_ms"]] * len(choisies)
-    return _fusionner_identiques(choisies, durees)
+    return (*_fusionner_identiques(choisies, durees), remarque)
+
+
+def _hauteur(ind, vide):
+    lignes = np.where((ind != vide).any(axis=1))[0]
+    return int(lignes[-1] - lignes[0] + 1) if len(lignes) else 0
+
+
+def _fin_utilisable(indices, vide, action):
+    """Nombre d'images à garder depuis le début : jusqu'au premier recul ou rapprochement de la caméra (hauteur du
+    personnage qui change de plus de RECUL_MAX pendant 3 images de suite, ou jusqu'à la fin) et, sans mouvement,
+    jusqu'au premier changement de personnage (moins de RESSEMBLANCE_MIN des pixels de la même couleur que le
+    sprite)."""
+    h0 = _hauteur(indices[0], vide) or 1
+    ref = indices[0]
+    mauvais = []
+    for ind in indices:
+        mal = abs(_hauteur(ind, vide) - h0) > RECUL_MAX * h0
+        if not action:
+            union = (ind != vide) | (ref != vide)
+            mal = mal or bool(union.any() and (ind[union] == ref[union]).mean() < RESSEMBLANCE_MIN)
+        mauvais.append(mal)
+    for i in range(1, len(indices)):
+        if all(mauvais[i:i + 3]):  # trois images de suite (ou toutes celles qui restent)
+            return i
+    return len(indices)
 
 
 def _fusionner_identiques(images, durees):
