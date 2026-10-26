@@ -66,6 +66,20 @@ def construire():
             btn_essai = gr.Button("🧪 Essai complet des moteurs")
         diag_rapport = gr.Markdown()
         diag_fichier = gr.File(label="Rapport à envoyer", interactive=False)
+    with gr.Accordion("🔓 Assistant de prompts sans refus (facultatif)", open=False):
+        gr.Markdown(
+            "Qwen3-VL prépare les prompts (descriptions d'images, traductions en anglais). Il refuse parfois une "
+            "demande ou l'adoucit (scène de bataille sanglante, horreur pour un jeu…). La version **sans refus** est "
+            "le même modèle dont on a retiré cette réaction (« abliteration », licence Apache 2.0 comme "
+            "l'original, 8,9 Go de plus sur le disque). Elle peut être un peu moins précise : garde l'original si "
+            "tu n'as pas de refus. Elle ne change que l'aide à l'écriture des prompts : les modèles qui créent "
+            "les images, vidéos, sons et modèles 3D restent les mêmes."
+        )
+        with gr.Row():
+            qwen_libre = gr.Checkbox(value=diffusion.qwen_libre_actif(),
+                                     label="Préparer les prompts avec Qwen3-VL sans refus")
+            b_qwen_libre = gr.Button("⬇️ Télécharger Qwen3-VL sans refus (8,9 Go)")
+        qwen_libre_msg = gr.Markdown()
     log = gr.Textbox(label="Journal de téléchargement", lines=14, max_lines=14, autoscroll=True, interactive=False)
     with gr.Row():
         b_ace = gr.Button("⬇️ Télécharger ACE-Step", variant="primary")
@@ -112,6 +126,8 @@ def brancher(c, demo, o):
     c.btn_gpu_maj.click(serveur_acestep.etat, None, c.gpu_etat)
     c.btn_gpu_mesure.click(diagnostic.surveiller_gpu, None, c.gpu_mesure)
     c.ace_lm.change(serveur_acestep.regler_modele_lm, c.ace_lm, c.gpu_msg).then(serveur_acestep.etat, None, c.gpu_etat)
+    c.qwen_libre.change(diffusion.regler_qwen_libre, c.qwen_libre, c.qwen_libre_msg).then(
+        models_status_md, None, c.status)
     c.res_actif.change(residents.regler, c.res_actif, c.res_etat)
     c.btn_res_fermer.click(residents.fermer_depuis_interface, None, c.res_etat)
     c.btn_res_maj.click(residents.etat, None, c.res_etat)
@@ -119,6 +135,7 @@ def brancher(c, demo, o):
                   (c.b_cb, chatterbox.download), (c.b_nt, nettoyage.download), (c.b_rvc, rvc.download),
                   (c.b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "zimage", "personnages", "photo_detourage", "photo_qualite"])),
                   (c.b_vid, lambda: diffusion.download(["video"])),
+                  (c.b_qwen_libre, lambda: diffusion.download(["qwen_libre"])),
                   (c.b_sfx, lambda: diffusion.download(["bruitages"])),
                   (c.b_par, lambda: diffusion.download(["parlante"])), (c.b_rig, rigging.download)):
         b.click(fn, None, c.log).then(models_status_md, None, c.status)

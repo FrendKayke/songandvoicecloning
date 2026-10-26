@@ -26,6 +26,7 @@ LIBELLES = {
     "rigging": "Rigging 3D (UniRig) : environnement et modèles",
     "diffusion": "Moteur de diffusion entier (bruitages, illustrations, personnages, photos, vidéos, 3D) : environnement et tous ses modèles",
     "diffusion:qwen": "Qwen3-VL (préparation des prompts)",
+    "diffusion:qwen_libre": "Qwen3-VL sans refus (assistant de prompts facultatif)",
     "diffusion:bruitages": "Stable Audio Open (bruitages)",
     "diffusion:zimage": "Z-Image-Turbo (illustrations, texte → 3D ; son encodeur de texte sert aussi à FLUX.2 klein)",
     "diffusion:personnages": "FLUX.2 klein 4B (personnages récurrents)",
@@ -171,7 +172,7 @@ def inventaire():
 CHOIX_RETRAIT = [(LIBELLES[c], c) for c in ("diffusion:video", "diffusion:texture3d", "diffusion:zimage", "diffusion:personnages",
                                              "diffusion:bruitages", "diffusion:photo_detourage",
                                              "diffusion:photo_qualite",
-                                             "diffusion:qwen", "diffusion:transcription", "diffusion:fluidite", "diffusion:parlante",
+                                             "diffusion:qwen", "diffusion:qwen_libre", "diffusion:transcription", "diffusion:fluidite", "diffusion:parlante",
                                              "diffusion:forme3d_vues", "diffusion:forme3d",
                                              "diffusion", "rvc", "rigging", "chatterbox",
                                              "nettoyage")]

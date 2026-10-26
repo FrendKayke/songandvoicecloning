@@ -464,6 +464,8 @@ try {
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
     # le téléchargement reprend seulement ce qui manque.
     $ModelesDif = @(@('qwen', 'forme3d', 'forme3d_vues', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'transcription', 'fluidite', 'parlante', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
+    # Qwen3-VL sans refus : seulement s'il a été choisi dans l'onglet Modèles (fichier écrit par l'application)
+    if ((Test-Path (Join-Path $Dif 'qwen-sans-refus.txt')) -and -not (Test-Retire 'diffusion:qwen_libre')) { $ModelesDif += 'qwen_libre' }
     # Contenu des modèles dans la signature : Qwen3-VL-4B (au lieu du 2B) et forme 3D complète ajoutés
     $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' ') + ' ; qwen 4B ; forme3d turbo + complet sans ckpt ; forme3d_vues ; whisper ; rife ; stableavatar')
     if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {

@@ -26,6 +26,10 @@ MODELES = {
     # 4B (8,9 Go, Apache 2.0) : prompts plus fidèles que le 2B ; tient seul sur 12 Go en bf16 (le 8B, 17 Go, non)
     "qwen": ("Qwen/Qwen3-VL-4B-Instruct", "Qwen3-VL-4B (descriptions, traduction)",
              ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]),
+    # Facultatif (case de l'onglet Modèles) : même modèle dont la direction des refus a été retirée des poids
+    # (« abliteration », partie texte seulement), Apache 2.0 comme l'original, mêmes fichiers et même taille
+    "qwen_libre": ("huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated", "Qwen3-VL-4B sans refus (assistant de prompts)",
+                   ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]),
     "bruitages": ("stabilityai/stable-audio-open-1.0", "Stable Audio Open 1.0 (bruitages)",
                   ["transformer/diffusion_pytorch_model.safetensors", "vae/diffusion_pytorch_model.safetensors",
                    "text_encoder/model.safetensors"]),
@@ -70,6 +74,8 @@ MODELES = {
                   ["hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.safetensors",
                    "hunyuan3d-delight-v2-0/unet/diffusion_pytorch_model.safetensors"]),
 }
+# Modèles téléchargés seulement à la demande : ni comptés comme manquants, ni pris par « tout télécharger »
+FACULTATIFS = {"qwen_libre"}
 LICENCE_BRUITAGES = "https://huggingface.co/stabilityai/stable-audio-open-1.0"
 JETONS = "https://huggingface.co/settings/tokens"
 
@@ -113,8 +119,40 @@ def _present(nom) -> bool:
     return True
 
 
+def _utiles():
+    return [n for n in MODELES if n not in FACULTATIFS or (n == "qwen_libre" and qwen_libre_actif())]
+
+
 def missing_components():
-    return [MODELES[n][1] for n in MODELES if not _present(n)]
+    return [MODELES[n][1] for n in _utiles() if not _present(n)]
+
+
+# --- Assistant de prompts sans refus ---------------------------------------------------------------------
+# Choix gardé dans un fichier du moteur (pas dans data/) : l'installateur le lit et télécharge alors ce modèle.
+def _fichier_qwen_libre() -> Path:
+    return cfg.DIFFUSION_DIR / "qwen-sans-refus.txt"
+
+
+def qwen_libre_actif() -> bool:
+    return _fichier_qwen_libre().is_file()
+
+
+def qwen_nom():
+    """Clé du modèle de Qwen3-VL employé par decrire : l'original, ou la version sans refus si elle est choisie."""
+    return "qwen_libre" if qwen_libre_actif() else "qwen"
+
+
+def regler_qwen_libre(actif):
+    fichier = _fichier_qwen_libre()
+    if actif:
+        fichier.parent.mkdir(parents=True, exist_ok=True)
+        fichier.write_text("Qwen3-VL sans refus choisi dans l'onglet Modèles\n", encoding="utf-8")
+        if not _present("qwen_libre"):
+            return ("⚠️ Version sans refus choisie, mais pas encore téléchargée (8,9 Go) : clique sur « ⬇️ Télécharger "
+                    "Qwen3-VL sans refus ». En attendant, la préparation des prompts affichera une erreur.")
+        return "✅ La préparation des prompts utilise maintenant Qwen3-VL sans refus."
+    fichier.unlink(missing_ok=True)
+    return "✅ La préparation des prompts utilise de nouveau le Qwen3-VL d'origine."
 
 
 def present(nom) -> bool:
@@ -180,9 +218,12 @@ def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None
 def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=None, nombre=None, photos=None):
     """Texte reformulé en anglais (mode « bruitage » ou « objet ») ou description d'une image (« son », « image »).
     suite : {plans, indice, precedent} pour un plan d'une vidéo en plusieurs plans (continuité)."""
-    _verifier("qwen")
+    nom = qwen_nom()
+    _verifier(nom)
     dossier = dossier or (cfg.DATA_DIR / "_tmp")
     tache = {"mode": mode}
+    if nom != "qwen":
+        tache["depot"] = MODELES[nom][0]
     if texte:
         tache["texte"] = texte
     if image:
@@ -390,7 +431,7 @@ def enregistrer_jeton(jeton):
 
 
 def download(noms=None):
-    noms = list(noms or MODELES)
+    noms = list(noms or [n for n in MODELES if n not in FACULTATIFS])
     if not Path(cfg.DIFFUSION_PYTHON).exists():
         yield f"❌ Python du moteur de diffusion introuvable : {cfg.DIFFUSION_PYTHON}. {retraits.conseil('diffusion')}"
         return

@@ -32,6 +32,9 @@ import sys
 from pathlib import Path
 
 QWEN = "Qwen/Qwen3-VL-4B-Instruct"  # 8,9 Go en bf16 : seul sur la carte, prompts plus fidèles que le 2B
+# Facultatif : le même modèle sans refus (« abliteration » de la partie texte, Apache 2.0), choisi dans l'onglet
+# Modèles ; l'application le passe dans la clé « depot » de la tâche
+QWEN_LIBRE = "huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated"
 QWEN_COTE_MAX = 1024  # côté maximal des images données à Qwen (jetons visuels, mémoire graphique)
 STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
 WHISPER = "openai/whisper-large-v3-turbo"  # MIT, 1,6 Go : transcription et sous-titres (99 langues)
@@ -121,6 +124,7 @@ def _poids(*sous_dossiers):
 # nom → [(dépôt, motifs à télécharger ou None pour tout)]
 MODELES = {
     "qwen": [(QWEN, None)],
+    "qwen_libre": [(QWEN_LIBRE, None)],
     "bruitages": [(STABLE_AUDIO, None)],
     "zimage": [(ZIMAGE, ["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*", "vae/*",
                          "transformer/config.json"]),
@@ -555,16 +559,17 @@ def decrire(chemin_tache):
     if mode not in CONSIGNES:
         _erreur(f"mode de description inconnu : {mode}")
     device = _device()
-    _hors_ligne_si_present(QWEN)
+    depot = t.get("depot") or QWEN  # QWEN_LIBRE si la version sans refus est choisie
+    _hors_ligne_si_present(depot)
     print("PROGRESSION 1/2 chargement de Qwen3-VL", flush=True)
 
     def charger():  # sans device_map : un modèle « dispatché » par accelerate ne se déplace plus avec .to()
-        _precharger((QWEN, None))
+        _precharger((depot, None))
         m = Qwen3VLForConditionalGeneration.from_pretrained(
-            QWEN, dtype=torch.bfloat16 if device == "cuda" else torch.float32).to(device)
-        return m, AutoProcessor.from_pretrained(QWEN)
+            depot, dtype=torch.bfloat16 if device == "cuda" else torch.float32).to(device)
+        return m, AutoProcessor.from_pretrained(depot)
 
-    modele, processeur = _garder(("Qwen3-VL", device), charger, 9, vers_cpu=lambda o: o[0].to("cpu"),
+    modele, processeur = _garder(("Qwen3-VL", depot, device), charger, 9, vers_cpu=lambda o: o[0].to("cpu"),
                                  vers_gpu=lambda o: o[0].to(device))
     contenu = []
     if t.get("image"):

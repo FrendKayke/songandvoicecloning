@@ -269,6 +269,34 @@ def test_etat_des_modeles(faux_diffusion):
     assert "| Diffusion : Qwen3-VL, Stable Audio Open, Z-Image-Turbo, FLUX.2 klein, Wan 2.2, BiRefNet, Real-ESRGAN, GFPGAN, Hunyuan3D-2 | ✅ présent |" in models_status_md()
 
 
+def test_qwen_sans_refus(faux_diffusion):
+    """Case de l'onglet Modèles : la préparation des prompts passe au dépôt sans refus ; facultatif, donc ni
+    « manquant » ni téléchargé par défaut tant qu'il n'est pas choisi."""
+    import shutil
+    shutil.rmtree(diffusion.ckpt_dir("qwen_libre"))
+    assert not diffusion.missing_components()
+    diffusion.decrire("objet", texte="une épée")
+    assert "depot" not in _journal()[-1]["tache"]
+    assert "pas encore téléchargée" in diffusion.regler_qwen_libre(True)
+    assert diffusion.qwen_libre_actif() and diffusion.missing_components() == [diffusion.MODELES["qwen_libre"][1]]
+    with pytest.raises(gr.Error, match="sans refus"):
+        diffusion.decrire("objet", texte="une épée")
+    diffusion.enregistrer_jeton("hf_abcdefghijklmnopqrstuvwxyz")  # Stable Audio en fait partie
+    list(diffusion.download())  # « tout télécharger » ne prend pas le modèle facultatif…
+    assert "qwen_libre" not in _journal()[-1]["args"]
+    list(diffusion.download(["qwen_libre"]))  # … son bouton, oui
+    assert _journal()[-1]["args"] == ["qwen_libre", "detourage"]
+    (diffusion.ckpt_dir("qwen_libre") / "snapshots" / "abc").mkdir(parents=True)
+    for f in diffusion.MODELES["qwen_libre"][2]:
+        (diffusion.ckpt_dir("qwen_libre") / "snapshots" / "abc" / f).write_bytes(b"0")
+    assert "utilise maintenant" in diffusion.regler_qwen_libre(True)
+    diffusion.decrire("objet", texte="une épée")
+    assert _journal()[-1]["tache"]["depot"] == "huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated"
+    assert "d'origine" in diffusion.regler_qwen_libre(False) and not diffusion.qwen_libre_actif()
+    diffusion.decrire("objet", texte="une épée")
+    assert "depot" not in _journal()[-1]["tache"]
+
+
 def test_galerie_bruitage(faux_diffusion):
     from studiovoix import galerie
 
