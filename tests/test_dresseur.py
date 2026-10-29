@@ -79,7 +79,7 @@ def test_kit_de_dresseur_gba(faux_klein):
     face_a = np.array(Image.open(face))
     couleurs_face = {tuple(p) for p in face_a[..., :3][face_a[..., 3] > 0]}
     assert {tuple(p) for p in feuille_lancer[..., :3][feuille_lancer[..., 3] > 0]} <= couleurs_face
-    noms = {p.split("/")[-1] for p in fichiers}
+    noms = {Path(p).name for p in fichiers}
     assert {"face_x2.png", "lancer_x2.png", "lancer_x2.gif", "marche_bas_x2.gif", "marche_haut_x2.gif"} <= noms
     with Image.open(d / "lancer_x2.gif") as gif:
         assert gif.n_frames == 5
