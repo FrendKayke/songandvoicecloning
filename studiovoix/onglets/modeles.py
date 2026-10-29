@@ -95,6 +95,21 @@ def construire():
         b_par = gr.Button("⬇️ Télécharger StableAvatar (vidéo parlante, ~9 Go)", variant="primary")
         b_rig = gr.Button("⬇️ Télécharger UniRig (rigging 3D, ~6 Go)", variant="primary")
         b_spr = gr.Button("⬇️ Télécharger SDXL + LoRA de sprites de dresseurs (~7,5 Go)", variant="primary")
+    with gr.Accordion("📥 Modèles téléchargés à la main (si le téléchargement échoue ici)", open=False):
+        gr.Markdown(
+            "Quand le téléchargement depuis l'application échoue (coupures, Hugging Face lent), télécharge le dépôt "
+            "toi-même : ouvre son lien ci-dessous, prends **tous ses fichiers** (bouton « Files » puis le "
+            "téléchargement de chaque fichier, ou un outil comme `hf download org/nom`), garde l'arborescence, et "
+            f"dépose le dossier, nommé **`org--nom`** (par exemple `Qwen--Qwen3-VL-4B-Instruct`), ou son archive "
+            f".zip, dans `{diffusion.dossier_a_installer()}`. Puis clique sur « Installer ». Pour un modèle dont les "
+            "fichiers sont volumineux, seuls ceux de la colonne « Fichiers attendus » sont indispensables (les "
+            "petits fichiers de configuration autour le sont aussi)."
+        )
+        with gr.Row():
+            btn_manuel = gr.Button("📥 Installer les modèles déposés dans « a-installer »", variant="primary")
+            btn_manuel_dossier = gr.Button("📂 Ouvrir le dossier « a-installer »")
+        manuel_msg = gr.Markdown()
+        manuel_liens = gr.Markdown(diffusion.liens_manuels())
     with gr.Accordion("🔑 Jeton Hugging Face (nécessaire pour Stable Audio Open)", open=not diffusion.jeton_present()):
         gr.Markdown(
             f"1. Connecte-toi sur Hugging Face et accepte la licence sur {diffusion.LICENCE_BRUITAGES} ; "
@@ -149,6 +164,9 @@ def brancher(c, demo, o):
     c.o_rvc.click(lambda: open_folder(cfg.RVC_DIR))
     c.o_dif.click(lambda: open_folder(diffusion.hf_home() / "hub", create=True))
     c.btn_jeton.click(diffusion.enregistrer_jeton, c.hf_jeton, c.hf_msg)
+    c.btn_manuel.click(diffusion.importer_manuels, None, c.manuel_msg).then(
+        models_status_md, None, c.status).then(diffusion.liens_manuels, None, c.manuel_liens)
+    c.btn_manuel_dossier.click(lambda: open_folder(diffusion.dossier_a_installer(), create=True))
 
     c.o_data.click(lambda: open_folder(cfg.SONGS_DIR, create=True))
     demo.load(models_status_md, None, c.status)

@@ -5,6 +5,7 @@ Environnement dédié (<lecteur>:\\StudioVoix\\diffusion\\.venv), appelé en sou
 le cache Hugging Face (HF_HOME, dans StudioVoix). Stable Audio Open exige l'acceptation de sa licence sur
 Hugging Face : le jeton est enregistré dans <HF_HOME>\\token, là où huggingface_hub le lit.
 """
+import hashlib
 import json
 import os
 import random
@@ -435,6 +436,117 @@ def facetter(entree, sortie, faces=3000, couleurs=24, progress=None):
 
 
 # --- Onglet Modèles ---------------------------------------------------------------------------------------
+# --- Modèles téléchargés à la main --------------------------------------------------------------------------
+# Le téléchargement depuis l'application échoue parfois (coupures, proxy, Hugging Face lent : Qwen3-VL sans refus chez
+# l'utilisateur le 30/10). On peut télécharger un dépôt avec un navigateur ou un autre outil, le déposer dans
+# <HF_HOME>/a-installer/<org>--<nom>/ (ou models--<org>--<nom>, ou un zip) et l'application le range dans le cache
+# Hugging Face : snapshots/<empreinte>/<fichiers> + refs/main → huggingface_hub le lit hors ligne comme un
+# téléchargement normal (refs/main donne le nom du snapshot, qui n'a pas besoin d'être un vrai commit).
+SNAPSHOT_MANUEL = hashlib.sha1(b"manuel").hexdigest()
+
+
+def dossier_a_installer() -> Path:
+    return hf_home() / "a-installer"
+
+
+def depots_du_modele(nom):
+    """Dépôts Hugging Face d'un modèle (principal + ceux des fichiers tirés d'autres dépôts), dans l'ordre."""
+    depots = [MODELES[nom][0]] + [f[0] for f in MODELES[nom][2] if isinstance(f, tuple)]
+    return [d for d in dict.fromkeys(depots) if d not in (LOCAL_PHOTOS, LOCAL_CODE)]
+
+
+def _nom_depot(dossier):
+    """« org--nom », « models--org--nom » ou « org__nom » → « org/nom » ; None si ce n'est pas un nom de dépôt."""
+    n = Path(dossier).stem if str(dossier).lower().endswith(".zip") else Path(dossier).name
+    n = n[len("models--"):] if n.startswith("models--") else n
+    for sep in ("--", "__"):
+        if sep in n:
+            org, _, nom = n.partition(sep)
+            if org and nom:
+                return f"{org}/{nom}"
+    return None
+
+
+def importer_manuels():
+    """Range dans le cache les dépôts déposés dans <HF_HOME>/a-installer (dossiers ou zips), puis les fichiers
+    GitHub des photos déposés tels quels. Renvoie un message."""
+    import shutil
+    import zipfile
+
+    source = dossier_a_installer()
+    source.mkdir(parents=True, exist_ok=True)
+    lignes = []
+    for entree in sorted(source.iterdir()):
+        if entree.name.startswith("."):
+            continue
+        depot = _nom_depot(entree)
+        if entree.is_file() and entree.name in FICHIERS_PHOTOS_NOMS:  # poids Real-ESRGAN, GFPGAN, YuNet, RIFE
+            dossier_photos().mkdir(parents=True, exist_ok=True)
+            shutil.move(str(entree), dossier_photos() / entree.name)
+            lignes.append(f"✅ {entree.name} → {dossier_photos()}")
+            continue
+        if not depot:
+            lignes.append(f"⚠️ {entree.name} : nomme le dossier « org--nom » (par exemple "
+                          "« huihui-ai--Huihui-Qwen3-VL-4B-Instruct-abliterated »), comme sur Hugging Face.")
+            continue
+        cible = _dossier_depot(depot) / "snapshots" / SNAPSHOT_MANUEL
+        cible.mkdir(parents=True, exist_ok=True)
+        n = 0
+        if entree.is_file() and entree.suffix.lower() == ".zip":
+            with zipfile.ZipFile(entree) as z:
+                membres = [m for m in z.infolist() if not m.is_dir()]
+                # archive d'un dossier : la racine commune est retirée
+                racine = os.path.commonpath([m.filename for m in membres]) if len(membres) > 1 else ""
+                for m in membres:
+                    rel = Path(m.filename).relative_to(racine) if racine and not Path(racine).suffix else Path(m.filename)
+                    dest = cible / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    with z.open(m) as f, open(dest, "wb") as g:
+                        shutil.copyfileobj(f, g)
+                    n += 1
+            entree.unlink()
+        elif entree.is_dir():
+            for f in sorted(entree.rglob("*")):
+                if f.is_file():
+                    dest = cible / f.relative_to(entree)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(f), dest)
+                    n += 1
+            shutil.rmtree(entree, ignore_errors=True)
+        else:
+            continue
+        refs = _dossier_depot(depot) / "refs"
+        refs.mkdir(parents=True, exist_ok=True)
+        (refs / "main").write_text(SNAPSHOT_MANUEL, encoding="ascii")
+        lignes.append(f"✅ {depot} : {n} fichier(s) rangé(s) dans le cache.")
+    if not lignes:
+        return (f"Rien à installer dans `{source}`. Dépose-y le dossier d'un dépôt Hugging Face (nommé "
+                "« org--nom ») ou son archive .zip, puis clique de nouveau.")
+    manquants = missing_components()
+    return "\n".join(lignes) + ("\n\nEncore absents : " + ", ".join(manquants) if manquants else
+                                 "\n\nTous les modèles sont présents.")
+
+
+def liens_manuels():
+    """Tableau Markdown : pour chaque modèle, ses dépôts Hugging Face et les fichiers attendus (pour un
+    téléchargement à la main)."""
+    lignes = ["| Modèle | À télécharger | Fichiers attendus |", "|---|---|---|"]
+    for nom, (depot, libelle, fichiers) in MODELES.items():
+        if depot in (LOCAL_PHOTOS, LOCAL_CODE):
+            attendus = ", ".join(f if isinstance(f, str) else f[1] for f in fichiers)
+            lignes.append(f"| {libelle} | fichiers GitHub (bouton de téléchargement ; sinon dépose-les tels quels "
+                          f"dans `a-installer`) | `{attendus}` |")
+            continue
+        liens = " ".join(f"[{d}](https://huggingface.co/{d}/tree/main)" for d in depots_du_modele(nom))
+        attendus = ", ".join(f"`{f}`" if isinstance(f, str) else f"`{f[1]}` ({f[0]})" for f in fichiers)
+        lignes.append(f"| {libelle} {'✅' if _present(nom) else '❌'} | {liens} | {attendus} |")
+    return "\n".join(lignes)
+
+
+FICHIERS_PHOTOS_NOMS = {"RealESRGAN_x4plus.pth", "RealESRGAN_x2plus.pth", "realesr-general-x4v3.pth", "GFPGANv1.4.pth",
+                        "face_detection_yunet_2023mar.onnx", "flownet_v4.26.pkl"}
+
+
 def jeton_present() -> bool:
     return (hf_home() / "token").is_file() or bool(os.environ.get("HF_TOKEN"))
 

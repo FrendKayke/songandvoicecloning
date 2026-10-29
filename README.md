@@ -84,6 +84,10 @@ Ferme Studio Voix (la fenêtre de lancer.bat), puis double-clique sur **METTRE_A
 
 **Tu avais déjà installé Studio Voix avant l'arrivée de la synthèse vocale ou du nettoyage ?** Relance simplement INSTALLER.bat : seules les étapes manquantes s'exécutent (Chatterbox : environ 6 Go, 10 à 25 minutes ; nettoyage : environ 1 Go, 5 minutes ; RVC : environ 5 Go, 10 à 20 minutes ; diffusion : environ 40 Go, une heure). Sans cela, tout le reste fonctionne et l'application t'indique ce qui manque.
 
+### Modèles téléchargés à la main
+
+Si un téléchargement échoue depuis l'application (coupure, Hugging Face lent ou inaccessible), télécharge le dépôt toi-même : dans Outils → Modèles et diagnostic, le volet « 📥 Modèles téléchargés à la main » donne pour chaque modèle le lien de son dépôt Hugging Face et les fichiers attendus. Prends tous les fichiers du dépôt (ou un outil comme `hf download org/nom --local-dir …`), garde l'arborescence, et dépose le dossier nommé **`org--nom`** (par exemple `huihui-ai--Huihui-Qwen3-VL-4B-Instruct-abliterated`) ou son archive .zip dans `StudioVoix\hf-home\a-installer\`, puis clique sur « Installer les modèles déposés ». Ils sont rangés dans le cache Hugging Face et lus hors ligne comme un téléchargement normal. Les poids publiés sur GitHub (Real-ESRGAN, GFPGAN, YuNet, RIFE) peuvent être déposés tels quels dans ce dossier.
+
 ### Jeton Hugging Face (pour les bruitages seulement)
 
 Stable Audio Open est distribué sous la licence Stability AI Community (gratuite, usage commercial permis sous 1 M$ de revenus annuels) et Hugging Face demande de l'accepter avant le téléchargement :

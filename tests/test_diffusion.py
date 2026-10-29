@@ -1983,3 +1983,48 @@ def test_son_de_la_video_parlante_sans_librosa(tmp_path):
     sf.write(str(f), np.stack([np.sin(np.arange(44100) / 10), np.zeros(44100)], axis=1).astype("float32"), 44100)
     voix, sr = moteur._son_16k(f)
     assert sr == 16000 and voix.ndim == 1 and abs(len(voix) - 16000) <= 1 and voix.dtype == np.float32
+
+
+def test_modeles_installes_a_la_main(faux_diffusion):
+    """Dépôt déposé dans <HF_HOME>/a-installer (dossier « org--nom » ou zip) → cache Hugging Face lisible hors ligne."""
+    import shutil
+    import zipfile
+
+    shutil.rmtree(diffusion.ckpt_dir("qwen_libre"), ignore_errors=True)
+    shutil.rmtree(diffusion.ckpt_dir("transcription"), ignore_errors=True)
+    (diffusion.dossier_photos() / "flownet_v4.26.pkl").unlink()
+    assert "Rien à installer" in diffusion.importer_manuels()
+    src = diffusion.dossier_a_installer()
+    # dossier nommé comme sur Hugging Face, avec sous-dossiers
+    d = src / "huihui-ai--Huihui-Qwen3-VL-4B-Instruct-abliterated"
+    (d / "sous").mkdir(parents=True)
+    for f in ("model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors", "config.json", "sous/x.json"):
+        (d / f).write_bytes(b"poids")
+    # archive d'un dossier (racine commune retirée)
+    with zipfile.ZipFile(src / "openai--whisper-large-v3-turbo.zip", "w") as z:
+        for f in ("model.safetensors", "tokenizer.json", "preprocessor_config.json"):
+            z.writestr(f"whisper-large-v3-turbo/{f}", "poids")
+    (src / "flownet_v4.26.pkl").write_bytes(b"rife")
+    (src / "nimporte.txt").write_text("x")
+    msg = diffusion.importer_manuels()
+    assert "huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated : 4 fichier(s)" in msg
+    assert "openai/whisper-large-v3-turbo : 3 fichier(s)" in msg and "flownet_v4.26.pkl →" in msg
+    assert "nimporte.txt" in msg and "org--nom" in msg
+    assert diffusion.present("qwen_libre") and diffusion.present("transcription") and diffusion.present("fluidite")
+    assert not d.exists() and not (src / "openai--whisper-large-v3-turbo.zip").exists()
+    snap = diffusion.ckpt_dir("qwen_libre") / "snapshots" / diffusion.SNAPSHOT_MANUEL
+    assert (snap / "sous" / "x.json").read_bytes() == b"poids"
+    assert (diffusion.ckpt_dir("qwen_libre") / "refs" / "main").read_text() == diffusion.SNAPSHOT_MANUEL
+    # le vrai huggingface_hub le lit hors ligne, comme un téléchargement normal
+    import huggingface_hub
+    from huggingface_hub import snapshot_download, try_to_load_from_cache
+    chemin = try_to_load_from_cache("huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated", "config.json",
+                                    cache_dir=diffusion.hf_home() / "hub")
+    assert Path(chemin) == snap / "config.json"
+    assert Path(snapshot_download("openai/whisper-large-v3-turbo", cache_dir=diffusion.hf_home() / "hub",
+                                  local_files_only=True)).name == diffusion.SNAPSHOT_MANUEL
+    assert any(r.repo_id == "openai/whisper-large-v3-turbo" and r.revisions
+               for r in huggingface_hub.scan_cache_dir(diffusion.hf_home() / "hub").repos)
+    liens = diffusion.liens_manuels()
+    assert "[huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated](https://huggingface.co/huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated/tree/main)" in liens
+    assert "`z-image-turbo-Q8_0.gguf` (unsloth/Z-Image-Turbo-GGUF)" in liens
