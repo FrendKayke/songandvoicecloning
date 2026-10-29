@@ -124,7 +124,10 @@ def test_echec_puis_reprise(inst):
     assert "ERREUR" in inst.sortie and "relance INSTALLER.bat" in inst.sortie
     assert not (inst.eng / "diffusion" / ".env-ok").exists() and (inst.eng / "nettoyage" / ".env-ok").exists()
     assert inst.lancer() == 0, inst.sortie
-    assert inst.installs() and all("diffusion" in a or "requirements.txt" in a for a in inst.installs())
+    # reprise : seules les étapes d'après la panne (diffusion, entraînement, application) sont refaites
+    assert inst.installs() and all(any(k in a for k in ("diffusion", "entrainement", "requirements.txt"))
+                                   for a in inst.installs())
+    assert not any("chatterbox" in a or "rigging" in a for a in inst.installs())
 
 
 def test_jeton_hugging_face(inst):
