@@ -50,31 +50,50 @@ def construire():
             btn_px_perso = gr.Button("🧙 Créer les personnages", variant="primary")
     gr.Markdown("### 🎒 Kit de dresseur : sprite de face, feuille de lancer, feuille de marche")
     gr.Markdown(
-        "D'après une photo, dans le style exact des jeux de rôle portables : FLUX.2 klein dessine la personne en "
-        "sprite de face, puis **redessine tes feuilles d'exemple** (mêmes poses, même mise en page) avec ce "
-        "personnage ; tout est ramené à la grille et aux couleurs du jeu. Dépose une fois une feuille d'exemple de "
-        "lancer (5 images de dos côte à côte) et de marche (une feuille d'un seul personnage, sans marge) : elles "
-        "sont gardées pour les fois suivantes. Ensuite, « Animer un sprite » donne sa feuille d'animation au "
-        "sprite de face (comme les dresseurs animés de la DS).")
+        "Dans le **style exact** de tes sprites d'exemple : ils sont gardés au pixel près (forme, ombrage, contour) "
+        "et **recolorés** aux couleurs de la personne, comme les variantes de couleurs des jeux. Choisis donc des "
+        "exemples dont la silhouette ressemble à la personne (fille aux cheveux longs, garçon à casquette…). Les "
+        "couleurs sont lues sur la photo (modifiables) ; FLUX.2 klein montre seulement où va chaque couleur. "
+        "« Animer un sprite » donne ensuite sa feuille d'animation au sprite de face.")
+    _style0 = next(iter(dresseur.STYLES))
     with gr.Row():
         kit_photo = gr.Image(type="filepath", label="Photo de la personne", height=300)
         with gr.Column():
-            kit_style = gr.Radio(list(dresseur.STYLES), value=next(iter(dresseur.STYLES)), label="Style")
+            kit_style = gr.Radio(list(dresseur.STYLES), value=_style0, label="Style")
             kit_demande = gr.Textbox(
                 label="Qui, et ce que tu changes", lines=2,
-                placeholder="l'homme barbu à lunettes, en dresseur avec une casquette rouge et un sac à dos jaune")
+                placeholder="la femme aux cheveux bouclés, en dresseuse avec une veste rouge et un short bleu")
+            with gr.Row():
+                kit_couleurs = gr.Textbox(label="Couleurs de la personne (lues sur la photo, modifiables)", lines=2,
+                                          placeholder=dresseur.COULEURS_DEFAUT, scale=3)
+                btn_kit_couleurs = gr.Button("🎨 Lire les couleurs sur la photo", scale=1)
             kit_feuilles = gr.CheckboxGroup(dresseur.FEUILLES, value=dresseur.FEUILLES, label="À créer")
+            kit_mode_face = gr.Radio(dresseur.MODES_FACE, value=dresseur.RECOLORER, label="Sprite de face")
             with gr.Row():
                 kit_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
                 kit_nom = gr.Textbox(label="Nom du dossier", value="dresseur")
             btn_kit = gr.Button("🎒 Créer le kit de dresseur", variant="primary")
-    with gr.Accordion("📄 Feuilles d'exemple (gabarits) et sprite de face existant", open=False):
-        kit_gabarits = gr.Markdown(dresseur.etat_gabarits(next(iter(dresseur.STYLES))))
+    with gr.Accordion("📄 Sprites d'exemple (le style et la silhouette)", open=True):
         with gr.Row():
-            kit_g_lancer = gr.File(file_types=["image"], label="Feuille de lancer d'exemple (5 images de dos)")
-            kit_g_marche = gr.File(file_types=["image"], label="Feuille de marche d'exemple (un seul personnage)")
-            kit_face = gr.Image(type="filepath", image_mode="RGBA", height=200,
-                                label="Sprite de face déjà créé (pour refaire seulement les feuilles)")
+            listes = {}
+            apercus_ex = {}
+            for _f, _lib in (("face", "Sprite de face"), ("lancer", "Lancer (de dos)"), ("marche", "Marche")):
+                with gr.Column():
+                    _noms = dresseur.liste_gabarits(_style0, _f)
+                    listes[_f] = gr.Dropdown(_noms, value=_noms[0] if _noms else None, label=f"Exemple : {_lib}")
+                    apercus_ex[_f] = gr.Image(label="Aperçu", height=160, interactive=False,
+                                             value=dresseur.apercu_gabarit(_style0, _f, _noms[0]) if _noms else None)
+        kit_ex_face, kit_ex_lancer, kit_ex_marche = listes["face"], listes["lancer"], listes["marche"]
+        kit_ap_face, kit_ap_lancer, kit_ap_marche = apercus_ex["face"], apercus_ex["lancer"], apercus_ex["marche"]
+        with gr.Row():
+            kit_ajout = gr.File(file_count="multiple", file_types=["image"],
+                                label="Ajouter des sprites d'exemple (PNG ou GIF du jeu, agrandis ou non)")
+            with gr.Column():
+                kit_ajout_type = gr.Radio(dresseur.FEUILLES, value=dresseur.FACE, label="Ce sont des…",
+                                          info="Lancer : une rangée d'images carrées. Marche : la feuille d'un "
+                                               "seul personnage (GBA : 4×4 cases, DS : 3×4), sans marge.")
+                btn_kit_ajout = gr.Button("➕ Ajouter à la bibliothèque")
+                kit_ajout_msg = gr.Markdown()
     px_statut = gr.Markdown()
     px_dossier = gr.State()
     px_apercus = gr.State([])
@@ -120,8 +139,8 @@ def _personnages(*args, progress=gr.Progress()):
 
 
 def _kit(*args, progress=gr.Progress()):
-    msg, apercus, fichiers, dossier, sprite = dresseur.creer_kit(*args, progress=progress)
-    return msg, apercus, fichiers, dossier, apercus, sprite
+    msg, apercus, fichiers, dossier, sprite, couleurs = dresseur.creer_kit(*args, progress=progress)
+    return msg, apercus, fichiers, dossier, apercus, sprite, couleurs
 
 
 def brancher(c, demo, o):
@@ -133,10 +152,17 @@ def brancher(c, demo, o):
     c.btn_px_convertir.click(_convertir, [c.px_images, *reglages, c.px_detourer, c.px_nom], sorties)
     c.btn_px_perso.click(_personnages, [c.px_photo, c.px_personnes, *reglages, c.px_graine, c.px_nom_perso],
                          [*sorties, c.px_sprite])
-    c.kit_style.change(dresseur.etat_gabarits, c.kit_style, c.kit_gabarits)
-    c.btn_kit.click(_kit, [c.kit_style, c.kit_photo, c.kit_demande, c.kit_feuilles, c.kit_g_lancer, c.kit_g_marche,
-                           c.kit_face, c.kit_graine, c.kit_nom], [*sorties, c.px_sprite]).then(
-        dresseur.etat_gabarits, c.kit_style, c.kit_gabarits)
+    listes = [c.kit_ex_face, c.kit_ex_lancer, c.kit_ex_marche]
+    apercus = [c.kit_ap_face, c.kit_ap_lancer, c.kit_ap_marche]
+    c.kit_style.change(dresseur.mises_a_jour_listes, c.kit_style, listes)
+    for liste, apercu, feuille in zip(listes, apercus, ("face", "lancer", "marche")):
+        liste.change(lambda style, nom, f=feuille: dresseur.apercu_gabarit(style, f, nom), [c.kit_style, liste],
+                     apercu)
+    c.btn_kit_ajout.click(dresseur.ajouter_gabarits, [c.kit_style, c.kit_ajout_type, c.kit_ajout],
+                          [c.kit_ajout_msg, *listes])
+    c.btn_kit_couleurs.click(dresseur.lire_couleurs, [c.kit_photo, c.kit_demande], c.kit_couleurs)
+    c.btn_kit.click(_kit, [c.kit_style, c.kit_photo, c.kit_demande, c.kit_couleurs, c.kit_feuilles, c.kit_mode_face,
+                           *listes, c.kit_graine, c.kit_nom], [*sorties, c.px_sprite, c.kit_couleurs])
     c.px_galerie.select(_choisir, c.px_apercus, c.px_sprite)
     c.btn_px_animer.click(pixel_art.animer, [c.px_sprite, c.px_mode, c.px_mouvement, c.px_anim_graine,
                                             c.px_anim_etapes, c.px_anim_nom, c.px_exemples],

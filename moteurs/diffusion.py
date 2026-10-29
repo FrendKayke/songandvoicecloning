@@ -467,6 +467,14 @@ CONSIGNES = {
                "in the request (keep their real clothes only where nothing else is asked). Two or three sentences, no "
                "name of any game, artist or existing work, nothing about the background. Answer with the description "
                "only:\n\n"),
+    # kit de dresseur : les sprites d'exemple sont recolorés aux couleurs de la personne (palette swap) ; ces couleurs
+    # sont données à FLUX.2 klein, qui montre où va chaque couleur
+    "couleurs": ("The attached photo shows one or several people. Find the person designated in the request below, "
+                 "apply every change it asks, and list the colors of their appearance for recoloring a pixel art game "
+                 "sprite, in English, on one line exactly in this form: 'hair: ...; skin: ...; top: ...; bottom: ...; "
+                 "shoes: ...; accessories: ...', with precise color names (for example 'dark chestnut brown', 'pale "
+                 "peach', 'light sky blue'). For a dress, give its color for both top and bottom. No name of any game "
+                 "or existing work. Answer with that line only:\n\n"),
     # onglet « Tileset en objets 3D » : ce que représente un morceau de tileset vu de dessus (une tuile « trou avec
     # échelle » redessinée telle quelle par FLUX.2 klein devenait un pavé plat chez l'utilisateur)
     "tuile3d": ("The attached image is one piece of a pixel art tileset from a top-down 2D video game: an object, a "
