@@ -184,23 +184,35 @@ def pixeliser(image, hauteur=60, couleurs=20, toile=64, contour=CONTOUR_DEFAUT, 
     if palette is None:
         palette = _palette(fin[..., :3][fin_opaque], couleurs)
     palette = np.asarray(palette, np.uint8)
-    indices = _plus_proche(fin[..., :3].reshape(-1, 3), palette).reshape(n, n)
-    k = ECHELLE_TRAVAIL
-    blocs = np.where(fin_opaque, indices, len(palette)).reshape(toile, k, toile, k).transpose(0, 2, 1, 3)
-    comptes = np.zeros((toile, toile, len(palette) + 1), int)
+    sprite = contourer(blocs_dominants(fin, palette, toile, toile), contour)
+    return Image.fromarray(sprite, "RGBA"), {"palette": palette.tolist(), "cadre": list(cadre)}
+
+
+def blocs_dominants(fin, palette, h, w):
+    """Image RGBA de h×w blocs de k×k sous-pixels → sprite h×w : couleur de la palette la plus présente dans chaque
+    bloc (pas la moyenne, qui donne des couleurs boueuses), transparent si plus de la moitié du bloc l'est."""
+    k = fin.shape[0] // h
+    opaque = fin[..., 3] >= 128
+    indices = _plus_proche(fin[..., :3].reshape(-1, 3), palette).reshape(fin.shape[:2])
+    blocs = np.where(opaque, indices, len(palette)).reshape(h, k, w, k).transpose(0, 2, 1, 3)
+    comptes = np.zeros((h, w, len(palette) + 1), int)
     for i in range(len(palette) + 1):
         comptes[..., i] = (blocs == i).sum(axis=(2, 3))
-    vide = comptes[..., -1] * 2 > k * k  # plus de la moitié du bloc transparente
-    choix = comptes[..., :-1].argmax(axis=-1)
-    sprite = np.zeros((toile, toile, 4), np.uint8)
-    sprite[..., :3] = palette[choix]
+    vide = comptes[..., -1] * 2 > k * k
+    sprite = np.zeros((h, w, 4), np.uint8)
+    sprite[..., :3] = palette[comptes[..., :-1].argmax(axis=-1)]
     sprite[..., 3] = np.where(vide, 0, 255)
+    return sprite
+
+
+def contourer(sprite, contour):
+    """Contour d'un pixel (couleur `contour`, None : aucun) sur le bord de la silhouette."""
     if contour is not None:
         o = sprite[..., 3] > 0
         p = np.pad(o, 1)
         bord = o & ~(p[2:, 1:-1] & p[:-2, 1:-1] & p[1:-1, 2:] & p[1:-1, :-2])
         sprite[bord, :3] = contour
-    return Image.fromarray(sprite, "RGBA"), {"palette": palette.tolist(), "cadre": list(cadre)}
+    return sprite
 
 
 def agrandir(sprite, facteur):

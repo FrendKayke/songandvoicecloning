@@ -1,8 +1,8 @@
 """Onglet « Pixel art et sprites » : convertir des images en pixel art, faire des personnages de jeu d'après une
-photo, animer un sprite (30 images sur 5 s, en boucle)."""
+photo, kit de dresseur (sprite de face, feuilles de lancer et de marche), animer un sprite."""
 import gradio as gr
 
-from .. import pixel_art
+from .. import dresseur, pixel_art
 from ..outils import open_folder
 from .commun import espace_de_noms
 
@@ -48,6 +48,33 @@ def construire():
                 px_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
                 px_nom_perso = gr.Textbox(label="Nom du dossier", value="personnages")
             btn_px_perso = gr.Button("🧙 Créer les personnages", variant="primary")
+    gr.Markdown("### 🎒 Kit de dresseur : sprite de face, feuille de lancer, feuille de marche")
+    gr.Markdown(
+        "D'après une photo, dans le style exact des jeux de rôle portables : FLUX.2 klein dessine la personne en "
+        "sprite de face, puis **redessine tes feuilles d'exemple** (mêmes poses, même mise en page) avec ce "
+        "personnage ; tout est ramené à la grille et aux couleurs du jeu. Dépose une fois une feuille d'exemple de "
+        "lancer (5 images de dos côte à côte) et de marche (une feuille d'un seul personnage, sans marge) : elles "
+        "sont gardées pour les fois suivantes. Ensuite, « Animer un sprite » donne sa feuille d'animation au "
+        "sprite de face (comme les dresseurs animés de la DS).")
+    with gr.Row():
+        kit_photo = gr.Image(type="filepath", label="Photo de la personne", height=300)
+        with gr.Column():
+            kit_style = gr.Radio(list(dresseur.STYLES), value=next(iter(dresseur.STYLES)), label="Style")
+            kit_demande = gr.Textbox(
+                label="Qui, et ce que tu changes", lines=2,
+                placeholder="l'homme barbu à lunettes, en dresseur avec une casquette rouge et un sac à dos jaune")
+            kit_feuilles = gr.CheckboxGroup(dresseur.FEUILLES, value=dresseur.FEUILLES, label="À créer")
+            with gr.Row():
+                kit_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
+                kit_nom = gr.Textbox(label="Nom du dossier", value="dresseur")
+            btn_kit = gr.Button("🎒 Créer le kit de dresseur", variant="primary")
+    with gr.Accordion("📄 Feuilles d'exemple (gabarits) et sprite de face existant", open=False):
+        kit_gabarits = gr.Markdown(dresseur.etat_gabarits(next(iter(dresseur.STYLES))))
+        with gr.Row():
+            kit_g_lancer = gr.File(file_types=["image"], label="Feuille de lancer d'exemple (5 images de dos)")
+            kit_g_marche = gr.File(file_types=["image"], label="Feuille de marche d'exemple (un seul personnage)")
+            kit_face = gr.Image(type="filepath", image_mode="RGBA", height=200,
+                                label="Sprite de face déjà créé (pour refaire seulement les feuilles)")
     px_statut = gr.Markdown()
     px_dossier = gr.State()
     px_apercus = gr.State([])
@@ -92,6 +119,11 @@ def _personnages(*args, progress=gr.Progress()):
     return msg, apercus, fichiers, dossier, apercus, sprite
 
 
+def _kit(*args, progress=gr.Progress()):
+    msg, apercus, fichiers, dossier, sprite = dresseur.creer_kit(*args, progress=progress)
+    return msg, apercus, fichiers, dossier, apercus, sprite
+
+
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     reglages = [c.px_exemples, c.px_hauteur, c.px_couleurs, c.px_toile, c.px_agrandi, c.px_contour]
@@ -101,6 +133,10 @@ def brancher(c, demo, o):
     c.btn_px_convertir.click(_convertir, [c.px_images, *reglages, c.px_detourer, c.px_nom], sorties)
     c.btn_px_perso.click(_personnages, [c.px_photo, c.px_personnes, *reglages, c.px_graine, c.px_nom_perso],
                          [*sorties, c.px_sprite])
+    c.kit_style.change(dresseur.etat_gabarits, c.kit_style, c.kit_gabarits)
+    c.btn_kit.click(_kit, [c.kit_style, c.kit_photo, c.kit_demande, c.kit_feuilles, c.kit_g_lancer, c.kit_g_marche,
+                           c.kit_face, c.kit_graine, c.kit_nom], [*sorties, c.px_sprite]).then(
+        dresseur.etat_gabarits, c.kit_style, c.kit_gabarits)
     c.px_galerie.select(_choisir, c.px_apercus, c.px_sprite)
     c.btn_px_animer.click(pixel_art.animer, [c.px_sprite, c.px_mode, c.px_mouvement, c.px_anim_graine,
                                             c.px_anim_etapes, c.px_anim_nom, c.px_exemples],
