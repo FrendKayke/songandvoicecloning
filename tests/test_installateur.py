@@ -63,16 +63,18 @@ def _marqueurs(eng):
 def test_installation_complete_puis_relance(inst):
     assert inst.lancer() == 0, inst.sortie
     assert "Installation terminée" in inst.sortie and (inst.eng / "installation.ok").exists()
-    etapes = [int(n) for n in re.findall(r"=== \[(\d+)/18\]", inst.sortie)]
-    assert etapes == sorted(etapes) and etapes[0] == 1 and etapes[-1] == 18
+    etapes = [int(n) for n in re.findall(r"=== \[(\d+)/19\]", inst.sortie)]
+    assert etapes == sorted(etapes) and etapes[0] == 1 and etapes[-1] == 19
     # chaque environnement lit sa liste de dépendances dans installation\
     listes = {Path(a.split(" -r ")[1].split(" ")[0].replace("\\", "/")).name for a in inst.installs() if " -r " in a}
-    assert {"seed-vc.txt", "chatterbox.txt", "nettoyage.txt", "diffusion.txt", "rigging.txt", "requirements.txt"} <= listes
+    assert {"seed-vc.txt", "chatterbox.txt", "nettoyage.txt", "diffusion.txt", "rigging.txt", "entrainement.txt", "requirements.txt"} <= listes
     m = _marqueurs(inst.eng)
     assert re.fullmatch(r"[0-9a-f]{64}", m["diffusion/.env-ok"]) and re.fullmatch(r"[0-9a-f]{64}", m["diffusion/.modeles-ok"])
     assert "Hunyuan3D-2/archive/" in m["diffusion/hunyuan3d/.complet"]
     assert "UniRig/archive/" in m["rigging/UniRig/.complet"] and re.fullmatch(r"[0-9a-f]{64}", m["rigging/.env-ok"])
     assert any("rigging.py telecharger" in a for a in inst.appels)
+    assert "sd-scripts/archive/" in m["entrainement/sd-scripts/.complet"] and re.fullmatch(r"[0-9a-f]{64}", m["entrainement/.env-ok"])
+    assert any("lora_sdxl.py telecharger" in a for a in inst.appels) and any("--no-deps -e" in a and "sd-scripts" in a for a in inst.appels)
     telechargement = [a for a in inst.appels if "diffusion.py telecharger" in a][0]
     assert "telecharger qwen forme3d forme3d_vues texture3d zimage personnages photo_detourage photo_qualite video transcription fluidite parlante sprites_dresseur detourage" in telechargement
 

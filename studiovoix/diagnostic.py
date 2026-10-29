@@ -37,6 +37,7 @@ ENVIRONNEMENTS = [
     ("RVC (Applio)", lambda: cfg.RVC_PYTHON, "rvc"),
     ("Diffusion", lambda: cfg.DIFFUSION_PYTHON, "diffusion"),
     ("Rigging 3D (UniRig)", lambda: cfg.RIGGING_PYTHON, "rigging"),
+    ("Entraînement de modèles de sprites (kohya)", lambda: cfg.ENTRAINEMENT_PYTHON, "entrainement"),
 ]
 RETIRE = "retiré pour gagner de la place (Outils → Espace disque)"
 SONDE = ("import sys, torch; ok = torch.cuda.is_available(); "

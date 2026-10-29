@@ -11,7 +11,7 @@ import gradio as gr
 from .onglets import (bande_son, bibliotheque, bruitages, chanson, costumes, entrainement, espace, galerie, hd2d,
                       histoire,
                       fluidite, kit3d, illustrations, images, modeles, modeles_3d, parlante, pdf, photos,
-                      pixel_art, plans,
+                      pixel_art, plans, sprites_lora,
                       remix, serie, serie_musique,
                       sous_titres, synthese, tileset3d, videos)
 from .onglets.chanson import apercu_description, maj_mode
@@ -42,6 +42,7 @@ GROUPES = [
         ("parlante", parlante, "🗣️ Faire parler une image"),
         ("fluidite", fluidite, "⏩ Fluidifier ou ralentir une vidéo"),
         ("pixel_art", pixel_art, "👾 Pixel art et sprites"),
+        ("sprites_lora", sprites_lora, "🧪 Entraîner un modèle de sprites"),
         ("photos", photos, "📷 Retoucher une photo"),
         ("costumes", costumes, "👗 Changer les vêtements"),
     ]),

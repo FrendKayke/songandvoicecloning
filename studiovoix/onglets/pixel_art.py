@@ -70,6 +70,10 @@ def construire():
                 btn_kit_couleurs = gr.Button("🎨 Lire les couleurs sur la photo", scale=1)
             kit_feuilles = gr.CheckboxGroup(dresseur.FEUILLES, value=dresseur.FEUILLES, label="À créer")
             kit_mode_face = gr.Radio(dresseur.MODES_FACE, value=dresseur.LORA, label="Sprite de face")
+            _loras = [dresseur.MARCHE_EXEMPLE] + list(dresseur.modele_sprites.loras())
+            kit_lora_marche = gr.Dropdown(_loras, value=_loras[-1] if len(_loras) > 1 else dresseur.MARCHE_EXEMPLE,
+                                          label="Feuille de marche : modèle entraîné (onglet « Entraîner un modèle "
+                                                "de sprites ») ou recoloriage d'un exemple")
             with gr.Row():
                 kit_variantes = gr.Slider(1, dresseur.VARIANTES_MAX, value=2, step=1,
                                           label="Variantes du sprite de face (modèle de sprites)")
@@ -165,7 +169,8 @@ def brancher(c, demo, o):
                           [c.kit_ajout_msg, *listes])
     c.btn_kit_couleurs.click(dresseur.lire_couleurs, [c.kit_photo, c.kit_demande], c.kit_couleurs)
     c.btn_kit.click(_kit, [c.kit_style, c.kit_photo, c.kit_demande, c.kit_couleurs, c.kit_feuilles, c.kit_mode_face,
-                           *listes, c.kit_graine, c.kit_nom, c.kit_variantes], [*sorties, c.px_sprite, c.kit_couleurs])
+                           *listes, c.kit_graine, c.kit_nom, c.kit_variantes, c.kit_lora_marche],
+                    [*sorties, c.px_sprite, c.kit_couleurs])
     c.px_galerie.select(_choisir, c.px_apercus, c.px_sprite)
     c.btn_px_animer.click(pixel_art.animer, [c.px_sprite, c.px_mode, c.px_mouvement, c.px_anim_graine,
                                             c.px_anim_etapes, c.px_anim_nom, c.px_exemples],

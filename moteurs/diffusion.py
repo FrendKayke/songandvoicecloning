@@ -488,6 +488,19 @@ CONSIGNES = {
                  "shoes: ...; accessories: ...', with precise color names (for example 'dark chestnut brown', 'pale "
                  "peach', 'light sky blue'). For a dress, give its color for both top and bottom. No name of any game "
                  "or existing work. Answer with that line only:\n\n"),
+    # entraînement d'un modèle de feuilles de sprites : légende de chaque feuille de marche
+    "feuille": ("The attached image is a pixel art walking sprite sheet of one video game character (the same "
+                "character seen from several sides, in a grid). Describe that character in one short English phrase "
+                "for a training caption: gender or age (man, woman, boy, girl, old man…), hair color and style, hat or "
+                "headwear, outfit and its colors, any held object. No name of any game or character. Answer with the "
+                "phrase only, for example: a young man with brown hair, red cap, blue jacket and backpack."),
+    # kit de dresseur avec un modèle de feuilles entraîné : description courte de la personne, dans la forme des
+    # légendes d'entraînement (« a man with brown hair, red cap, blue jacket »)
+    "legende": ("The attached photo shows one or several people. Find the person designated in the request below and "
+                "apply every change it asks. Describe them in one short English phrase for a pixel art sprite "
+                "caption: gender or age (man, woman, boy, girl, old man…), hair color and style, hat or headwear, "
+                "outfit and its colors, any held object. No name of any game or existing work. Answer with the phrase "
+                "only:\n\n"),
     # onglet « Tileset en objets 3D » : ce que représente un morceau de tileset vu de dessus (une tuile « trou avec
     # échelle » redessinée telle quelle par FLUX.2 klein devenait un pavé plat chez l'utilisateur)
     "tuile3d": ("The attached image is one piece of a pixel art tileset from a top-down 2D video game: an object, a "

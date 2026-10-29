@@ -200,10 +200,10 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets", "costume", "tenue", "couleurs"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets", "costume", "tenue", "couleurs", "feuille", "legende"}
     assert "sprite_dresseur" in moteur.ACTIONS
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
-    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets", "tenue", "couleurs"}
+    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets", "tenue", "couleurs", "legende"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 

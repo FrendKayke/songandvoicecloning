@@ -39,6 +39,12 @@ $KijaiCommit = '2609efa38f6a98292476f714839b7c1e5f9b699a'
 $KijaiRaw = "https://raw.githubusercontent.com/kijai/ComfyUI-Hunyuan3DWrapper/$KijaiCommit"
 # Rigging 3D : UniRig (VAST-AI-Research, MIT) épinglé ; moteurs\rigging.py reprend les commandes de ses scripts
 # launch\inference\*.sh à ce commit
+# Entraînement de LoRA SDXL (feuilles de sprites) : kohya sd-scripts (Apache 2.0) épinglé ; moteurs\lora_sdxl.py
+# lance son sdxl_train_network.py avec les options lues à ce commit
+$KohyaCommit = 'cb70b96858477e716a2096292ab8aab433277f38'
+$Ent = Join-Path $Eng 'entrainement'
+$EntPy = Join-Path $Ent '.venv\Scripts\python.exe'
+$EntSrc = Join-Path $Ent 'sd-scripts'
 $Rig = Join-Path $Eng 'rigging'
 $RigPy = Join-Path $Rig '.venv\Scripts\python.exe'
 $RigSrc = Join-Path $Rig 'UniRig'
@@ -58,7 +64,7 @@ $env:U2NET_HOME = Join-Path $Dif 'u2net'    # sinon rembg (détourage) écrit da
 $env:PYTHONIOENCODING = 'utf-8'
 $env:PATH = "$UvDir;$env:PATH"
 
-function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/18] $txt ===" -ForegroundColor Cyan }
+function Step($n, $txt) { Write-Host ''; Write-Host "=== [$n/19] $txt ===" -ForegroundColor Cyan }
 # Marqueurs d'étape : le fichier contient la « signature » de l'étape (empreinte de sa liste de dépendances, des
 # versions épinglées, des modèles demandés). Si une mise à jour change la signature, l'étape est refaite.
 # Un marqueur vide (installation d'avant les signatures) est adopté tel quel.
@@ -229,6 +235,10 @@ try {
     if (-not (Test-Retire 'rigging')) {
         New-Item -ItemType Directory -Force -Path $Rig | Out-Null
         Get-Repo "https://github.com/VAST-AI-Research/UniRig/archive/$UrCommit.zip" $RigSrc
+    }
+    if (-not (Test-Retire 'entrainement')) {
+        New-Item -ItemType Directory -Force -Path $Ent | Out-Null
+        Get-Repo "https://github.com/kohya-ss/sd-scripts/archive/$KohyaCommit.zip" $EntSrc
     }
 
     # --- 3. Environnement ACE-Step (PyTorch CUDA 12.8, via sa propre config) ---
@@ -498,6 +508,29 @@ try {
         Run $Uv @('venv', '--python', '3.12', $venv)
         Run $Uv @('pip', 'install', '--python', $AppPy, '-r', (Join-Path $App 'requirements.txt'))
         Done $m $sig
+    } else { Write-Host 'Déjà fait.' }
+
+    # --- 19. Entraînement de modèles de sprites (kohya sd-scripts : LoRA SDXL ; Python 3.10, PyTorch 2.6 CUDA 12.4) ---
+    Step 19 'Entraînement de modèles de sprites : kohya sd-scripts (Python 3.10)'
+    $m = Join-Path $Ent '.env-ok'
+    $sig = Get-Signature @('torch==2.6.0 torchvision==0.21.0 cu124', $KohyaCommit, (Join-Path $Listes 'entrainement.txt'))
+    if (Test-Retire 'entrainement') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
+        $venv = Join-Path $Ent '.venv'
+        Remove-Venv $venv
+        Run $Uv @('venv', '--python', '3.10', $venv)
+        Run $Uv @('pip', 'install', '--python', $EntPy, 'torch==2.6.0', 'torchvision==0.21.0',
+            '--index-url', 'https://download.pytorch.org/whl/cu124')
+        # versions de requirements.txt de sd-scripts (installation\entrainement.txt), puis son code sans dépendances
+        Run $Uv @('pip', 'install', '--python', $EntPy, '-r', (Join-Path $Listes 'entrainement.txt'))
+        Run $Uv @('pip', 'install', '--python', $EntPy, '--no-deps', '-e', $EntSrc)
+        Run $EntPy @((Join-Path $App 'moteurs\lora_sdxl.py'), 'verifier') $EntSrc
+        Done $m $sig
+    } else { Write-Host 'Déjà fait.' }
+    $m = Join-Path $Ent '.modeles-ok'
+    if (Test-Retire 'entrainement') { Write-Retire } elseif (-not (Test-Path $m)) {
+        # tokeniseurs CLIP de SDXL (quelques Mo), mis en cache pour entraîner hors ligne
+        Run $EntPy @((Join-Path $App 'moteurs\lora_sdxl.py'), 'telecharger') $EntSrc
+        Done $m
     } else { Write-Host 'Déjà fait.' }
 
     Done (Join-Path $Eng 'installation.ok')

@@ -29,6 +29,7 @@ from PIL import Image
 
 from . import config as cfg
 from . import diffusion
+from . import modele_sprites
 from . import pixel_art as px
 from .outils import nouveau_dossier
 from .serie import _slug
@@ -63,6 +64,7 @@ CLES_FEUILLES = {FACE: "face", LANCER: "lancer", MARCHE: "marche"}
 LIBELLES_FEUILLES = {v: k for k, v in CLES_FEUILLES.items()}
 LORA = "Dessiner avec le modèle de sprites de dresseurs (SDXL + LoRA, style du jeu)"
 RECOLORER = "Recolorer le sprite d'exemple (style exact, forme de l'exemple)"
+MARCHE_EXEMPLE = "— recolorer un sprite d'exemple —"
 DESSINER = "Dessiner avec FLUX.2 klein d'après la photo (style approché)"
 MODES_FACE = [LORA, RECOLORER, DESSINER]
 VARIANTES_MAX = 6
@@ -405,6 +407,14 @@ def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, prog
     return sprites, prompt
 
 
+def _description_marche(photo, demande, couleurs, progress):
+    """Description courte du personnage pour le modèle de feuilles (même forme que ses légendes d'entraînement)."""
+    texte = (demande or "").strip() or "the person in the photo"
+    if diffusion.present("qwen") and photo:
+        return diffusion.decrire("legende", texte, image=photo, progress=progress).strip()
+    return f"{texte} ({couleurs})" if couleurs else texte
+
+
 def _ecrire_feuille(a, nom, dossier, agrandissement):
     im = Image.fromarray(a, "RGBA")
     im.save(dossier / f"{nom}.png")
@@ -416,9 +426,17 @@ def _durees_lancer(n):
     return [250] + [100] * (n - 2) + [500] if n > 1 else [500]
 
 
+def liste_loras_marche():
+    """Choix de la feuille de marche : recoloriage d'un exemple, ou un modèle entraîné (onglet « Entraîner un modèle
+    de sprites »)."""
+    choix = [MARCHE_EXEMPLE] + list(modele_sprites.loras())
+    return gr.update(choices=choix, value=choix[-1] if len(choix) > 1 else MARCHE_EXEMPLE)
+
+
 def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_lancer, g_marche, graine,
-              nom="dresseur", variantes=2, progress=gr.Progress()):
-    """Kit de dresseur. Renvoie (message, aperçus, fichiers, dossier, sprite de face, couleurs utilisées)."""
+              nom="dresseur", variantes=2, lora_marche=None, progress=gr.Progress()):
+    """Kit de dresseur. lora_marche : nom d'un modèle entraîné pour la feuille de marche (sinon recoloriage d'un
+    exemple). Renvoie (message, aperçus, fichiers, dossier, sprite de face, couleurs utilisées)."""
     if style not in STYLES:
         raise gr.Error("Choisis un style.")
     feuilles = [CLES_FEUILLES[f] for f in (feuilles or []) if f in CLES_FEUILLES]
@@ -433,16 +451,22 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
         raise gr.Error("Ajoute la photo de la personne, ou décris-la (« une femme aux cheveux bouclés, en veste "
                        "rouge »).")
     choix = {"face": g_face, "lancer": g_lancer, "marche": g_marche}
+    lora_marche = lora_marche if lora_marche and lora_marche != MARCHE_EXEMPLE and "marche" in feuilles else None
+    if lora_marche and lora_marche not in modele_sprites.loras():
+        raise gr.Error(f"Modèle de feuilles « {lora_marche} » introuvable : entraîne-le dans « Entraîner un modèle de "
+                       "sprites », ou choisis le recoloriage d'un exemple.")
     gabarits = {}
     for f in feuilles:
         if f == "face" and (dessiner or lora):
+            continue
+        if f == "marche" and lora_marche:
             continue
         chemin = chemin_gabarit(style, f, choix[f])
         if not chemin:
             raise gr.Error(f"Pas de sprite d'exemple pour « {LIBELLES_FEUILLES[f]} » : ajoute-en dans « Sprites "
                            "d'exemple » (des sprites du jeu dont tu veux le style).")
         gabarits[f] = lire_gabarit(chemin, style, f)  # exemple d'un autre style : mis à la taille de celui-ci
-    if lora:
+    if lora or lora_marche:
         diffusion.verifier("sprites_dresseur")
     if gabarits or dessiner:
         diffusion.verifier("personnages")
@@ -505,6 +529,17 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
             infos["feuilles"][f] = {"mode": "recoloriage", "exemple": choix[f], "prompt": prompt,
                                     "couleurs": {"#%02x%02x%02x" % a_: "#%02x%02x%02x" % b_
                                                  for a_, b_ in nouvelles.items()}}
+    if lora_marche:
+        progress(0.7, desc=f"Feuille de marche (SDXL + modèle « {lora_marche} »)…")
+        description = _description_marche(copie, demande, couleurs, progress)
+        palette = None
+        if "face" in resultats:
+            fa = resultats["face"]
+            palette = np.unique(fa[..., :3][fa[..., 3] >= 128].reshape(-1, 3), axis=0)
+        resultats["marche"], prompt = modele_sprites.generer_feuille(
+            lora_marche, description, dossier / "marche.png", graine, st["marche"]["grille"],
+            st["marche"]["cellule"], palette, st["couleurs"], progress=progress)
+        infos["feuilles"]["marche"] = {"mode": "lora", "modele": lora_marche, "prompt": prompt}
     fichiers, apercus = [], []
     for f in ("face", "lancer", "marche"):
         if f not in resultats:

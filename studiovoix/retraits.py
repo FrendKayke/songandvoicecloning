@@ -1,7 +1,7 @@
 """Moteurs et modèles retirés pour gagner de la place (Outils → Espace disque).
 
 La liste est dans <StudioVoix>/moteurs-retires.txt, une clé par ligne : l'installateur la lit et saute ces étapes
-(sinon il réinstallerait aussitôt ce qui vient d'être supprimé). Clés : chatterbox, nettoyage, rvc, rigging, diffusion et
+(sinon il réinstallerait aussitôt ce qui vient d'être supprimé). Clés : chatterbox, nettoyage, rvc, rigging, entrainement, diffusion et
 diffusion:<modèle> (qwen, bruitages, zimage, personnages, video, photo_detourage,
 photo_qualite, forme3d, forme3d_vues, texture3d, transcription, fluidite, parlante).
 """

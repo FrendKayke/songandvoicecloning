@@ -30,6 +30,9 @@ DIFFUSION_PYTHON = os.environ.get("DIFFUSION_PYTHON", venv_python(DIFFUSION_DIR)
 RIGGING_DIR = Path(os.environ.get("RIGGING_DIR", str(ENG_DIR / "rigging")))  # UniRig (rigging 3D), Python 3.11
 RIGGING_PYTHON = os.environ.get("RIGGING_PYTHON", venv_python(RIGGING_DIR))
 UNIRIG_DIR = RIGGING_DIR / "UniRig"  # code d'UniRig au commit épinglé (dossier de travail du moteur)
+ENTRAINEMENT_DIR = Path(os.environ.get("ENTRAINEMENT_DIR", str(ENG_DIR / "entrainement")))  # kohya sd-scripts (LoRA), Python 3.10
+ENTRAINEMENT_PYTHON = os.environ.get("ENTRAINEMENT_PYTHON", venv_python(ENTRAINEMENT_DIR))
+SDSCRIPTS_DIR = ENTRAINEMENT_DIR / "sd-scripts"  # code de kohya au commit épinglé (dossier de travail du moteur)
 # Scripts exécutés dans l'environnement d'un moteur (jamais importés par l'application)
 MOTEURS_DIR = APP_DIR / "moteurs"
 
@@ -53,6 +56,7 @@ FLUIDE_DIR = DATA_DIR / "videos_fluides"  # vidéos importées rendues plus flui
 TRANSCRIPTIONS_DIR = DATA_DIR / "transcriptions"  # transcriptions et sous-titres : <horodatage>_<nom>/
 PIXEL_DIR = DATA_DIR / "pixel_art"  # pixel art, sprites de personnages et animations : <horodatage>_<nom>/
 HD2D_DIR = DATA_DIR / "hd2d"  # éléments passés en HD-2D (normales, relief, objets 3D) : <horodatage>_<nom>/
+LORAS_DIR = DATA_DIR / "loras"  # modèles entraînés (LoRA SDXL de feuilles de sprites) : loras/<nom>/<nom>.safetensors
 COSTUMES_DIR = DATA_DIR / "costumes"  # photos dont les vêtements ont été changés : <horodatage>_<nom>/
 for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR, GAMES_DIR, SFX_DIR, MODELS3D_DIR, CARDS_DIR, PHOTOS_DIR, VIDEOS_DIR,
           IMAGES_DIR):

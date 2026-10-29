@@ -1,0 +1,28 @@
+# Environnement d'entraînement (kohya sd-scripts, Python 3.10 : version testée par kohya ; LoRA SDXL de feuilles de
+# sprites). PyTorch 2.6.0 CUDA 12.4 est installé avant (index cu124, même cache uv que Chatterbox) ; les versions
+# suivent requirements.txt de sd-scripts au commit épinglé dans installer.ps1 (transformers 5 et diffusers 0.40 : cet
+# environnement ne sert qu'à SDXL, pas aux moteurs de l'application). Le code de sd-scripts (« -e . » de sa liste)
+# est installé à part, sans dépendances.
+torch==2.6.0
+torchvision==0.21.0
+accelerate==1.15.0
+transformers==5.17.0
+diffusers[torch]==0.40.0
+ftfy==6.3.1
+opencv-python-headless==4.10.0.84
+einops==0.7.0
+bitsandbytes>=0.45
+lion-pytorch==0.2.3
+schedulefree==1.4.1
+pytorch-optimizer==3.10.0
+prodigy-plus-schedule-free==1.9.2
+prodigyopt==1.1.2
+tensorboard
+safetensors==0.8.0
+toml==0.10.2
+voluptuous==0.15.2
+huggingface-hub==1.32.0
+imagesize==1.4.1
+numpy
+rich==14.1.0
+sentencepiece==0.2.1
