@@ -30,6 +30,11 @@ MODELES = {
     # (« abliteration », partie texte seulement), Apache 2.0 comme l'original, mêmes fichiers et même taille
     "qwen_libre": ("huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated", "Qwen3-VL-4B sans refus (assistant de prompts)",
                    ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]),
+    # Kit de dresseur : SDXL (openrail++, 7 Go) + LoRA de sprites de dresseurs (sWizad, 0,45 Go)
+    "sprites_dresseur": ("stabilityai/stable-diffusion-xl-base-1.0", "SDXL + LoRA de sprites de dresseurs (kit de dresseur)",
+                         ["unet/diffusion_pytorch_model.fp16.safetensors", "text_encoder_2/model.fp16.safetensors",
+                          "vae/diffusion_pytorch_model.fp16.safetensors",
+                          ("sWizad/pokemon-trainer-sprite-pixelart", "pk_trainer_xl_v1.safetensors")]),
     "bruitages": ("stabilityai/stable-audio-open-1.0", "Stable Audio Open 1.0 (bruitages)",
                   ["transformer/diffusion_pytorch_model.safetensors", "vae/diffusion_pytorch_model.safetensors",
                    "text_encoder/model.safetensors"]),
@@ -285,6 +290,20 @@ def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024
                                  "hauteur": int(hauteur), "etapes": int(etapes)},
                   Path(sorties[0]).parent, "FLUX.2 klein", progress,
                   {1: "chargement de FLUX.2 klein", 2: f"génération de {len(sorties)} image(s) du personnage"})
+
+
+def sprite_dresseur(prompts, sorties, graines_, largeur=1024, hauteur=1024, etapes=30, guidage=7.0, negatif=None,
+                    lora_echelle=1.0, progress=None):
+    """SDXL + LoRA de sprites de dresseurs : un sprite (image 1024², fond uni) par chemin de `sorties`.
+    RESULTAT {fichiers, graines}."""
+    _verifier("sprites_dresseur")
+    sorties = [str(s) for s in sorties]
+    return lancer("sprite_dresseur", {**_prompts(prompts, sorties), "sorties": sorties,
+                                      "graines": [int(g) for g in graines_], "largeur": int(largeur),
+                                      "hauteur": int(hauteur), "etapes": int(etapes), "guidage": float(guidage),
+                                      "negatif": negatif or None, "lora_echelle": float(lora_echelle)},
+                  Path(sorties[0]).parent, "Sprites de dresseur", progress,
+                  {1: "chargement de SDXL et du LoRA de sprites", 2: f"génération de {len(sorties)} sprite(s)"})
 
 
 def video(prompt, sortie, image=None, largeur=1280, hauteur=704, images=121, etapes=30, graine=0, negatif=None,

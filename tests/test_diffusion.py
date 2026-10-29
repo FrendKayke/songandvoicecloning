@@ -46,8 +46,9 @@ FAUX_MOTEUR = textwrap.dedent("""
             fichiers.append(str(f))
         graines = [t["graine"] or 111] + [222, 333][: t["variantes"] - 1]
         print("RESULTAT " + json.dumps({"fichiers": fichiers, "graines": graines, "frequence": 44100}), flush=True)
-    elif action in ("image", "personnage"):
+    elif action in ("image", "personnage", "sprite_dresseur"):
         if action == "personnage": assert all(Path(r).exists() for r in t["references"])
+        if action == "sprite_dresseur": assert "negatif" in t and "guidage" in t and "lora_echelle" in t
         if "ECHEC" in json.dumps(t.get("prompts") or t["prompt"]):
             print("ERREUR : carte graphique saturée", flush=True); sys.exit(2)
         print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
@@ -200,6 +201,7 @@ def _journal():
 
 def test_consignes_du_vrai_moteur():
     assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets", "costume", "tenue", "couleurs"}
+    assert "sprite_dresseur" in moteur.ACTIONS
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
     assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets", "tenue", "couleurs"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur

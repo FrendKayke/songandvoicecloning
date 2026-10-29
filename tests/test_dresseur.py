@@ -58,6 +58,18 @@ def faux_klein(env, monkeypatch, tmp_path):
         for s in sorties:
             im.save(s)
 
+    def sprite_dresseur(prompts, sorties, graines, largeur=1024, hauteur=1024, etapes=30, guidage=7.0, negatif=None,
+                        lora_echelle=1.0, progress=None):
+        appels.append({"prompt": prompts, "sorties": [str(s) for s in sorties], "graines": list(graines)})
+        for s, g in zip(sorties, graines):
+            im = Image.new("RGB", (largeur, hauteur), (255, 255, 255))
+            d = ImageDraw.Draw(im)
+            d.rectangle((380, 420, 640, 960), fill=(200, 40, 40))
+            d.ellipse((400, 200, 620, 440), fill=(240, 200, 160))
+            d.rectangle((400, 180, 620, 280), fill=(120 + g, 70, 30))
+            im.save(s)
+
+    monkeypatch.setattr(diffusion, "sprite_dresseur", sprite_dresseur)
     monkeypatch.setattr(diffusion, "personnage", personnage)
     monkeypatch.setattr(diffusion, "verifier", lambda *n: None)
     monkeypatch.setattr(diffusion, "present", lambda nom: False)
@@ -105,6 +117,36 @@ def test_kit_recolore_les_exemples(faux_klein):
         assert gif.n_frames == 5
     infos = json.loads((d / "kit.json").read_text(encoding="utf-8"))
     assert infos["feuilles"]["marche"]["exemple"] == "trchar113" and couleurs == "hair: blond; top: blue"
+
+
+def test_face_par_le_modele_de_sprites(faux_klein, monkeypatch):
+    appels, photo, tmp = faux_klein
+    _bibliotheque(tmp)
+    with pytest.raises(gr.Error, match="décris"):
+        dresseur.creer_kit(GBA, None, "", "", [dresseur.FACE], dresseur.LORA, None, None, None, 1, progress=no_progress)
+    monkeypatch.setattr(diffusion, "present", lambda nom: nom == "qwen")
+    monkeypatch.setattr(diffusion, "decrire", lambda mode, texte, image=None, progress=None:
+                        "a woman with long curly brown hair wearing a red jacket." if mode == "sprite" else "x")
+    msg, apercus, fichiers, dossier, face, couleurs = dresseur.creer_kit(
+        GBA, str(photo), "la femme", "", dresseur.FEUILLES, dresseur.LORA, None, "trback002", "trchar113", 5,
+        variantes=3, progress=no_progress)
+    d = Path(dossier)
+    assert appels[0]["prompt"] == ("a pixel image of a woman with long curly brown hair wearing a red jacket, gen3, "
+                                   "full body, standing, simple background")
+    assert appels[0]["graines"] == [5, 6, 7] and len(appels[0]["sorties"]) == 3
+    assert Image.open(face).size == (64, 64) and (d / "face_2.png").exists() and (d / "face_3_x2.png").exists()
+    assert couleurs == "x" and "face_2_x2.png" in {Path(p).name for p in apercus}  # lues pour le recoloriage
+    # les feuilles sont recolorées d'après ce sprite (image 2 du recoloriage), couleurs lues sur le sprite
+    assert len(appels) == 2 and len(appels[1]["references"]) == 2
+    infos = json.loads((d / "kit.json").read_text(encoding="utf-8"))
+    assert infos["feuilles"]["face"] == {"mode": "lora", "prompt": appels[0]["prompt"], "variantes": 3}
+    import zipfile
+    noms = zipfile.ZipFile(d / f"{d.name}.zip").namelist()
+    assert "face_2.png" in noms and not any(n.endswith("_source.png") for n in noms)
+    # style DS : étiquette gen5, pas de photo mais une description
+    _, _, _, dossier, face, _ = dresseur.creer_kit(DS, None, "un homme barbu à lunettes", "", [dresseur.FACE],
+                                                   dresseur.LORA, None, None, None, 2, variantes=1, progress=no_progress)
+    assert "gen5" in appels[-1]["prompt"] and Image.open(face).size == (80, 80)
 
 
 def test_face_dessinee_et_couleurs_lues(faux_klein, monkeypatch):

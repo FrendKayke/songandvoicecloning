@@ -61,9 +61,15 @@ MARCHE = "Feuille de marche"
 FEUILLES = [FACE, LANCER, MARCHE]
 CLES_FEUILLES = {FACE: "face", LANCER: "lancer", MARCHE: "marche"}
 LIBELLES_FEUILLES = {v: k for k, v in CLES_FEUILLES.items()}
-RECOLORER = "Recolorer le sprite d'exemple (style exact)"
-DESSINER = "Dessiner d'après la photo (forme de la personne, style approché)"
-MODES_FACE = [RECOLORER, DESSINER]
+LORA = "Dessiner avec le modèle de sprites de dresseurs (SDXL + LoRA, style du jeu)"
+RECOLORER = "Recolorer le sprite d'exemple (style exact, forme de l'exemple)"
+DESSINER = "Dessiner avec FLUX.2 klein d'après la photo (style approché)"
+MODES_FACE = [LORA, RECOLORER, DESSINER]
+VARIANTES_MAX = 6
+# Forme des légendes d'entraînement du LoRA (« a pixel image of a man with a pokeball », étiquette de génération :
+# gen3 = Rouge Feu / Vert Feuille et Émeraude, 164 images ; gen5 = Noir et Blanc, 6 images seulement)
+PROMPT_LORA = "a pixel image of {description}, {gen}, full body, standing, simple background"
+GEN = {"gba": "gen3", "ds": "gen5"}
 
 POSE_FACE = ("Full body trainer battle sprite: the whole body from head to feet, slightly stylized proportions with a "
              "large head, three-quarter view, confident dynamic pose holding a small red and white ball, flat colors "
@@ -369,6 +375,36 @@ def _face_dessinee(style, photo, demande, couleurs, graine, dossier, progress):
     return np.array(sprite), prompt
 
 
+def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, progress):
+    """Sprites de face par SDXL + LoRA de sprites de dresseurs : `variantes` images 1024², fond uni retiré (BiRefNet
+    si présent, sinon par pixeliser), puis la grille et la palette du style. Renvoie (liste de tableaux, prompt)."""
+    st = STYLES[style]
+    if diffusion.present("qwen") and photo:  # Qwen décrit déjà les couleurs
+        description = diffusion.decrire("sprite", (demande or "").strip() or "the person in the photo", image=photo,
+                                        progress=progress).strip()
+    else:
+        description = (demande or "").strip() or "a trainer"
+        if couleurs:
+            description += f" ({couleurs})"
+    description = description.rstrip(".")
+    prompt = PROMPT_LORA.format(description=description, gen=GEN[st["cle"]])
+    sources = [dossier / f"face_{i}_source.png" for i in range(1, variantes + 1)]
+    diffusion.sprite_dresseur(prompt, sources, [graine + i for i in range(variantes)], progress=progress)
+    images = list(sources)
+    if diffusion.present("photo_detourage"):
+        detoures = [s.with_name(s.name.replace("_source", "_detoure")) for s in sources]
+        try:
+            diffusion.detourer_lot(sources, detoures, progress=progress)
+            images = [d if d.exists() else s for d, s in zip(detoures, sources)]
+        except gr.Error:
+            pass
+    sprites = []
+    for im in images:
+        sprite, _ = px.pixeliser(Image.open(im), st["hauteur"], st["couleurs"], st["toile"], px.CONTOUR_DEFAUT)
+        sprites.append(np.array(sprite))
+    return sprites, prompt
+
+
 def _ecrire_feuille(a, nom, dossier, agrandissement):
     im = Image.fromarray(a, "RGBA")
     im.save(dossier / f"{nom}.png")
@@ -381,7 +417,7 @@ def _durees_lancer(n):
 
 
 def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_lancer, g_marche, graine,
-              nom="dresseur", progress=gr.Progress()):
+              nom="dresseur", variantes=2, progress=gr.Progress()):
     """Kit de dresseur. Renvoie (message, aperçus, fichiers, dossier, sprite de face, couleurs utilisées)."""
     if style not in STYLES:
         raise gr.Error("Choisis un style.")
@@ -390,19 +426,26 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
         raise gr.Error("Coche au moins un élément à créer (sprite de face, lancer, marche).")
     photo = getattr(photo, "name", photo)
     dessiner = "face" in feuilles and mode_face == DESSINER
+    lora = "face" in feuilles and mode_face == LORA
     if dessiner and not photo:
         raise gr.Error("Pour dessiner le sprite de face d'après la photo, ajoute la photo.")
+    if lora and not photo and not (demande or "").strip():
+        raise gr.Error("Ajoute la photo de la personne, ou décris-la (« une femme aux cheveux bouclés, en veste "
+                       "rouge »).")
     choix = {"face": g_face, "lancer": g_lancer, "marche": g_marche}
     gabarits = {}
     for f in feuilles:
-        if f == "face" and dessiner:
+        if f == "face" and (dessiner or lora):
             continue
         chemin = chemin_gabarit(style, f, choix[f])
         if not chemin:
             raise gr.Error(f"Pas de sprite d'exemple pour « {LIBELLES_FEUILLES[f]} » : ajoute-en dans « Sprites "
                            "d'exemple » (des sprites du jeu dont tu veux le style).")
         gabarits[f] = lire_gabarit(chemin, style, f)  # exemple d'un autre style : mis à la taille de celui-ci
-    diffusion.verifier("personnages")
+    if lora:
+        diffusion.verifier("sprites_dresseur")
+    if gabarits or dessiner:
+        diffusion.verifier("personnages")
     dossier = nouveau_dossier(cfg.PIXEL_DIR, _slug(nom, "dresseur"))
     graine = int(graine or 0) or diffusion.graines(1)[0]
     debut = time.monotonic()
@@ -413,7 +456,7 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
         copie = dossier / f"photo{Path(photo).suffix.lower() or '.png'}"
         shutil.copy(photo, copie)
     couleurs = (couleurs or "").strip()
-    if not couleurs:
+    if not couleurs and (gabarits or dessiner):  # le LoRA se contente de la description
         if copie and diffusion.present("qwen"):
             progress(0.02, desc="Couleurs de la personne (Qwen3-VL)…")
             couleurs = lire_couleurs(copie, demande, progress=progress)
@@ -423,6 +466,14 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
     infos = {"style": style, "demande": demande, "couleurs": couleurs, "graine": graine, "feuilles": {}}
     resultats = {}
     references = []
+    variantes_face = []
+    if lora:
+        progress(0.1, desc="Sprites de face (SDXL + LoRA de sprites de dresseurs)…")
+        variantes_face, prompt = _face_lora(style, copie, demande, couleurs, graine,
+                                            max(1, min(VARIANTES_MAX, int(variantes or 1))), dossier, progress)
+        resultats["face"] = variantes_face[0]
+        infos["feuilles"]["face"] = {"mode": "lora", "prompt": prompt, "variantes": len(variantes_face)}
+        references.append(resultats["face"])
     if dessiner:
         progress(0.1, desc="Sprite de face d'après la photo (FLUX.2 klein)…")
         resultats["face"], prompt = _face_dessinee(style, copie, demande, couleurs, graine, dossier, progress)
@@ -461,6 +512,9 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
         a = resultats[f]
         fichiers += _ecrire_feuille(a, f, dossier, k_aff)
         apercus.append(str(dossier / f"{f}_x{k_aff}.png"))
+        for i, v in enumerate(variantes_face[1:], 2):  # autres variantes du sprite de face (cliquer pour animer)
+            fichiers += _ecrire_feuille(v, f"face_{i}", dossier, k_aff)
+            apercus.append(str(dossier / f"face_{i}_x{k_aff}.png"))
         if f == "lancer":
             c = a.shape[0]
             cases = [Image.fromarray(np.ascontiguousarray(x), "RGBA") for x in _cases(a, (a.shape[1] // c, 1), (c, c))]
@@ -480,7 +534,8 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
     with zipfile.ZipFile(archive, "w") as z:
         for f in sorted(dossier.rglob("*")):
             if f.is_file() and f != archive and f.suffix in (".png", ".gif", ".json") and not f.name.startswith(
-                    ("photo", "face_source", "face_detoure", "exemples_assembles", "recoloriage", "reference_")):
+                    ("photo", "face_source", "face_detoure", "exemples_assembles", "recoloriage", "reference_")
+                    ) and not f.name.endswith(("_source.png", "_detoure.png")):
                 z.write(f, f.relative_to(dossier))
     fichiers.append(archive)
     visage = dossier / "face.png"

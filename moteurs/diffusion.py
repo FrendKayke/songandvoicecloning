@@ -37,6 +37,14 @@ QWEN = "Qwen/Qwen3-VL-4B-Instruct"  # 8,9 Go en bf16 : seul sur la carte, prompt
 QWEN_LIBRE = "huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated"
 QWEN_COTE_MAX = 1024  # côté maximal des images données à Qwen (jetons visuels, mémoire graphique)
 STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
+# Sprites de dresseurs (kit de dresseur) : SDXL (openrail++) + LoRA entraîné sur des sprites de dresseurs de jeux de rôle
+# portables (sWizad, licence Civitai : images utilisables librement ; rang 64, 768 px, 2 940 images, étiquettes
+# « gen1 »…« gen7 » par génération : gen3 = 164 images, gen5 = 6). Aucun modèle installé ne connaissait ce style
+# (klein / Z-Image : illustration pixelisée, constaté chez l'utilisateur le 29/10).
+SDXL = "stabilityai/stable-diffusion-xl-base-1.0"
+LORA_DRESSEUR = ("sWizad/pokemon-trainer-sprite-pixelart", "pk_trainer_xl_v1.safetensors")
+NEGATIF_SPRITE_SDXL = ("photo, realistic, 3d render, blurry, smooth shading, gradient, anti-aliasing, text, watermark, "
+                       "signature, frame, multiple characters, cropped, deformed hands")
 WHISPER = "openai/whisper-large-v3-turbo"  # MIT, 1,6 Go : transcription et sous-titres (99 langues)
 # Z-Image-Turbo (Alibaba Tongyi-MAI, Apache 2.0) : encodeur de texte (Qwen3-4B), VAE et réglages depuis le dépôt
 # officiel ; le transformeur (6 milliards de paramètres, 24,6 Go en fp32 dans le dépôt officiel) depuis sa version
@@ -125,6 +133,11 @@ def _poids(*sous_dossiers):
 MODELES = {
     "qwen": [(QWEN, None)],
     "qwen_libre": [(QWEN_LIBRE, None)],
+    "sprites_dresseur": [(SDXL, ["model_index.json", "scheduler/*", "tokenizer/*", "tokenizer_2/*", "*/config.json",
+                                 "text_encoder/model.fp16.safetensors", "text_encoder_2/model.fp16.safetensors",
+                                 "unet/diffusion_pytorch_model.fp16.safetensors",
+                                 "vae/diffusion_pytorch_model.fp16.safetensors"]),
+                         (LORA_DRESSEUR[0], [LORA_DRESSEUR[1]])],
     "bruitages": [(STABLE_AUDIO, None)],
     "zimage": [(ZIMAGE, ["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*", "vae/*",
                          "transformer/config.json"]),
@@ -850,6 +863,51 @@ def _generer(pipe, t, options, etapes, plongements):
         Path(sortie).parent.mkdir(parents=True, exist_ok=True)
         im.save(sortie)
         print(f"Image {i}/{len(sorties)} : {sortie} (graine {graine})", flush=True)
+    _resultat({"fichiers": sorties, "graines": graines})
+    print(f"TERMINE {sorties[0]}", flush=True)
+
+
+# --- SDXL + LoRA de sprites de dresseurs (kit de dresseur) ---------------------------------------------------
+def sprite_dresseur(chemin_tache):
+    """Tâche : {prompt | prompts, negatif?, sorties, graines, largeur, hauteur, etapes, guidage, lora_echelle}.
+    StableDiffusionXLPipeline (fp16, ~7 Go : tout sur la carte) + LoRA au format Kohya (lora_te1/te2/unet, converti
+    par load_lora_weights). Clés de test : depot, lora (chemin local)."""
+    import torch
+    from diffusers import StableDiffusionXLPipeline
+    from huggingface_hub import hf_hub_download
+
+    t = _lire(chemin_tache)
+    device = _device()
+    depot = t.get("depot", SDXL)
+    _hors_ligne_si_present(depot, LORA_DRESSEUR[0])
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    print("PROGRESSION 1/2 chargement de SDXL et du LoRA de sprites", flush=True)
+
+    def charger():
+        _precharger((depot, "unet"))
+        options = {"torch_dtype": dtype, "use_safetensors": True}
+        if not t.get("depot"):
+            options["variant"] = "fp16"
+        pipe = StableDiffusionXLPipeline.from_pretrained(depot, **options)
+        lora = t.get("lora") or hf_hub_download(*LORA_DRESSEUR)
+        pipe.load_lora_weights(lora, adapter_name="dresseur")
+        return pipe.to(device)
+
+    pipe = _garder(("SDXL sprites", depot, t.get("lora"), device), charger, 8, vers_cpu=lambda p_: p_.to("cpu"),
+                   vers_gpu=lambda p_: p_.to(device))
+    pipe.set_adapters(["dresseur"], [float(t.get("lora_echelle", 1.0))])
+    largeur, hauteur = int(t.get("largeur", 1024)), int(t.get("hauteur", 1024))
+    sorties, graines = t["sorties"], [int(g) for g in t["graines"]]
+    prompts = _prompts(t, tous=True)
+    print(f"PROGRESSION 2/2 génération de {len(sorties)} sprite(s)", flush=True)
+    for i, (sortie, graine, prompt) in enumerate(zip(sorties, graines, prompts), 1):
+        im = _memoire(pipe)(
+            prompt=prompt, negative_prompt=t.get("negatif") or NEGATIF_SPRITE_SDXL, height=hauteur, width=largeur,
+            num_inference_steps=int(t.get("etapes", 30)), guidance_scale=float(t.get("guidage", 7.0)),
+            generator=torch.Generator("cpu").manual_seed(graine)).images[0]
+        Path(sortie).parent.mkdir(parents=True, exist_ok=True)
+        im.save(sortie)
+        print(f"Sprite {i}/{len(sorties)} : {sortie} (graine {graine})", flush=True)
     _resultat({"fichiers": sorties, "graines": graines})
     print(f"TERMINE {sorties[0]}", flush=True)
 
@@ -2328,6 +2386,7 @@ def _retirer_ckpt_inutiles():
 
 
 ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage": personnage, "video": video,
+           "sprite_dresseur": sprite_dresseur,
            "assembler": assembler, "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger,
            "facetter": facetter,
            "transcrire": transcrire, "fluidifier": fluidifier, "parler": parler}

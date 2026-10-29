@@ -459,15 +459,15 @@ try {
     }
 
     # --- 17. Modèles de diffusion (~91 Go : Qwen3-VL-4B 9 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, photos 2 Go, vidéo Wan 2.2 20 Go, Hunyuan3D forme 10 Go et texture 16 Go, Stable Audio 5 Go, Whisper 1,6 Go, StableAvatar 9 Go) ---
-    Step 17 'Modèles de diffusion (~93 Go)'
+    Step 17 'Modèles de diffusion (~100 Go)'
     $m = Join-Path $Dif '.modeles-ok'
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
     # le téléchargement reprend seulement ce qui manque.
-    $ModelesDif = @(@('qwen', 'forme3d', 'forme3d_vues', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'transcription', 'fluidite', 'parlante', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
+    $ModelesDif = @(@('qwen', 'forme3d', 'forme3d_vues', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'transcription', 'fluidite', 'parlante', 'sprites_dresseur', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
     # Qwen3-VL sans refus : seulement s'il a été choisi dans l'onglet Modèles (fichier écrit par l'application)
     if ((Test-Path (Join-Path $Dif 'qwen-sans-refus.txt')) -and -not (Test-Retire 'diffusion:qwen_libre')) { $ModelesDif += 'qwen_libre' }
     # Contenu des modèles dans la signature : Qwen3-VL-4B (au lieu du 2B) et forme 3D complète ajoutés
-    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' ') + ' ; qwen 4B ; forme3d turbo + complet sans ckpt ; forme3d_vues ; whisper ; rife ; stableavatar')
+    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' ') + ' ; qwen 4B ; forme3d turbo + complet sans ckpt ; forme3d_vues ; whisper ; rife ; stableavatar ; sdxl sprites de dresseurs')
     if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
         Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif
         # Stable Diffusion XL a été remplacé par Z-Image-Turbo (bien meilleur) : on libère ses 7 Go s'il est là

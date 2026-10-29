@@ -50,11 +50,12 @@ def construire():
             btn_px_perso = gr.Button("🧙 Créer les personnages", variant="primary")
     gr.Markdown("### 🎒 Kit de dresseur : sprite de face, feuille de lancer, feuille de marche")
     gr.Markdown(
-        "Dans le **style exact** de tes sprites d'exemple : ils sont gardés au pixel près (forme, ombrage, contour) "
-        "et **recolorés** aux couleurs de la personne, comme les variantes de couleurs des jeux. Choisis donc des "
-        "exemples dont la silhouette ressemble à la personne (fille aux cheveux longs, garçon à casquette…). Les "
-        "couleurs sont lues sur la photo (modifiables) ; FLUX.2 klein montre seulement où va chaque couleur. "
-        "« Animer un sprite » donne ensuite sa feuille d'animation au sprite de face.")
+        "**Sprite de face** : un modèle entraîné sur des sprites de dresseurs (SDXL + LoRA, étiquette de "
+        "génération « gen3 » = Rouge Feu / Vert Feuille) dessine la personne décrite par Qwen3-VL d'après la "
+        "photo (cheveux, lunettes, barbe, tenue, avec tes changements), en plusieurs variantes ; chacune est "
+        "ramenée à la grille et aux couleurs du jeu. **Feuilles de lancer et de marche** : les sprites d'exemple "
+        "sont gardés au pixel près et recolorés aux couleurs du sprite de face. « Animer un sprite » donne ensuite "
+        "sa feuille d'animation au sprite de face.")
     _style0 = next(iter(dresseur.STYLES))
     with gr.Row():
         kit_photo = gr.Image(type="filepath", label="Photo de la personne", height=300)
@@ -68,8 +69,10 @@ def construire():
                                           placeholder=dresseur.COULEURS_DEFAUT, scale=3)
                 btn_kit_couleurs = gr.Button("🎨 Lire les couleurs sur la photo", scale=1)
             kit_feuilles = gr.CheckboxGroup(dresseur.FEUILLES, value=dresseur.FEUILLES, label="À créer")
-            kit_mode_face = gr.Radio(dresseur.MODES_FACE, value=dresseur.RECOLORER, label="Sprite de face")
+            kit_mode_face = gr.Radio(dresseur.MODES_FACE, value=dresseur.LORA, label="Sprite de face")
             with gr.Row():
+                kit_variantes = gr.Slider(1, dresseur.VARIANTES_MAX, value=2, step=1,
+                                          label="Variantes du sprite de face (modèle de sprites)")
                 kit_graine = gr.Number(value=0, precision=0, label="Graine (0 = aléatoire)")
                 kit_nom = gr.Textbox(label="Nom du dossier", value="dresseur")
             btn_kit = gr.Button("🎒 Créer le kit de dresseur", variant="primary")
@@ -162,7 +165,7 @@ def brancher(c, demo, o):
                           [c.kit_ajout_msg, *listes])
     c.btn_kit_couleurs.click(dresseur.lire_couleurs, [c.kit_photo, c.kit_demande], c.kit_couleurs)
     c.btn_kit.click(_kit, [c.kit_style, c.kit_photo, c.kit_demande, c.kit_couleurs, c.kit_feuilles, c.kit_mode_face,
-                           *listes, c.kit_graine, c.kit_nom], [*sorties, c.px_sprite, c.kit_couleurs])
+                           *listes, c.kit_graine, c.kit_nom, c.kit_variantes], [*sorties, c.px_sprite, c.kit_couleurs])
     c.px_galerie.select(_choisir, c.px_apercus, c.px_sprite)
     c.btn_px_animer.click(pixel_art.animer, [c.px_sprite, c.px_mode, c.px_mouvement, c.px_anim_graine,
                                             c.px_anim_etapes, c.px_anim_nom, c.px_exemples],
