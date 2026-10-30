@@ -159,3 +159,58 @@ def test_vers_feuille_palette_et_contour():
     op = feuille[..., 3] > 0
     assert feuille.shape == (96, 64, 4) and {tuple(p) for p in feuille[..., :3][op]} <= {tuple(p) for p in palette}
     assert (feuille[..., :3][(a[::8, ::8, 3] > 0) & ~op] == 0).sum() == 0  # rien de perdu sur la grille
+
+
+def test_guide_et_verification_des_fichiers(env, tmp_path, monkeypatch):
+    """Le guide donne le type de fichier attendu d'après la grille du style ; les fichiers déposés sont vérifiés un
+    par un (archive .zip ouverte), avec la raison d'un refus."""
+    import zipfile
+
+    monkeypatch.setattr(diffusion, "present", lambda nom: False)
+    g = modele_sprites.guide(GBA)
+    assert "64×96 pixels" in g and "128×192 (×2)" in g and "PNG" in g and ".zip" in g and ".safetensors" in g
+    assert "512×768 px" in g and "4 by 4 grid" in g
+    d = modele_sprites.guide(DS)
+    assert "96×128 pixels" in d and "3 by 4 grid" in d
+    assert "METTRE_A_JOUR.bat" in modele_sprites.etat_prerequis()
+    bonne, ds, texte = tmp_path / "bonne.png", tmp_path / "ds.png", tmp_path / "notes.txt"
+    _feuille(2).save(bonne)
+    _feuille(1, cols=3, rows=4, cw=32, ch=32).save(ds)
+    texte.write_text("x")
+    archive = tmp_path / "feuilles.zip"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.write(bonne, "Characters/a/trchar001.png")
+        z.write(bonne, "Characters/b/trchar001.png")  # même nom dans deux dossiers : les deux gardés
+        z.writestr("../../evasion.png", bonne.read_bytes())  # chemin hors de l'archive : nom seul gardé
+        z.writestr("Lisez-moi.txt", "x")
+    msg, lignes = modele_sprites.verifier_feuilles([str(bonne), str(ds), str(texte), str(archive)], GBA)
+    etats = {l[0]: l[3] for l in lignes}
+    assert etats["bonne.png"] == "✅ bonne" and [l[2] for l in lignes if l[0] == "bonne.png"] == ["×2"]
+    assert etats["ds.png"].startswith("❌") and "64×96" in etats["ds.png"]
+    assert "type de fichier" in etats["notes.txt"]
+    assert {"trchar001.png", "trchar001_2.png", "evasion.png"} <= set(etats) and "Lisez-moi.txt" not in etats
+    assert not (tmp_path.parent / "evasion.png").exists()
+    assert "4 feuille(s) bonne(s) sur 6" in msg and "au moins 8" in msg
+    assert modele_sprites.verifier_feuilles([], GBA)[1] == []
+
+
+def test_preparation_depuis_une_archive_et_legendes_modifiees(faux_entrainement, tmp_path):
+    import zipfile
+
+    archive = tmp_path / "Characters.zip"
+    with zipfile.ZipFile(archive, "w") as z:
+        for f in faux_entrainement:
+            z.write(f, f"Characters/{Path(f).name}")
+    msg, _ = modele_sprites.preparer([str(archive)], "depuis_zip", GBA, legender=False, progress=no_progress)
+    assert "10 feuille(s)" in msg
+    lignes = modele_sprites.legendes("depuis_zip")
+    assert len(lignes) == 10 and lignes[0][0] == "001.png" and "a trainer" in lignes[0][1]
+    lignes[0][1] = "walking sprite sheet, 4 by 4 grid, a girl with pink hair, yellow dress"  # déclencheur effacé
+    lignes[1][1] = ""  # vide : gardée telle quelle
+    assert "1 légende(s)" in modele_sprites.enregistrer_legendes("depuis_zip", lignes[:2])
+    jeu = cfg.LORAS_DIR / "depuis_zip" / "jeu" / f"{modele_sprites.REPETITIONS}_{modele_sprites.DECLENCHEUR}"
+    assert (jeu / "001.txt").read_text(encoding="utf-8") == (
+        "pixelsheet, walking sprite sheet, 4 by 4 grid, a girl with pink hair, yellow dress")
+    assert "a trainer" in (jeu / "002.txt").read_text(encoding="utf-8")
+    with pytest.raises(gr.Error, match="Prépare d'abord"):
+        modele_sprites.enregistrer_legendes("inconnu", lignes)
