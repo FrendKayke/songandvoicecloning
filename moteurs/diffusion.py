@@ -2405,9 +2405,49 @@ ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage
            "transcrire": transcrire, "fluidifier": fluidifier, "parler": parler}
 
 
+def _present_localement(nom):
+    """Le modèle est entièrement dans le cache (sans aucune requête réseau) : chaque motif de téléchargement a au
+    moins un fichier dans un snapshot du dépôt ; fichiers GitHub des photos ; code de StableAvatar ; u2net."""
+    import glob
+
+    if nom == "detourage":
+        dossier = Path(os.environ.get("U2NET_HOME") or Path.home() / ".u2net")
+        return (dossier / "u2net.onnx").is_file()
+    from huggingface_hub import constants
+
+    hub = Path(constants.HF_HUB_CACHE)
+    for repo, motifs in MODELES[nom]:
+        if repo.startswith("local:"):
+            if not all((_dossier_photos() / f).is_file() for f in motifs):
+                return False
+            continue
+        if repo == "code:stableavatar":
+            if not (_code_stableavatar() / "wan" / "pipeline" / "wan_inference_long_pipeline.py").is_file():
+                return False
+            continue
+        racine = hub / ("models--" + repo.replace("/", "--"))
+        snaps = [d for d in (racine / "snapshots").glob("*") if d.is_dir()]
+        # fichier « .incomplete » : téléchargement interrompu (huggingface_hub le reprendra là où il s'était arrêté)
+        if not snaps or any((racine / "blobs").glob("*.incomplete")):
+            return False
+        for motif in motifs or ["*"]:
+            if not any(glob.glob(str(d / motif)) for d in snaps):
+                return False
+    return True
+
+
+def manquants(noms):
+    """Modèles absents ou incomplets parmi `noms`, sans réseau (installateur : refait le téléchargement de ce qui
+    manque à chaque mise à jour, pas seulement quand la liste des modèles change). Ligne « MANQUANTS: a b c »."""
+    absents = [n for n in noms if (n not in MODELES and n != "detourage") or not _present_localement(n)]
+    print("MANQUANTS: " + " ".join(absents), flush=True)
+
+
 def principal(argv):
     if len(argv) >= 1 and argv[0] == "telecharger":
         telecharger(argv[1:])
+    elif len(argv) >= 1 and argv[0] == "manquants":
+        manquants(argv[1:])
     elif len(argv) == 2 and argv[0] in ACTIONS:
         try:
             ACTIONS[argv[0]](argv[1])

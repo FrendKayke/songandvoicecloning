@@ -2028,3 +2028,43 @@ def test_modeles_installes_a_la_main(faux_diffusion):
     liens = diffusion.liens_manuels()
     assert "[huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated](https://huggingface.co/huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated/tree/main)" in liens
     assert "`z-image-turbo-Q8_0.gguf` (unsloth/Z-Image-Turbo-GGUF)" in liens
+
+
+
+def test_modeles_manquants_vus_sans_reseau(tmp_path, monkeypatch, capsys):
+    """Installateur (METTRE_A_JOUR.bat) : `manquants` liste ce qui n'est pas complet dans le cache, sans réseau."""
+    from huggingface_hub import constants
+
+    hub = tmp_path / "hub"
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(hub))
+    monkeypatch.setenv("STUDIOVOIX_PHOTOS", str(tmp_path / "photos"))
+    monkeypatch.setenv("U2NET_HOME", str(tmp_path / "u2net"))
+
+    def deposer(depot, fichiers):
+        snap = hub / ("models--" + depot.replace("/", "--")) / "snapshots" / "abc"
+        for f in fichiers:
+            (snap / f).parent.mkdir(parents=True, exist_ok=True)
+            (snap / f).write_text("x")
+        return snap.parent.parent
+
+    def manquants(*noms):
+        moteur.principal(["manquants", *noms])
+        return [l_ for l_ in capsys.readouterr().out.splitlines() if l_.startswith("MANQUANTS:")][-1].split()[1:]
+
+    (sdxl, motifs), (lora, (fichier_lora,)) = moteur.MODELES["sprites_dresseur"]
+    fichiers = [m.replace("*/", "unet/").replace("*", "x") for m in motifs]
+    deposer(sdxl, fichiers[:-1])  # VAE absent : téléchargement interrompu
+    deposer(lora, [fichier_lora])
+    racine_qwen = deposer(moteur.QWEN, ["config.json"])
+    (racine_qwen / "blobs").mkdir()
+    (racine_qwen / "blobs" / "abc.incomplete").write_text("x")  # fichier en cours
+    (tmp_path / "u2net").mkdir()
+    (tmp_path / "u2net" / "u2net.onnx").write_text("x")
+    assert manquants("sprites_dresseur", "qwen", "detourage", "fluidite", "inconnu") == [
+        "sprites_dresseur", "qwen", "fluidite", "inconnu"]
+    deposer(sdxl, fichiers[-1:])
+    (racine_qwen / "blobs" / "abc.incomplete").unlink()
+    (tmp_path / "photos").mkdir()
+    for f in moteur.MODELES["fluidite"][0][1]:
+        (tmp_path / "photos" / f).write_text("x")
+    assert manquants("sprites_dresseur", "qwen", "detourage", "fluidite") == []

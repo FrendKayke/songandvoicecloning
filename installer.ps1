@@ -468,35 +468,71 @@ try {
         } else { Write-Host 'Pas de jeton : les bruitages seront disponibles après l''avoir enregistré dans l''onglet Modèles.' -ForegroundColor Yellow }
     }
 
-    # --- 17. Modèles de diffusion (~91 Go : Qwen3-VL-4B 9 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, photos 2 Go, vidéo Wan 2.2 20 Go, Hunyuan3D forme 10 Go et texture 16 Go, Stable Audio 5 Go, Whisper 1,6 Go, StableAvatar 9 Go) ---
+    # --- 17. Modèles de diffusion (~100 Go : Qwen3-VL-4B 9 Go, Z-Image-Turbo 15 Go, FLUX.2 klein 4,5 Go, photos 2 Go, vidéo Wan 2.2 20 Go, Hunyuan3D forme 10 Go et texture 16 Go, SDXL + LoRA de sprites 7,5 Go, Stable Audio 5 Go, Whisper 1,6 Go, StableAvatar 9 Go) ---
     Step 17 'Modèles de diffusion (~100 Go)'
     $m = Join-Path $Dif '.modeles-ok'
-    # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton). Changer cette liste refait l'étape :
-    # le téléchargement reprend seulement ce qui manque.
+    # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton).
     $ModelesDif = @(@('qwen', 'forme3d', 'forme3d_vues', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'transcription', 'fluidite', 'parlante', 'sprites_dresseur', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
-    # Qwen3-VL sans refus : seulement s'il a été choisi dans l'onglet Modèles (fichier écrit par l'application)
-    if ((Test-Path (Join-Path $Dif 'qwen-sans-refus.txt')) -and -not (Test-Retire 'diffusion:qwen_libre')) { $ModelesDif += 'qwen_libre' }
-    # Contenu des modèles dans la signature : Qwen3-VL-4B (au lieu du 2B) et forme 3D complète ajoutés
-    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' ') + ' ; qwen 4B ; forme3d turbo + complet sans ckpt ; forme3d_vues ; whisper ; rife ; stableavatar ; sdxl sprites de dresseurs')
-    if (Test-Retire 'diffusion') { Write-Retire } elseif (-not (Test-Done $m $sig)) {
-        Run $DifPy (@((Join-Path $App 'moteurs\diffusion.py'), 'telecharger') + $ModelesDif) $Dif
-        # Stable Diffusion XL a été remplacé par Z-Image-Turbo (bien meilleur) : on libère ses 7 Go s'il est là
-        $sdxl = Join-Path $env:HF_HOME 'hub\models--stabilityai--stable-diffusion-xl-base-1.0'
-        if (Test-Path $sdxl) {
-            Write-Host 'Suppression de Stable Diffusion XL, remplacé par Z-Image-Turbo (7 Go libérés).'
-            Remove-Item $sdxl -Recurse -Force -ErrorAction SilentlyContinue
+    # Modèles facultatifs : choisis dans l'onglet Modèles (fichier écrit par l'application) ou acceptés ici une fois
+    # (réponse gardée dans diffusion\facultatifs.txt : la question n'est pas reposée à chaque mise à jour)
+    $Facultatifs = [ordered]@{ 'qwen_libre' = 'Qwen3-VL sans refus (assistant de prompts sans refus, 8,9 Go)' }
+    $fichierFac = Join-Path $Dif 'facultatifs.txt'
+    $reponses = @{}
+    if (Test-Path $fichierFac) {
+        foreach ($l in (Get-Content $fichierFac -Encoding UTF8)) { $p = $l.Split('='); if ($p.Count -eq 2) { $reponses[$p[0].Trim()] = $p[1].Trim() } }
+    }
+    if (-not (Test-Retire 'diffusion')) {
+        foreach ($nom in $Facultatifs.Keys) {
+            if (Test-Retire "diffusion:$nom") { continue }
+            $choisi = ($nom -eq 'qwen_libre') -and (Test-Path (Join-Path $Dif 'qwen-sans-refus.txt'))
+            if (-not $choisi -and -not $reponses.ContainsKey($nom)) {
+                $r = Read-Host "Télécharger aussi le modèle facultatif $($Facultatifs[$nom]) ? (o/N)"
+                $reponses[$nom] = $(if ($r -match '^[oOyY]') { 'o' } else { 'n' })
+                New-Item -ItemType Directory -Force -Path $Dif | Out-Null
+                Set-Content -Path $fichierFac -Encoding UTF8 -Value @($reponses.Keys | ForEach-Object { "$_=$($reponses[$_])" })
+            }
+            if ($choisi -or $reponses[$nom] -eq 'o') { $ModelesDif += $nom }
         }
-        # Qwen3-VL-2B a été remplacé par le 4B (prompts plus fidèles) : on libère ses 4 Go
-        $qwen2 = Join-Path $env:HF_HOME 'hub\models--Qwen--Qwen3-VL-2B-Instruct'
-        if ((Test-Path $qwen2) -and -not (Test-Retire 'diffusion:qwen')) {
-            Write-Host 'Suppression de Qwen3-VL-2B, remplacé par Qwen3-VL-4B (4 Go libérés).'
-            Remove-Item $qwen2 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $sig = Get-Signature @('modeles : ' + ($ModelesDif -join ' ') + ' ; qwen 4B ; forme3d turbo + complet sans ckpt ; forme3d_vues ; whisper ; rife ; stableavatar ; sdxl sprites de dresseurs')
+    if (Test-Retire 'diffusion') { Write-Retire } else {
+        # À chaque mise à jour : ce qui manque dans le cache (téléchargement interrompu, modèle supprimé, modèle
+        # facultatif accepté), vérifié sans réseau par le moteur ; sinon, si la liste n'a pas changé, rien à faire.
+        $aFaire = $ModelesDif
+        if (Test-Done $m $sig) {
+            $aFaire = @()
+            Push-Location $Dif
+            $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+            try { $ligne = & $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'manquants') @ModelesDif 2>$null | Where-Object { "$_" -like 'MANQUANTS:*' } | Select-Object -Last 1 }
+            finally { $ErrorActionPreference = $prev; Pop-Location }
+            if ($ligne) { $aFaire = @("$ligne".Substring(10).Split(' ', [StringSplitOptions]::RemoveEmptyEntries)) }
+        }
+        if ($aFaire.Count -eq 0) { Write-Host 'Déjà fait : tous les modèles sont présents.' } else {
+            Write-Host "À télécharger : $($aFaire -join ', ')"
+            # Un modèle à la fois : une coupure réseau sur l'un n'empêche pas les suivants
+            $echecs = @()
+            foreach ($nom in $aFaire) {
+                try { Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', $nom) $Dif }
+                catch { $echecs += $nom; Write-Host "Échec du téléchargement de $nom : $($_.Exception.Message)" -ForegroundColor Yellow }
+            }
+            # Qwen3-VL-2B a été remplacé par le 4B (prompts plus fidèles) : on libère ses 4 Go. (L'ancien nettoyage
+            # de SDXL est retiré : SDXL sert de nouveau, aux sprites de dresseurs.)
+            $qwen2 = Join-Path $env:HF_HOME 'hub\models--Qwen--Qwen3-VL-2B-Instruct'
+            if ((Test-Path $qwen2) -and -not (Test-Retire 'diffusion:qwen')) {
+                Write-Host 'Suppression de Qwen3-VL-2B, remplacé par Qwen3-VL-4B (4 Go libérés).'
+                Remove-Item $qwen2 -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if ($echecs.Count -gt 0) {
+                Write-Host "Modèles pas encore téléchargés : $($echecs -join ', '). Relance METTRE_A_JOUR.bat (le téléchargement reprend où il s'est arrêté), ou télécharge-les à la main (Outils → Modèles et diagnostic → Modèles téléchargés à la main)." -ForegroundColor Yellow
+            } else { Done $m $sig }
         }
         if ((Test-Path $jeton) -and -not (Test-Retire 'diffusion:bruitages')) {
-            Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'bruitages') $Dif
+            if (-not (Test-Path (Join-Path $Dif '.bruitages-ok'))) {
+                try { Run $DifPy @((Join-Path $App 'moteurs\diffusion.py'), 'telecharger', 'bruitages') $Dif; Done (Join-Path $Dif '.bruitages-ok') }
+                catch { Write-Host "Stable Audio Open pas téléchargé : $($_.Exception.Message)" -ForegroundColor Yellow }
+            }
         } else { Write-Host 'Stable Audio Open non téléchargé (pas de jeton) : onglet Modèles → Télécharger, une fois le jeton enregistré.' -ForegroundColor Yellow }
-        Done $m $sig
-    } else { Write-Host 'Déjà fait.' }
+    }
 
     # --- 18. Environnement de l'application ---
     Step 18 'Environnement de Studio Voix (Python 3.12)'

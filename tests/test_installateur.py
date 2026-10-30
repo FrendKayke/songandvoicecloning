@@ -39,10 +39,10 @@ def inst(tmp_path):
     i = Inst()
     i.app, i.eng, i.journal = app, eng, journal
 
-    def lancer(echec="", reponse=""):
+    def lancer(echec="", reponse="", manquants=""):
         journal.write_text("")
         env = {**os.environ, "STUDIOVOIX_MOTEURS": str(eng), "JOURNAL": str(journal), "ECHEC": echec,
-               "REPONSE": reponse}
+               "REPONSE": reponse, "FAUX_MANQUANTS": manquants}
         r = subprocess.run([PWSH, "-NoProfile", "-c",
                             f". '{SIMU / 'simulations.ps1'}'; & '{app / 'installer.ps1'}'; exit $LASTEXITCODE"],
                            cwd=app, env=env, capture_output=True, text=True, timeout=300)
@@ -52,7 +52,14 @@ def inst(tmp_path):
 
     i.lancer = lancer
     i.installs = lambda: [a for a in i.appels if " pip install " in a]
+    # modèles de diffusion téléchargés (un appel par modèle), dans l'ordre
+    i.modeles = lambda: [a.split("diffusion.py telecharger ")[1].split(" [")[0] for a in i.appels
+                         if "diffusion.py telecharger " in a]
     return i
+
+
+MODELES = ("qwen forme3d forme3d_vues texture3d zimage personnages photo_detourage photo_qualite video transcription "
+           "fluidite parlante sprites_dresseur detourage").split()
 
 
 def _marqueurs(eng):
@@ -75,12 +82,51 @@ def test_installation_complete_puis_relance(inst):
     assert any("rigging.py telecharger" in a for a in inst.appels)
     assert "sd-scripts/archive/" in m["entrainement/sd-scripts/.complet"] and re.fullmatch(r"[0-9a-f]{64}", m["entrainement/.env-ok"])
     assert any("lora_sdxl.py telecharger" in a for a in inst.appels) and any("--no-deps -e" in a and "sd-scripts" in a for a in inst.appels)
-    telechargement = [a for a in inst.appels if "diffusion.py telecharger" in a][0]
-    assert "telecharger qwen forme3d forme3d_vues texture3d zimage personnages photo_detourage photo_qualite video transcription fluidite parlante sprites_dresseur detourage" in telechargement
+    assert inst.modeles() == MODELES  # un modèle à la fois ; pas de facultatif refusé (réponse vide)
+    assert any(a.startswith("READ-HOST Télécharger aussi le modèle facultatif") for a in inst.appels)
 
     assert inst.lancer() == 0, inst.sortie
     assert inst.installs() == [] and "Mise à jour" not in inst.sortie
     assert inst.sortie.count("Déjà fait") >= 14
+    # à chaque mise à jour, le moteur vérifie le cache ; rien ne manque → rien de téléchargé, question pas reposée
+    assert any("diffusion.py manquants " + " ".join(MODELES) in a for a in inst.appels)
+    assert inst.modeles() == [] and not any("modèle facultatif" in a for a in inst.appels)
+
+
+def test_mise_a_jour_telecharge_les_modeles_manquants(inst):
+    """METTRE_A_JOUR.bat relance l'installateur : un modèle absent du cache (téléchargement interrompu, supprimé)
+    est retéléchargé ; un échec n'empêche pas les suivants et sera repris à la mise à jour suivante."""
+    assert inst.lancer() == 0
+    assert inst.lancer(manquants="video sprites_dresseur") == 0, inst.sortie
+    assert inst.modeles() == ["video", "sprites_dresseur"]
+    assert inst.lancer(manquants="video sprites_dresseur", echec="telecharger video") == 0, inst.sortie
+    assert inst.modeles() == ["video", "sprites_dresseur"] and "pas encore téléchargés : video" in inst.sortie
+    assert inst.lancer(manquants="video") == 0, inst.sortie
+    assert inst.modeles() == ["video"]
+
+
+def test_modele_facultatif_accepte_une_fois(inst):
+    assert inst.lancer(reponse="o") == 0, inst.sortie
+    assert inst.modeles() == MODELES + ["qwen_libre"]
+    assert "qwen_libre=o" in (inst.eng / "diffusion" / "facultatifs.txt").read_text(encoding="utf-8-sig")
+    assert inst.lancer(manquants="qwen_libre") == 0, inst.sortie
+    assert not any("modèle facultatif" in a for a in inst.appels) and inst.modeles() == ["qwen_libre"]
+    assert any("diffusion.py manquants " + " ".join(MODELES) + " qwen_libre" in a for a in inst.appels)
+
+
+def test_modele_facultatif_choisi_dans_l_application(inst):
+    (inst.eng / "diffusion").mkdir(parents=True)
+    (inst.eng / "diffusion" / "qwen-sans-refus.txt").write_text("1")
+    assert inst.lancer() == 0, inst.sortie
+    assert inst.modeles() == MODELES + ["qwen_libre"] and not any("modèle facultatif" in a for a in inst.appels)
+
+
+def test_sdxl_garde(inst):
+    """SDXL sert aux sprites de dresseurs : l'installateur ne le supprime plus (ancien nettoyage)."""
+    sdxl = inst.eng / "hf-home" / "hub" / "models--stabilityai--stable-diffusion-xl-base-1.0"
+    sdxl.mkdir(parents=True)
+    assert inst.lancer() == 0, inst.sortie
+    assert sdxl.exists()
 
 
 def test_anciens_marqueurs_vides_adoptes(inst):
@@ -145,9 +191,8 @@ def test_moteurs_retires_sautes_puis_reinstalles(inst):
     assert inst.lancer() == 0, inst.sortie
     assert inst.sortie.count("Retiré pour gagner de la place") == 2  # étapes 8 et 9
     assert not any("chatterbox" in a.lower() for a in inst.appels)  # ni code, ni environnement, ni modèles
-    telechargement = [a for a in inst.appels if "diffusion.py telecharger" in a]
-    assert telechargement and "texture3d" not in telechargement[0]  # liste de modèles changée → étape 17 refaite
-    assert "telecharger qwen forme3d forme3d_vues zimage personnages photo_detourage photo_qualite video transcription fluidite parlante sprites_dresseur detourage" in telechargement[0]
+    # liste de modèles changée → étape 17 refaite, sans le modèle retiré
+    assert inst.modeles() == [n for n in MODELES if n != "texture3d"]
     # tout le moteur de diffusion retiré : étapes 15 à 17 sautées, plus de question de jeton
     (inst.eng / "moteurs-retires.txt").write_text("chatterbox\ndiffusion\n", encoding="utf-8")
     sh.rmtree(inst.eng / "diffusion")
