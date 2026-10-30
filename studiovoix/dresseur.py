@@ -345,24 +345,52 @@ def recolorer(gabarit, nouvelles):
 
 
 # --- Création du kit ---------------------------------------------------------------------------------------------
-def lire_couleurs(photo, demande, progress=gr.Progress()):
-    """Couleurs de la personne (Qwen3-VL voit la photo et applique les changements demandés), modifiables."""
+def preparer_description(photo, demande, progress=gr.Progress()):
+    """Description anglaise du personnage (modifiable avant la création) : Qwen3-VL d'après la photo et les
+    changements demandés, ou d'après la seule description (souvent en français) quand il n'y a pas de photo."""
     photo = getattr(photo, "name", photo)
-    if not photo:
-        raise gr.Error("Ajoute la photo de la personne.")
+    demande = (demande or "").strip()
+    if not photo and not demande:
+        raise gr.Error("Ajoute la photo de la personne, ou décris le personnage (« une dresseuse rousse aux cheveux "
+                       "longs, veste rouge, short bleu, casquette blanche »).")
+    if not diffusion.present("qwen"):
+        raise gr.Error("Qwen3-VL n'est pas installé : écris la description toi-même, en anglais (« a young woman "
+                       "with long red hair, red jacket, blue shorts and white cap »).")
+    if photo:
+        return diffusion.decrire("sprite", demande or "the person in the photo", image=photo,
+                                 progress=progress).strip()
+    return diffusion.decrire("sprite_texte", demande, progress=progress).strip()
+
+
+def lire_couleurs(photo, demande, description=None, progress=gr.Progress()):
+    """Couleurs de la personne, modifiables : la description du personnage si elle est écrite (elle fait foi), sinon
+    la photo (Qwen3-VL la voit et applique les changements demandés), sinon la demande seule."""
+    photo = getattr(photo, "name", photo)
+    description, demande = (description or "").strip(), (demande or "").strip()
+    if not photo and not description and not demande:
+        raise gr.Error("Ajoute la photo de la personne, ou décris le personnage.")
     if not diffusion.present("qwen"):
         raise gr.Error("Qwen3-VL n'est pas installé : écris les couleurs à la main (cheveux, peau, haut, bas, "
                        "chaussures), en anglais ou en français.")
-    return diffusion.decrire("couleurs", (demande or "").strip() or "the person in the photo",
-                             image=photo, progress=progress).strip()
+    if description or not photo:
+        return diffusion.decrire("couleurs_texte", description or demande, progress=progress).strip()
+    return diffusion.decrire("couleurs", demande or "the person in the photo", image=photo, progress=progress).strip()
 
 
-def _face_dessinee(style, photo, demande, couleurs, graine, dossier, progress):
+def _decrire_personnage(photo, demande, description, progress):
+    """Description anglaise du personnage : celle de l'utilisateur, sinon Qwen3-VL (photo ou texte), sinon la demande."""
+    if description:
+        return description
+    if diffusion.present("qwen") and (photo or (demande or "").strip()):
+        return preparer_description(photo, demande, progress=progress)
+    return (demande or "").strip()
+
+
+def _face_dessinee(style, photo, demande, couleurs, graine, dossier, progress, description=None):
     """Sprite de face d'après la photo : FLUX.2 klein, BiRefNet, puis la grille et la palette du style."""
     st = STYLES[style]
     source = dossier / "face_source.png"
-    description = (diffusion.decrire("sprite", (demande or "").strip() or "the person in the photo", image=photo,
-                                     progress=progress).strip() if diffusion.present("qwen") else (demande or ""))
+    description = _decrire_personnage(photo, demande, description, progress)
     prompt = f"{description} Colors: {couleurs}. {px.MEME_PERSONNE} {POSE_FACE}, in {st['texte']}."
     diffusion.personnage(prompt, [photo], [source], [graine], 768, 1024, progress=progress)
     image = source
@@ -377,18 +405,18 @@ def _face_dessinee(style, photo, demande, couleurs, graine, dossier, progress):
     return np.array(sprite), prompt
 
 
-def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, progress):
+def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, progress, description=None):
     """Sprites de face par SDXL + LoRA de sprites de dresseurs : `variantes` images 1024², fond uni retiré (BiRefNet
-    si présent, sinon par pixeliser), puis la grille et la palette du style. Renvoie (liste de tableaux, prompt)."""
+    si présent, sinon par pixeliser), puis la grille et la palette du style. Description : celle de l'utilisateur,
+    sinon Qwen3-VL d'après la photo ou la seule demande (traduite : SDXL comprend mal le français), qui donne déjà
+    les couleurs. Renvoie (liste de tableaux, prompt, description)."""
     st = STYLES[style]
-    if diffusion.present("qwen") and photo:  # Qwen décrit déjà les couleurs
-        description = diffusion.decrire("sprite", (demande or "").strip() or "the person in the photo", image=photo,
-                                        progress=progress).strip()
-    else:
-        description = (demande or "").strip() or "a trainer"
+    texte = _decrire_personnage(photo, demande, description, progress)
+    if not texte or not (description or diffusion.present("qwen")):  # sans Qwen : demande telle quelle
+        texte = texte or "a trainer"
         if couleurs:
-            description += f" ({couleurs})"
-    description = description.rstrip(".")
+            texte += f" ({couleurs})"
+    description = texte.rstrip(".")
     prompt = PROMPT_LORA.format(description=description, gen=GEN[st["cle"]])
     sources = [dossier / f"face_{i}_source.png" for i in range(1, variantes + 1)]
     diffusion.sprite_dresseur(prompt, sources, [graine + i for i in range(variantes)], progress=progress)
@@ -404,15 +432,23 @@ def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, prog
     for im in images:
         sprite, _ = px.pixeliser(Image.open(im), st["hauteur"], st["couleurs"], st["toile"], px.CONTOUR_DEFAUT)
         sprites.append(np.array(sprite))
-    return sprites, prompt
+    return sprites, prompt, description
 
 
-def _description_marche(photo, demande, couleurs, progress):
-    """Description courte du personnage pour le modèle de feuilles (même forme que ses légendes d'entraînement)."""
+def _description_marche(photo, demande, couleurs, progress, description=None):
+    """Description courte du personnage pour le modèle de feuilles (même forme que ses légendes d'entraînement) :
+    d'après la description du personnage si elle existe (les modifications de l'utilisateur font foi), sinon la
+    photo, sinon la demande."""
     texte = (demande or "").strip() or "the person in the photo"
-    if diffusion.present("qwen") and photo:
-        return diffusion.decrire("legende", texte, image=photo, progress=progress).strip()
-    return f"{texte} ({couleurs})" if couleurs else texte
+    if diffusion.present("qwen"):
+        if description:
+            return diffusion.decrire("legende_texte", description, progress=progress).strip()
+        if photo:
+            return diffusion.decrire("legende", texte, image=photo, progress=progress).strip()
+        if (demande or "").strip():
+            return diffusion.decrire("legende_texte", demande.strip(), progress=progress).strip()
+    texte = description or texte
+    return f"{texte} ({couleurs})" if couleurs and not description else texte
 
 
 def _ecrire_feuille(a, nom, dossier, agrandissement):
@@ -434,20 +470,24 @@ def liste_loras_marche():
 
 
 def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_lancer, g_marche, graine,
-              nom="dresseur", variantes=2, lora_marche=None, progress=gr.Progress()):
-    """Kit de dresseur. lora_marche : nom d'un modèle entraîné pour la feuille de marche (sinon recoloriage d'un
-    exemple). Renvoie (message, aperçus, fichiers, dossier, sprite de face, couleurs utilisées)."""
+              nom="dresseur", variantes=2, lora_marche=None, description=None, progress=gr.Progress()):
+    """Kit de dresseur, d'après une photo ou une simple description. lora_marche : nom d'un modèle entraîné pour la
+    feuille de marche (sinon recoloriage d'un exemple). description : description anglaise du personnage (préparée
+    par `preparer_description` puis modifiée), prioritaire sur la photo et la demande. Renvoie (message, aperçus,
+    fichiers, dossier, sprite de face, couleurs utilisées, description utilisée)."""
     if style not in STYLES:
         raise gr.Error("Choisis un style.")
     feuilles = [CLES_FEUILLES[f] for f in (feuilles or []) if f in CLES_FEUILLES]
     if not feuilles:
         raise gr.Error("Coche au moins un élément à créer (sprite de face, lancer, marche).")
     photo = getattr(photo, "name", photo)
+    description = (description or "").strip()
     dessiner = "face" in feuilles and mode_face == DESSINER
     lora = "face" in feuilles and mode_face == LORA
     if dessiner and not photo:
-        raise gr.Error("Pour dessiner le sprite de face d'après la photo, ajoute la photo.")
-    if lora and not photo and not (demande or "").strip():
+        raise gr.Error("Pour dessiner le sprite de face avec FLUX.2 klein, ajoute la photo (sans photo, choisis le "
+                       "modèle de sprites de dresseurs : une description suffit).")
+    if lora and not photo and not (demande or "").strip() and not description:
         raise gr.Error("Ajoute la photo de la personne, ou décris-la (« une femme aux cheveux bouclés, en veste "
                        "rouge »).")
     choix = {"face": g_face, "lancer": g_lancer, "marche": g_marche}
@@ -481,26 +521,30 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
         shutil.copy(photo, copie)
     couleurs = (couleurs or "").strip()
     if not couleurs and (gabarits or dessiner):  # le LoRA se contente de la description
-        if copie and diffusion.present("qwen"):
+        if diffusion.present("qwen") and (copie or description or (demande or "").strip()):
             progress(0.02, desc="Couleurs de la personne (Qwen3-VL)…")
-            couleurs = lire_couleurs(copie, demande, progress=progress)
+            couleurs = lire_couleurs(copie, demande, description, progress=progress)
         else:
             raise gr.Error("Écris les couleurs de la personne (cheveux, peau, haut, bas, chaussures), ou ajoute la "
-                           "photo pour qu'elles soient lues.")
+                           "photo ou une description pour qu'elles soient lues.")
     infos = {"style": style, "demande": demande, "couleurs": couleurs, "graine": graine, "feuilles": {}}
+    if description:
+        infos["description"] = description
     resultats = {}
     references = []
     variantes_face = []
     if lora:
         progress(0.1, desc="Sprites de face (SDXL + LoRA de sprites de dresseurs)…")
-        variantes_face, prompt = _face_lora(style, copie, demande, couleurs, graine,
-                                            max(1, min(VARIANTES_MAX, int(variantes or 1))), dossier, progress)
+        variantes_face, prompt, description = _face_lora(style, copie, demande, couleurs, graine,
+                                                         max(1, min(VARIANTES_MAX, int(variantes or 1))), dossier,
+                                                         progress, description)
         resultats["face"] = variantes_face[0]
         infos["feuilles"]["face"] = {"mode": "lora", "prompt": prompt, "variantes": len(variantes_face)}
         references.append(resultats["face"])
     if dessiner:
         progress(0.1, desc="Sprite de face d'après la photo (FLUX.2 klein)…")
-        resultats["face"], prompt = _face_dessinee(style, copie, demande, couleurs, graine, dossier, progress)
+        resultats["face"], prompt = _face_dessinee(style, copie, demande, couleurs, graine, dossier, progress,
+                                                   description)
         infos["feuilles"]["face"] = {"mode": "dessin", "prompt": prompt}
         references.append(resultats["face"])
     if gabarits:
@@ -531,13 +575,13 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
                                                  for a_, b_ in nouvelles.items()}}
     if lora_marche:
         progress(0.7, desc=f"Feuille de marche (SDXL + modèle « {lora_marche} »)…")
-        description = _description_marche(copie, demande, couleurs, progress)
+        legende = _description_marche(copie, demande, couleurs, progress, description)
         palette = None
         if "face" in resultats:
             fa = resultats["face"]
             palette = np.unique(fa[..., :3][fa[..., 3] >= 128].reshape(-1, 3), axis=0)
         resultats["marche"], prompt = modele_sprites.generer_feuille(
-            lora_marche, description, dossier / "marche.png", graine, st["marche"]["grille"],
+            lora_marche, legende, dossier / "marche.png", graine, st["marche"]["grille"],
             st["marche"]["cellule"], palette, st["couleurs"], progress=progress)
         infos["feuilles"]["marche"] = {"mode": "lora", "modele": lora_marche, "prompt": prompt}
     fichiers, apercus = [], []
@@ -579,4 +623,4 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
            + (" Le sprite de face est placé dans « Animer un sprite » pour sa feuille d'animation." if visage.exists()
               else ""))
     return (msg, apercus, [str(f) for f in fichiers], str(dossier), str(visage) if visage.exists() else None,
-            couleurs)
+            couleurs, description)

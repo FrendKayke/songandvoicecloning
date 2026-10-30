@@ -94,7 +94,7 @@ def test_kit_recolore_les_exemples(faux_klein):
     _bibliotheque(tmp)
     noms = {f: dresseur.liste_gabarits(GBA, f) for f in ("face", "lancer", "marche")}
     assert noms == {"face": ["trainer108"], "lancer": ["trback002"], "marche": ["trchar113"]}
-    msg, apercus, fichiers, dossier, face, couleurs = dresseur.creer_kit(
+    msg, apercus, fichiers, dossier, face, couleurs, _ = dresseur.creer_kit(
         GBA, str(photo), "la femme", "hair: blond; top: blue", dresseur.FEUILLES, dresseur.RECOLORER,
         "trainer108", "trback002", "trchar113", 7, progress=no_progress)
     d = Path(dossier)
@@ -127,7 +127,7 @@ def test_face_par_le_modele_de_sprites(faux_klein, monkeypatch):
     monkeypatch.setattr(diffusion, "present", lambda nom: nom == "qwen")
     monkeypatch.setattr(diffusion, "decrire", lambda mode, texte, image=None, progress=None:
                         "a woman with long curly brown hair wearing a red jacket." if mode == "sprite" else "x")
-    msg, apercus, fichiers, dossier, face, couleurs = dresseur.creer_kit(
+    msg, apercus, fichiers, dossier, face, couleurs, _ = dresseur.creer_kit(
         GBA, str(photo), "la femme", "", dresseur.FEUILLES, dresseur.LORA, None, "trback002", "trchar113", 5,
         variantes=3, progress=no_progress)
     d = Path(dossier)
@@ -144,7 +144,7 @@ def test_face_par_le_modele_de_sprites(faux_klein, monkeypatch):
     noms = zipfile.ZipFile(d / f"{d.name}.zip").namelist()
     assert "face_2.png" in noms and not any(n.endswith("_source.png") for n in noms)
     # style DS : étiquette gen5, pas de photo mais une description
-    _, _, _, dossier, face, _ = dresseur.creer_kit(DS, None, "un homme barbu à lunettes", "", [dresseur.FACE],
+    _, _, _, dossier, face, _, _ = dresseur.creer_kit(DS, None, "un homme barbu à lunettes", "", [dresseur.FACE],
                                                    dresseur.LORA, None, None, None, 2, variantes=1, progress=no_progress)
     assert "gen5" in appels[-1]["prompt"] and Image.open(face).size == (80, 80)
 
@@ -159,7 +159,7 @@ def test_face_dessinee_et_couleurs_lues(faux_klein, monkeypatch):
     lu = []
     monkeypatch.setattr(diffusion, "decrire", lambda mode, texte, image=None, progress=None: lu.append(mode) or
                         ("hair: black; skin: tan" if mode == "couleurs" else "a woman"))
-    _, _, _, dossier, face, couleurs = dresseur.creer_kit(
+    _, _, _, dossier, face, couleurs, _ = dresseur.creer_kit(
         GBA, str(photo), "la femme", "", dresseur.FEUILLES, dresseur.DESSINER, None, "trback002", "trchar113", 3,
         progress=no_progress)
     assert couleurs == "hair: black; skin: tan" and lu == ["couleurs", "sprite"]
@@ -167,6 +167,55 @@ def test_face_dessinee_et_couleurs_lues(faux_klein, monkeypatch):
     assert len(appels) == 2 and len(appels[1]["references"]) == 2 and "image 2" in appels[1]["prompt"]
     assert Image.open(face).size == (64, 64) and not (Path(dossier) / "face_source.png").name in str(
         __import__("zipfile").ZipFile(Path(dossier) / f"{Path(dossier).name}.zip").namelist())
+
+
+
+def test_kit_d_apres_une_simple_description(faux_klein, monkeypatch):
+    """Sans photo : la description française est traduite par Qwen3-VL (texte seul), affichée et modifiable ; la
+    description modifiée fait foi pour le sprite de face, les couleurs du recoloriage et la feuille de marche."""
+    appels, photo, tmp = faux_klein
+    _bibliotheque(tmp)
+    monkeypatch.setattr(diffusion, "present", lambda nom: nom == "qwen")
+    lu = []
+
+    def decrire(mode, texte, image=None, progress=None):
+        lu.append((mode, texte, image))
+        return {"sprite_texte": "a young woman with long red hair, red jacket and blue shorts.",
+                "couleurs_texte": "hair: red; top: green", "sprite": "a man from the photo."}.get(mode, "?")
+
+    monkeypatch.setattr(diffusion, "decrire", decrire)
+    with pytest.raises(gr.Error, match="décris"):
+        dresseur.preparer_description(None, "  ", progress=no_progress)
+    texte = dresseur.preparer_description(None, "une dresseuse rousse, veste rouge, short bleu", progress=no_progress)
+    assert texte == "a young woman with long red hair, red jacket and blue shorts."
+    assert lu[-1] == ("sprite_texte", "une dresseuse rousse, veste rouge, short bleu", None)
+    assert dresseur.preparer_description(str(photo), "", progress=no_progress) == "a man from the photo."
+    assert lu[-1][0] == "sprite" and lu[-1][2] == str(photo)
+    # description modifiée par l'utilisateur (veste verte) : Qwen ne la réécrit pas, elle part telle quelle à SDXL
+    lu.clear()
+    modifiee = "a young woman with long red hair, green jacket and blue shorts"
+    msg, apercus, fichiers, dossier, face, couleurs, description = dresseur.creer_kit(
+        GBA, None, "une dresseuse rousse", "", dresseur.FEUILLES, dresseur.LORA, None, "trback002", "trchar113", 4,
+        variantes=1, description=modifiee, progress=no_progress)
+    assert appels[0]["prompt"] == f"a pixel image of {modifiee}, gen3, full body, standing, simple background"
+    assert couleurs == "hair: red; top: green" and lu == [("couleurs_texte", modifiee, None)]
+    assert description == modifiee and Image.open(face).size == (64, 64)
+    infos = json.loads((Path(dossier) / "kit.json").read_text(encoding="utf-8"))
+    assert infos["description"] == modifiee
+    # sans description préparée ni photo : la demande française est traduite avant SDXL
+    lu.clear()
+    *_, description = dresseur.creer_kit(GBA, None, "une dresseuse rousse", "", [dresseur.FACE], dresseur.LORA,
+                                         None, None, None, 4, variantes=1, progress=no_progress)
+    assert lu == [("sprite_texte", "une dresseuse rousse", None)]
+    assert "a young woman with long red hair" in appels[-1]["prompt"] and description.startswith("a young woman")
+    # couleurs lues sans photo : d'après la description, sinon d'après la demande
+    assert dresseur.lire_couleurs(None, "une rousse", "", progress=no_progress) == "hair: red; top: green"
+    assert lu[-1] == ("couleurs_texte", "une rousse", None)
+    dresseur.lire_couleurs(str(photo), "la femme", modifiee, progress=no_progress)
+    assert lu[-1] == ("couleurs_texte", modifiee, None)
+    with pytest.raises(gr.Error, match="klein"):
+        dresseur.creer_kit(GBA, None, "x", "", [dresseur.FACE], dresseur.DESSINER, None, None, None, 1,
+                           description=modifiee, progress=no_progress)
 
 
 def test_ds_lancer_du_gba_et_erreurs(faux_klein):
@@ -181,7 +230,7 @@ def test_ds_lancer_du_gba_et_erreurs(faux_klein):
     with pytest.raises(gr.Error, match="Pas de sprite d'exemple"):
         dresseur.creer_kit(DS, str(photo), "", "hair: red", dresseur.FEUILLES, dresseur.RECOLORER, None,
                            "gba:trback002", "marche_ds", 1, progress=no_progress)
-    _, _, _, dossier, face, _ = dresseur.creer_kit(DS, str(photo), "", "hair: red", [dresseur.LANCER, dresseur.MARCHE],
+    _, _, _, dossier, face, _, _ = dresseur.creer_kit(DS, str(photo), "", "hair: red", [dresseur.LANCER, dresseur.MARCHE],
                                                    dresseur.RECOLORER, None, "gba:trback002", "marche_ds", 1,
                                                    progress=no_progress)
     d = Path(dossier)

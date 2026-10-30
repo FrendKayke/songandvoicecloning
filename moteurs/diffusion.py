@@ -501,6 +501,26 @@ CONSIGNES = {
                 "caption: gender or age (man, woman, boy, girl, old man…), hair color and style, hat or headwear, "
                 "outfit and its colors, any held object. No name of any game or existing work. Answer with the phrase "
                 "only:\n\n"),
+    # kit de dresseur sans photo : le personnage décrit en français (« une dresseuse rousse, veste rouge ») ; la
+    # description sert au modèle de sprites (SDXL comprend mal le français) et reste modifiable dans l'onglet
+    "sprite_texte": ("Rewrite the following character request (often in French) into an English description of a "
+                     "video game character, for an image generator: gender, approximate age, face (beard, glasses, "
+                     "expression), hair (color, length, style), skin tone and build, then the outfit with its colors, "
+                     "accessories and any held object. Keep every detail of the request; only where it says nothing, "
+                     "choose simple plausible colors. Two or three sentences, no name of any game, artist or existing "
+                     "work (describe the look instead), nothing about the background. Answer with the description "
+                     "only:\n\n"),
+    "couleurs_texte": ("From the following character description (possibly in French), list the colors of their "
+                       "appearance for recoloring a pixel art game sprite, in English, on one line exactly in this "
+                       "form: 'hair: ...; skin: ...; top: ...; bottom: ...; shoes: ...; accessories: ...', with "
+                       "precise color names (for example 'dark chestnut brown', 'pale peach', 'light sky blue'); "
+                       "choose simple plausible colors for what is not said. For a dress, give its color for both top "
+                       "and bottom. Answer with that line only:\n\n"),
+    "legende_texte": ("Rewrite the following character description (possibly in French) as one short English phrase "
+                      "for a pixel art sprite caption: gender or age (man, woman, boy, girl, old man…), hair color "
+                      "and style, hat or headwear, outfit and its colors, any held object. No name of any game or "
+                      "existing work. Answer with the phrase only, for example: a young man with brown hair, red cap, "
+                      "blue jacket and backpack. Description:\n\n"),
     # onglet « Tileset en objets 3D » : ce que représente un morceau de tileset vu de dessus (une tuile « trou avec
     # échelle » redessinée telle quelle par FLUX.2 klein devenait un pavé plat chez l'utilisateur)
     "tuile3d": ("The attached image is one piece of a pixel art tileset from a top-down 2D video game: an object, a "

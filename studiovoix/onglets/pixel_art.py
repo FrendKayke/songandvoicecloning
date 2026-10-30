@@ -55,19 +55,29 @@ def construire():
         "photo (cheveux, lunettes, barbe, tenue, avec tes changements), en plusieurs variantes ; chacune est "
         "ramenée à la grille et aux couleurs du jeu. **Feuilles de lancer et de marche** : les sprites d'exemple "
         "sont gardés au pixel près et recolorés aux couleurs du sprite de face. « Animer un sprite » donne ensuite "
-        "sa feuille d'animation au sprite de face.")
+        "sa feuille d'animation au sprite de face. **Sans photo** : décris simplement le personnage (en français), "
+        "puis « 📝 Préparer la description » : Qwen3-VL l'écrit en anglais pour le modèle de sprites ; modifie-la à ta "
+        "guise (couleur d'un vêtement, coiffure, accessoire) avant de créer le kit, elle fait foi pour toutes les "
+        "feuilles.")
     _style0 = next(iter(dresseur.STYLES))
     with gr.Row():
-        kit_photo = gr.Image(type="filepath", label="Photo de la personne", height=300)
+        kit_photo = gr.Image(type="filepath", label="Photo de la personne (facultative)", height=300)
         with gr.Column():
             kit_style = gr.Radio(list(dresseur.STYLES), value=_style0, label="Style")
             kit_demande = gr.Textbox(
-                label="Qui, et ce que tu changes", lines=2,
-                placeholder="la femme aux cheveux bouclés, en dresseuse avec une veste rouge et un short bleu")
+                label="Avec une photo : qui, et ce que tu changes. Sans photo : décris le personnage", lines=2,
+                placeholder="la femme aux cheveux bouclés, en dresseuse avec une veste rouge et un short bleu ; ou, "
+                            "sans photo : un jeune dresseur blond, casquette verte, t-shirt noir, sac à dos jaune")
             with gr.Row():
-                kit_couleurs = gr.Textbox(label="Couleurs de la personne (lues sur la photo, modifiables)", lines=2,
-                                          placeholder=dresseur.COULEURS_DEFAUT, scale=3)
-                btn_kit_couleurs = gr.Button("🎨 Lire les couleurs sur la photo", scale=1)
+                kit_description = gr.Textbox(
+                    label="Description du personnage (anglais, modifiable ; vide = préparée à la création)", lines=3,
+                    placeholder="a young man with short blond hair, green cap, black t-shirt and yellow backpack",
+                    scale=3)
+                btn_kit_description = gr.Button("📝 Préparer la description", scale=1)
+            with gr.Row():
+                kit_couleurs = gr.Textbox(label="Couleurs de la personne (lues sur la photo ou la description, "
+                                                "modifiables)", lines=2, placeholder=dresseur.COULEURS_DEFAUT, scale=3)
+                btn_kit_couleurs = gr.Button("🎨 Lire les couleurs", scale=1)
             kit_feuilles = gr.CheckboxGroup(dresseur.FEUILLES, value=dresseur.FEUILLES, label="À créer")
             kit_mode_face = gr.Radio(dresseur.MODES_FACE, value=dresseur.LORA, label="Sprite de face")
             _loras = [dresseur.MARCHE_EXEMPLE] + list(dresseur.modele_sprites.loras())
@@ -146,8 +156,10 @@ def _personnages(*args, progress=gr.Progress()):
 
 
 def _kit(*args, progress=gr.Progress()):
-    msg, apercus, fichiers, dossier, sprite, couleurs = dresseur.creer_kit(*args, progress=progress)
-    return msg, apercus, fichiers, dossier, apercus, sprite, couleurs
+    *args, description = args
+    msg, apercus, fichiers, dossier, sprite, couleurs, description = dresseur.creer_kit(
+        *args, description=description, progress=progress)
+    return msg, apercus, fichiers, dossier, apercus, sprite, couleurs, description
 
 
 def brancher(c, demo, o):
@@ -167,10 +179,11 @@ def brancher(c, demo, o):
                      apercu)
     c.btn_kit_ajout.click(dresseur.ajouter_gabarits, [c.kit_style, c.kit_ajout_type, c.kit_ajout],
                           [c.kit_ajout_msg, *listes])
-    c.btn_kit_couleurs.click(dresseur.lire_couleurs, [c.kit_photo, c.kit_demande], c.kit_couleurs)
+    c.btn_kit_description.click(dresseur.preparer_description, [c.kit_photo, c.kit_demande], c.kit_description)
+    c.btn_kit_couleurs.click(dresseur.lire_couleurs, [c.kit_photo, c.kit_demande, c.kit_description], c.kit_couleurs)
     c.btn_kit.click(_kit, [c.kit_style, c.kit_photo, c.kit_demande, c.kit_couleurs, c.kit_feuilles, c.kit_mode_face,
-                           *listes, c.kit_graine, c.kit_nom, c.kit_variantes, c.kit_lora_marche],
-                    [*sorties, c.px_sprite, c.kit_couleurs])
+                           *listes, c.kit_graine, c.kit_nom, c.kit_variantes, c.kit_lora_marche, c.kit_description],
+                    [*sorties, c.px_sprite, c.kit_couleurs, c.kit_description])
     c.px_galerie.select(_choisir, c.px_apercus, c.px_sprite)
     c.btn_px_animer.click(pixel_art.animer, [c.px_sprite, c.px_mode, c.px_mouvement, c.px_anim_graine,
                                             c.px_anim_etapes, c.px_anim_nom, c.px_exemples],

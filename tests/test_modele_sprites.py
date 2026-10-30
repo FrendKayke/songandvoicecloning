@@ -134,7 +134,7 @@ def test_entrainement_puis_feuille_generee(faux_entrainement, monkeypatch):
     monkeypatch.setattr(diffusion, "sprite_dresseur", sprite_dresseur)
     monkeypatch.setattr(diffusion, "verifier", lambda *n: None)
     assert dresseur.liste_loras_marche()["value"] == "marche_gba"
-    msg, apercus, fichiers, dossier, face, _ = dresseur.creer_kit(
+    msg, apercus, fichiers, dossier, face, _, _ = dresseur.creer_kit(
         GBA, None, "un garçon aux cheveux bruns, chemise rouge", "", [dresseur.MARCHE], dresseur.LORA, None, None,
         None, 3, lora_marche="marche_gba", progress=no_progress)
     assert appels[0]["lora"] == str(fichier) and appels[0]["taille"] == (512, 768)
