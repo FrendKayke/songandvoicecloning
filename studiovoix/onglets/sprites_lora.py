@@ -1,11 +1,17 @@
 """Onglet « Entraîner un modèle de sprites » : feuilles de marche d'exemple → légendes → LoRA SDXL (kohya), proposé
 ensuite dans le kit de dresseur pour générer la feuille de marche d'un nouveau personnage. La marche à suivre et le
 type de fichier attendu à chaque étape sont affichés dans l'onglet (`modele_sprites.guide`), d'après le style choisi."""
+import inspect
+
 import gradio as gr
 
 from .. import dresseur, modele_sprites
 from ..outils import open_folder
 from .commun import espace_de_noms
+
+# deux colonnes fixes : « column_count » depuis Gradio 6 (« col_count » y est obsolète et affiche un avertissement)
+_COLONNES_FIXES = ({"column_count": (2, "fixed")} if "column_count" in inspect.signature(gr.Dataframe).parameters
+                   else {"col_count": (2, "fixed")})
 
 
 def construire():
@@ -36,7 +42,7 @@ def construire():
     btn_lo_preparer = gr.Button("1️⃣ Préparer les feuilles", variant="primary")
     lo_prep_msg = gr.Markdown()
     lo_legendes = gr.Dataframe(headers=["Image", "Légende (anglais, modifiable)"], datatype=["str", "str"],
-                               interactive=True, wrap=True, col_count=(2, "fixed"),
+                               interactive=True, wrap=True, **_COLONNES_FIXES,
                                label="Légendes : corrige-les si besoin, puis enregistre")
     with gr.Row():
         btn_lo_legendes = gr.Button("💾 Enregistrer les légendes")

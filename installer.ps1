@@ -444,7 +444,7 @@ try {
         New-Item -ItemType Directory -Force -Path (Split-Path $pyd) | Out-Null
         Invoke-WebRequest -Uri "$KijaiRaw/hy3dgen/texgen/differentiable_renderer/mesh_processor.cp312-win_amd64.pyd" -OutFile $pyd -UseBasicParsing
         Repair-TorchOmp $DifPy $venv
-        Run $DifPy @('-c', 'import torch, diffusers, transformers, custom_rasterizer; from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; from hy3dgen.texgen.differentiable_renderer.mesh_processor import meshVerticeInpaint; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''Diffusion prête, GPU :'', torch.cuda.get_device_name(0))')
+        Run $DifPy @('-c', 'import torch, diffusers, transformers, peft, custom_rasterizer; from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; from hy3dgen.texgen.differentiable_renderer.mesh_processor import meshVerticeInpaint; assert torch.cuda.is_available(), ''CUDA indisponible''; print(''Diffusion prête, GPU :'', torch.cuda.get_device_name(0))')
         Done $m $sig
     } else { Write-Host 'Déjà fait.' }
 

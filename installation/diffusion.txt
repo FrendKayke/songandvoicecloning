@@ -38,3 +38,6 @@ kornia
 imageio
 imageio-ffmpeg
 ftfy
+# peft : exigé par diffusers pour charger un LoRA (load_lora_weights : sprites de dresseurs et modèles de feuilles
+# entraînés ici) ; sans lui « PEFT backend is required for this method » (constaté chez l'utilisateur le 31/10)
+peft

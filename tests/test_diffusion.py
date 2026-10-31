@@ -2081,3 +2081,16 @@ def test_image_introuvable_pour_qwen(env, monkeypatch, tmp_path):
     tache.write_text(json.dumps({"mode": "sprite", "texte": "x", "image": "photo.jpg"}), encoding="utf-8")
     with pytest.raises(SystemExit):
         moteur.principal(["decrire", str(tache)])
+
+
+def test_peft_pour_les_lora(monkeypatch, capsys):
+    """diffusers ne charge un LoRA qu'avec peft : il est dans l'environnement de diffusion, et son absence donne un
+    message clair (« PEFT backend is required for this method » chez l'utilisateur le 31/10)."""
+    import importlib.util
+
+    lignes = (cfg.APP_DIR / "installation" / "diffusion.txt").read_text(encoding="utf-8").splitlines()
+    assert "peft" in [l_.strip() for l_ in lignes if not l_.startswith("#")]
+    monkeypatch.setattr(importlib.util, "find_spec", lambda nom, *a: None if nom == "peft" else object())
+    with pytest.raises(SystemExit):
+        moteur._peft_requis()
+    assert "METTRE_A_JOUR.bat" in capsys.readouterr().out

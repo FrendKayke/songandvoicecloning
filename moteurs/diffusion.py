@@ -903,6 +903,16 @@ def _generer(pipe, t, options, etapes, plongements):
 
 
 # --- SDXL + LoRA de sprites de dresseurs (kit de dresseur) ---------------------------------------------------
+def _peft_requis():
+    """diffusers ne charge un LoRA qu'avec peft (« PEFT backend is required for this method », constaté chez
+    l'utilisateur le 31/10 : peft manquait dans l'environnement de diffusion)."""
+    import importlib.util
+
+    if importlib.util.find_spec("peft") is None:
+        _erreur("le paquet peft manque dans l'environnement de diffusion (il sert à charger les modèles de "
+                "sprites) : lance METTRE_A_JOUR.bat pour l'installer.")
+
+
 def sprite_dresseur(chemin_tache):
     """Tâche : {prompt | prompts, negatif?, sorties, graines, largeur, hauteur, etapes, guidage, lora_echelle}.
     StableDiffusionXLPipeline (fp16, ~7 Go : tout sur la carte) + LoRA au format Kohya (lora_te1/te2/unet, converti
@@ -925,6 +935,7 @@ def sprite_dresseur(chemin_tache):
             options["variant"] = "fp16"
         pipe = StableDiffusionXLPipeline.from_pretrained(depot, **options)
         lora = t.get("lora") or hf_hub_download(*LORA_DRESSEUR)
+        _peft_requis()
         pipe.load_lora_weights(lora, adapter_name="dresseur")
         return pipe.to(device)
 
