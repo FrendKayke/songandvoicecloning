@@ -397,6 +397,11 @@ def test_sprite_relu_sur_la_grille_de_sdxl():
     proche = np.abs(zone[..., :3].astype(int) - natif[..., :3].astype(int)).sum(-1) < 30
     assert proche[natif[..., 3] > 0].mean() > 0.98
     assert (zone[16, 8, :3] < 60).all() and (zone[16, 15, :3] < 60).all() and (zone[15, 8, :3] > 230).all()
+    # personnage plus grand que la toile (pixels de 8 px de SDXL, ~76 de haut chez l'utilisateur) : toile agrandie
+    # plutôt qu'une réduction qui déforme ; sans `toile_max`, repli
+    assert pixel_art.pixeliser_grille(im, couleurs=15, toile=48) is None
+    grande, infos = pixel_art.pixeliser_grille(im, couleurs=15, toile=48, toile_max=96)
+    assert grande.size == (56, 56) and infos["taille"] == [24, 54]
     # image lisse, sans grille : repli sur la réduction classique
     lisse = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
     assert pixel_art.pixeliser_grille(lisse) is None

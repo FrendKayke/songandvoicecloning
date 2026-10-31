@@ -244,12 +244,15 @@ def nettoyer(sprite, ecart=130):
     return s
 
 
-def pixeliser_grille(image, couleurs=15, toile=64, contour=CONTOUR_DEFAUT, hauteur_min=32):
+def pixeliser_grille(image, couleurs=15, toile=64, contour=CONTOUR_DEFAUT, hauteur_min=32, toile_max=None):
     """Sprite d'une image déjà dessinée en gros pixels (SDXL + LoRA) : un pixel par case de sa grille
     (`grille_approchee`, couleur médiane du centre de la case), sans rééchantillonnage — le réduire à une hauteur
     fixe mélangeait deux cases en une et déformait les yeux (sprite de l'utilisateur du 31/10). Palette de
     `couleurs` couleurs, pixels isolés nettoyés, contour, posé en bas au centre. None si l'image n'a pas de grille
-    nette ou si le personnage ne tient pas dans la toile (l'appelant revient à `pixeliser`)."""
+    nette ou si le personnage ne tient pas dans la toile (l'appelant revient à `pixeliser`). `toile_max` : toile
+    agrandie (multiple de 8) jusqu'à cette taille plutôt que de réduire le dessin — les sorties de SDXL + LoRA de
+    l'utilisateur (31/10) avaient des pixels de 8 px et un personnage de ~76 pixels de haut, plus que la toile GBA
+    de 64 : la réduction qui suivait déformait les yeux."""
     im = image.convert("RGBA")
     if np.array(im)[..., 3].min() == 255:
         im = _sans_fond_uni(im)
@@ -273,8 +276,12 @@ def pixeliser_grille(image, couleurs=15, toile=64, contour=CONTOUR_DEFAUT, haute
         return None
     natif = natif[lignes.min():lignes.max() + 1, colonnes.min():colonnes.max() + 1]
     hn, wn = natif.shape[:2]
-    if hn > toile or wn > toile or hn < hauteur_min:
+    if hn < hauteur_min:
         return None
+    if hn > toile or wn > toile:
+        if not toile_max or max(hn, wn) > toile_max:
+            return None
+        toile = -(-max(hn, wn) // 8) * 8
     op = natif[..., 3] > 0
     palette = np.asarray(_palette(natif[..., :3][op], couleurs), np.uint8)
     # détails rares mais francs (reflet blanc d'un œil, bouton rouge) : la palette les fondait dans la peau

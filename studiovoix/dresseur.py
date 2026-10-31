@@ -521,7 +521,8 @@ def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, prog
     sprites = []
     for im in images:
         # d'abord la grille de pixels dessinée par SDXL (un pixel par case) ; sinon réduction à la hauteur du style
-        sur_grille = px.pixeliser_grille(Image.open(im), st["couleurs"], st["toile"], px.CONTOUR_DEFAUT)
+        sur_grille = px.pixeliser_grille(Image.open(im), st["couleurs"], st["toile"], px.CONTOUR_DEFAUT,
+                                        toile_max=2 * st["toile"])
         if sur_grille is not None:
             sprites.append(np.array(sur_grille[0]))
             continue
@@ -671,10 +672,9 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
     if lora_marche:
         progress(0.7, desc=f"Feuille de marche (SDXL + modèle « {lora_marche} »)…")
         legende = _description_marche(copie, demande, couleurs, progress, description)
+        # palette lue sur la feuille elle-même : celle du sprite de face, appliquée au plus proche, changeait les
+        # couleurs (cheveux blond-vert de la feuille devenus orange, kit de l'utilisateur du 31/10)
         palette = None
-        if "face" in resultats:
-            fa = resultats["face"]
-            palette = np.unique(fa[..., :3][fa[..., 3] >= 128].reshape(-1, 3), axis=0)
         resultats["marche"], prompt = modele_sprites.generer_feuille(
             lora_marche, legende, dossier / "marche.png", graine, st["marche"]["grille"],
             st["marche"]["cellule"], palette, st["couleurs"], progress=progress)
