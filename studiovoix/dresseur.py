@@ -156,6 +156,27 @@ def ajouter_gabarits(style, feuille_libelle, fichiers):
     return (msg,) + mises_a_jour_listes(style)
 
 
+def supprimer_gabarit(style, nom, feuille):
+    """Retire un sprite d'exemple de la bibliothèque (après confirmation dans le navigateur ; nom vide = annulé).
+    Renvoie (message, liste mise à jour)."""
+    if style not in STYLES or feuille not in ("face", "lancer", "marche"):
+        raise gr.Error("Choisis un style.")
+    if not nom:
+        return "", gr.update()
+    if ":" in nom:  # lancer GBA prêté au style DS
+        cle = nom.split(":", 1)[0]
+        autre = next(s for s in STYLES if STYLES[s]["cle"] == cle)
+        raise gr.Error(f"Cet exemple appartient au style « {autre} » (il sert ici faute d'exemple pour ce style) : "
+                       "choisis ce style pour le supprimer.")
+    f = dossier_gabarits(style, feuille) / f"{Path(nom).name}.png"
+    if not f.is_file():
+        raise gr.Error(f"Exemple « {nom} » introuvable.")
+    f.unlink()
+    noms = liste_gabarits(style, feuille)
+    return (f"🗑️ Exemple « {nom} » retiré ({LIBELLES_FEUILLES[feuille]}).",
+            gr.update(choices=noms, value=noms[0] if noms else None))
+
+
 def mises_a_jour_listes(style):
     sorties = []
     for feuille in ("face", "lancer", "marche"):

@@ -91,17 +91,26 @@ def construire():
                 kit_nom = gr.Textbox(label="Nom du dossier", value="dresseur")
             btn_kit = gr.Button("🎒 Créer le kit de dresseur", variant="primary")
     with gr.Accordion("📄 Sprites d'exemple (le style et la silhouette)", open=True):
+        gr.Markdown(
+            "Les exemples ne servent qu'aux feuilles **recolorées** : le sprite de face en mode « Recolorer », la "
+            "feuille de lancer, et la feuille de marche quand la liste « Feuille de marche » est sur « recolorer un "
+            "sprite d'exemple ». Le sprite de face dessiné par le modèle de sprites et la feuille de marche d'un "
+            "modèle entraîné ne les utilisent pas.")
         with gr.Row():
             listes = {}
             apercus_ex = {}
+            suppressions = {}
             for _f, _lib in (("face", "Sprite de face"), ("lancer", "Lancer (de dos)"), ("marche", "Marche")):
                 with gr.Column():
                     _noms = dresseur.liste_gabarits(_style0, _f)
                     listes[_f] = gr.Dropdown(_noms, value=_noms[0] if _noms else None, label=f"Exemple : {_lib}")
                     apercus_ex[_f] = gr.Image(label="Aperçu", height=160, interactive=False,
                                              value=dresseur.apercu_gabarit(_style0, _f, _noms[0]) if _noms else None)
+                    suppressions[_f] = gr.Button("🗑️ Supprimer cet exemple", size="sm")
         kit_ex_face, kit_ex_lancer, kit_ex_marche = listes["face"], listes["lancer"], listes["marche"]
         kit_ap_face, kit_ap_lancer, kit_ap_marche = apercus_ex["face"], apercus_ex["lancer"], apercus_ex["marche"]
+        btn_kit_suppr_face, btn_kit_suppr_lancer, btn_kit_suppr_marche = (suppressions["face"], suppressions["lancer"],
+                                                                          suppressions["marche"])
         with gr.Row():
             kit_ajout = gr.File(file_count="multiple", file_types=["image"],
                                 label="Ajouter des sprites d'exemple (PNG ou GIF du jeu, agrandis ou non)")
@@ -177,6 +186,12 @@ def brancher(c, demo, o):
     for liste, apercu, feuille in zip(listes, apercus, ("face", "lancer", "marche")):
         liste.change(lambda style, nom, f=feuille: dresseur.apercu_gabarit(style, f, nom), [c.kit_style, liste],
                      apercu)
+    confirmer = ("(s, n) => (n && confirm('Supprimer l\\'exemple « ' + n + ' » de la bibliothèque ?')) ? [s, n] "
+                 ": [s, null]")
+    for bouton, liste, feuille in zip((c.btn_kit_suppr_face, c.btn_kit_suppr_lancer, c.btn_kit_suppr_marche), listes,
+                                      ("face", "lancer", "marche")):
+        bouton.click(lambda style, nom, f=feuille: dresseur.supprimer_gabarit(style, nom, f), [c.kit_style, liste],
+                     [c.kit_ajout_msg, liste], js=confirmer)
     c.btn_kit_ajout.click(dresseur.ajouter_gabarits, [c.kit_style, c.kit_ajout_type, c.kit_ajout],
                           [c.kit_ajout_msg, *listes])
     c.btn_kit_description.click(dresseur.preparer_description, [c.kit_photo, c.kit_demande], c.kit_description)

@@ -936,7 +936,13 @@ def sprite_dresseur(chemin_tache):
         pipe = StableDiffusionXLPipeline.from_pretrained(depot, **options)
         lora = t.get("lora") or hf_hub_download(*LORA_DRESSEUR)
         _peft_requis()
-        pipe.load_lora_weights(lora, adapter_name="dresseur")
+        # le contenu, pas le chemin : avec un chemin, diffusers 0.39 cherche à deviner le nom du fichier et refuse
+        # hors ligne, même pour un fichier local (« When using the offline mode, you must specify a weight_name » ;
+        # lora_base garde sa copie de HF_HUB_OFFLINE prise à son import, après une tâche Qwen hors ligne : constaté
+        # chez l'utilisateur le 31/10, reproduit ici avec le vrai diffusers)
+        from safetensors.torch import load_file
+
+        pipe.load_lora_weights(load_file(str(lora)), adapter_name="dresseur")
         return pipe.to(device)
 
     pipe = _garder(("SDXL sprites", depot, t.get("lora"), device), charger, 8, vers_cpu=lambda p_: p_.to("cpu"),

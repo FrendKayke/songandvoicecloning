@@ -268,3 +268,17 @@ def test_photo_du_kit_envoyee_avec_son_chemin_complet(faux_klein, monkeypatch):
     dresseur.creer_kit(GBA, str(photo), "la femme", "", dresseur.FEUILLES, dresseur.LORA, None, "trback002",
                        "trchar113", 3, variantes=1, progress=no_progress)
     assert vus == ["couleurs", "sprite"]
+
+
+def test_supprimer_un_exemple(faux_klein):
+    appels, photo, tmp = faux_klein
+    _bibliotheque(tmp)
+    assert dresseur.supprimer_gabarit(GBA, None, "marche") == ("", gr.update())  # confirmation refusée
+    msg, maj = dresseur.supprimer_gabarit(GBA, "trchar113", "marche")
+    assert "retiré" in msg and maj["choices"] == [] and maj["value"] is None
+    assert dresseur.liste_gabarits(GBA, "marche") == []
+    with pytest.raises(gr.Error, match="introuvable"):
+        dresseur.supprimer_gabarit(GBA, "trchar113", "marche")
+    with pytest.raises(gr.Error, match="appartient au style"):  # lancer GBA prêté à la DS
+        dresseur.supprimer_gabarit(DS, "gba:trback002", "lancer")
+    assert dresseur.liste_gabarits(GBA, "lancer") == ["trback002"]
