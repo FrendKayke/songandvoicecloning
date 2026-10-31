@@ -108,7 +108,8 @@ def test_kit_recolore_les_exemples(faux_klein):
         nouvelles = {tuple(p) for p in a[..., :3][op]}
         assert len(nouvelles) == len(anciennes)  # ombrage gardé, même si klein peint deux nuances pareil
         assert (a[..., :3][(g[..., :3] == 0).all(-1) & op] == 0).all()  # contours noirs gardés
-        assert (a[..., :3][(g[..., :3] == CHEVEUX).all(-1) & op] == NOUVELLES[CHEVEUX]).all()
+        cheveux = a[..., :3][(g[..., :3] == CHEVEUX).all(-1) & op].astype(int)
+        assert (np.abs(cheveux - NOUVELLES[CHEVEUX]).sum(-1) < 60).all()  # teinte peinte, ombrage du gabarit
     assert Image.open(d / "lancer.png").size == (320, 64) and Image.open(d / "marche.png").size == (64, 96)
     assert Image.open(face).size == (64, 64)
     noms_fichiers = {Path(p).name for p in fichiers}
@@ -282,3 +283,33 @@ def test_supprimer_un_exemple(faux_klein):
     with pytest.raises(gr.Error, match="appartient au style"):  # lancer GBA prêté à la DS
         dresseur.supprimer_gabarit(DS, "gba:trback002", "lancer")
     assert dresseur.liste_gabarits(GBA, "lancer") == ["trback002"]
+
+
+def test_une_teinte_par_zone_du_gabarit():
+    """Les nuances d'une même matière prennent une seule teinte (feuille de lancer de l'utilisateur, 31/10 : veste à
+    moitié orange, à moitié kaki), avec l'ombrage du gabarit ; deux matières voisines de teintes différentes restent
+    séparées."""
+    clair, moyen, ombre = (90, 140, 230), (60, 110, 200), (30, 70, 150)  # veste bleue, trois nuances
+    peau = (240, 200, 160)
+    g = np.zeros((12, 12, 4), np.uint8)
+    g[:4, :, :3] = peau
+    g[4:8, :, :3] = clair
+    g[8:10, :, :3] = moyen
+    g[10:, :, :3] = ombre
+    g[..., 3] = 255
+    zones = dresseur.materiaux(g)
+    assert {frozenset(z) for z in zones} == {frozenset({clair, moyen, ombre}), frozenset({peau})}
+    # klein peint la veste claire en orange, l'ombre en kaki : toute la veste devient orange (la plus peinte)
+    peint = g[..., :3].copy()
+    peint[4:10] = (230, 140, 60)
+    peint[10:] = (120, 120, 50)
+    peint[:4] = (250, 215, 190)
+    k = 4
+    image = Image.fromarray(np.repeat(np.repeat(peint, k, 0), k, 1), "RGB")
+    n = dresseur.correspondances(g, image, k)
+    import colorsys
+    teintes = [colorsys.rgb_to_hls(*(np.array(n[c]) / 255))[0] for c in (clair, moyen, ombre)]
+    assert max(teintes) - min(teintes) < 0.02 and 0.04 < teintes[0] < 0.12  # une seule teinte, orange
+    lum = [dresseur._lum(n[c]) for c in (clair, moyen, ombre)]
+    assert lum[0] > lum[1] > lum[2]  # ombrage du gabarit gardé
+    assert np.abs(np.array(n[peau]) - (250, 215, 190)).sum() < 30

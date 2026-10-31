@@ -323,14 +323,83 @@ def correspondances(gabarit, image, k):
     centres = rgb[k // 2::k, k // 2::k][:h, :w]
     opaque = gabarit[..., 3] >= 128
     nouvelles = {}
-    for c in np.unique(gabarit[..., :3][opaque].reshape(-1, 3), axis=0):
-        c = tuple(int(x) for x in c)
+    couleurs = [tuple(int(x) for x in c) for c in np.unique(gabarit[..., :3][opaque].reshape(-1, 3), axis=0)]
+    for c in couleurs:
         if _contour(c):
             nouvelles[c] = c
-            continue
-        m = opaque & (gabarit[..., :3] == c).all(-1)
-        nouvelles[c] = tuple(int(x) for x in np.median(centres[m], axis=0))
+    # Chaque zone du gabarit (les nuances d'une même matière : veste claire / veste ombrée) prend UNE teinte, celle
+    # que klein y a peinte le plus, et garde l'ombrage du gabarit. Recolorées chacune de leur côté, les nuances d'une
+    # même veste devenaient orange et kaki (feuille de lancer de l'utilisateur, 31/10).
+    for zone in materiaux(gabarit):
+        masque = opaque & np.isin(_code(gabarit[..., :3]), [_code_c(c) for c in zone])
+        cible = np.median(centres[masque], axis=0) / 255
+        h_t, l_t, s_t = colorsys.rgb_to_hls(*cible)
+        hls = {c: colorsys.rgb_to_hls(*(np.array(c) / 255)) for c in zone}
+        poids = {c: int((opaque & (gabarit[..., :3] == c).all(-1)).sum()) for c in zone}
+        total = max(1, sum(poids.values()))
+        l_moy = sum(hls[c][1] * poids[c] for c in zone) / total
+        s_moy = sum(hls[c][2] * poids[c] for c in zone) / total
+        for c in zone:
+            _, l_c, s_c = hls[c]
+            l_n = min(0.97, max(0.04, l_t + (l_c - l_moy)))
+            s_n = min(1.0, max(0.0, s_t * (min(1.5, max(0.6, s_c / s_moy)) if s_moy > 0.05 else 1.0)))
+            nouvelles[c] = tuple(int(round(x * 255)) for x in colorsys.hls_to_rgb(h_t, l_n, s_n))
     return _garder_les_nuances(nouvelles)
+
+
+def _code(a):
+    a = a.astype(np.int64)
+    return (a[..., 0] << 16) | (a[..., 1] << 8) | a[..., 2]
+
+
+def _code_c(c):
+    return (int(c[0]) << 16) | (int(c[1]) << 8) | int(c[2])
+
+
+def _distance_teinte(a, b):
+    d = abs(a - b) % 1.0
+    return min(d, 1.0 - d)
+
+
+def materiaux(gabarit):
+    """Zones du gabarit : couleurs (hors contours) voisines dans l'image et de même teinte — les nuances d'une même
+    matière (clair, ombre, reflet). Renvoie une liste d'ensembles de couleurs."""
+    opaque = gabarit[..., 3] >= 128
+    codes = np.where(opaque, _code(gabarit[..., :3]), -1)
+    couleurs = {int(x): None for x in np.unique(codes[codes >= 0])}
+    rgb = {k: ((k >> 16) & 255, (k >> 8) & 255, k & 255) for k in couleurs}
+    hls = {k: colorsys.rgb_to_hls(*(np.array(rgb[k]) / 255)) for k in couleurs}
+    parent = {k: k for k in couleurs if not _contour(rgb[k])}
+
+    def racine(k):
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    voisins = {}
+    for a_, b_ in ((codes[:, :-1], codes[:, 1:]), (codes[:-1, :], codes[1:, :])):
+        m = (a_ >= 0) & (b_ >= 0) & (a_ != b_)
+        for x, y in zip(a_[m].tolist(), b_[m].tolist()):
+            cle = (min(x, y), max(x, y))
+            voisins[cle] = voisins.get(cle, 0) + 1
+    for (x, y), n in voisins.items():
+        if n < 2 or x not in parent or y not in parent:
+            continue
+        hx, lx, sx = hls[x]
+        hy, ly, sy = hls[y]
+        # nuances d'un même dégradé : clarté proche (une marche d'ombrage), même teinte ; la peau et des cheveux bruns
+        # ont presque la même teinte mais pas la même clarté
+        if abs(lx - ly) > 0.25:
+            continue
+        gris = sx < 0.15 and sy < 0.15
+        meme = gris or (sx >= 0.15 and sy >= 0.15 and _distance_teinte(hx, hy) < 0.05 and abs(sx - sy) < 0.4)
+        if meme:
+            parent[racine(x)] = racine(y)
+    zones = {}
+    for k in parent:
+        zones.setdefault(racine(k), set()).add(rgb[k])
+    return list(zones.values())
 
 
 def _lum(c):
@@ -451,8 +520,13 @@ def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, prog
             pass
     sprites = []
     for im in images:
+        # d'abord la grille de pixels dessinée par SDXL (un pixel par case) ; sinon réduction à la hauteur du style
+        sur_grille = px.pixeliser_grille(Image.open(im), st["couleurs"], st["toile"], px.CONTOUR_DEFAUT)
+        if sur_grille is not None:
+            sprites.append(np.array(sur_grille[0]))
+            continue
         sprite, _ = px.pixeliser(Image.open(im), st["hauteur"], st["couleurs"], st["toile"], px.CONTOUR_DEFAUT)
-        sprites.append(np.array(sprite))
+        sprites.append(px.nettoyer(np.array(sprite)))
     return sprites, prompt, description
 
 

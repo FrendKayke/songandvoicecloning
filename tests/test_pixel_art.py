@@ -354,3 +354,58 @@ def test_boucle_avec_personnage_change_par_wan(env, monkeypatch):
     assert prompts[0].startswith("A blond pixel art trainer")  # le personnage est décrit à Wan
     assert "remplacée par la respiration" in msg
     assert len(list(Path(dossier, "images").glob("*.png"))) == pixel_art.IMAGES_ANIMATION
+
+
+def _sprite_avec_visage():
+    """Sprite 40×56 : cheveux, visage avec deux yeux d'un pixel et un reflet, habit, contour."""
+    s = np.zeros((56, 40, 4), np.uint8)
+    s[2:14, 10:30] = (200, 170, 90, 255)     # cheveux
+    s[14:26, 12:28] = (240, 200, 170, 255)   # visage
+    s[18, 16] = s[18, 23] = (20, 20, 30, 255)  # yeux
+    s[17, 16] = (255, 255, 255, 255)         # reflet
+    s[22, 18:22] = (200, 90, 90, 255)        # bouche
+    s[26:56, 8:32] = (210, 110, 40, 255)     # habit
+    s[40:56, 8:32] = (150, 70, 30, 255)      # ombre
+    return pixel_art.contourer(s, pixel_art.CONTOUR_DEFAUT)
+
+
+def test_sprite_relu_sur_la_grille_de_sdxl():
+    """Image « en gros pixels » de 16 px, décalée, floutée et bruitée (comme une sortie de SDXL + LoRA) : le sprite
+    est relu case par case, les yeux d'un pixel restent à leur place (la réduction à une hauteur fixe les
+    déformait, 31/10)."""
+    from PIL import ImageFilter
+
+    natif = _sprite_avec_visage()
+    p_ = 16
+    grand = np.repeat(np.repeat(natif, p_, 0), p_, 1)
+    toile = np.zeros((1024, 1024, 4), np.uint8)
+    toile[100 + 5:100 + 5 + grand.shape[0], 200 + 11:200 + 11 + grand.shape[1]] = grand
+    im = Image.fromarray(toile, "RGBA").filter(ImageFilter.BoxBlur(1))
+    a = np.array(im).astype(int)
+    rng = np.random.default_rng(0)
+    a[..., :3] = np.clip(a[..., :3] + rng.integers(-8, 9, a[..., :3].shape), 0, 255)
+    im = Image.fromarray(a.astype(np.uint8), "RGBA")
+    g = pixel_art.grille_approchee(np.array(im))
+    assert g is not None and g[0] == 16
+    sprite, infos = pixel_art.pixeliser_grille(im, couleurs=15, toile=64)
+    s = np.array(sprite)
+    natif = natif[2:56, 8:32]  # le personnage recadré : 24×54
+    assert infos["taille"] == [24, 54] and infos["grille"] == 16
+    # replacé en bas au centre de la toile de 64
+    zone = s[10:64, 20:44]
+    assert (zone[..., 3] == natif[..., 3]).all()
+    proche = np.abs(zone[..., :3].astype(int) - natif[..., :3].astype(int)).sum(-1) < 30
+    assert proche[natif[..., 3] > 0].mean() > 0.98
+    assert (zone[16, 8, :3] < 60).all() and (zone[16, 15, :3] < 60).all() and (zone[15, 8, :3] > 230).all()
+    # image lisse, sans grille : repli sur la réduction classique
+    lisse = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    assert pixel_art.pixeliser_grille(lisse) is None
+
+
+def test_mouchetures_nettoyees_detail_garde():
+    s = np.zeros((7, 7, 4), np.uint8)
+    s[...] = (228, 210, 174, 255)          # cheveux blonds
+    s[2, 2] = (177, 164, 166, 255)         # moucheture grise
+    s[4, 4] = (20, 20, 30, 255)            # œil : gardé
+    n = pixel_art.nettoyer(s)
+    assert tuple(n[2, 2, :3]) == (228, 210, 174) and tuple(n[4, 4, :3]) == (20, 20, 30)

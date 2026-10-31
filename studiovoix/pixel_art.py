@@ -188,6 +188,111 @@ def pixeliser(image, hauteur=60, couleurs=20, toile=64, contour=CONTOUR_DEFAUT, 
     return Image.fromarray(sprite, "RGBA"), {"palette": palette.tolist(), "cadre": list(cadre)}
 
 
+def grille_approchee(a, periodes=range(6, 33), seuil=40):
+    """Grille de « gros pixels » d'une image générée (SDXL + LoRA de sprites dessine en pixels de ~10 à 20 px de
+    côté). Mesure où tombent les changements de couleur : pour chaque taille p, la part des changements qui tombent
+    sur une grille de pas p (avec son décalage). La plus grande taille qui en recueille presque autant que la
+    meilleure (une grille de pas 8 recueille aussi tous les bords d'une grille de pas 16). Renvoie (p, décalage x,
+    décalage y, part) ou None si aucune grille nette (au moins la moitié des changements dessus)."""
+    rgb = a[..., :3].astype(int)
+    op = a[..., 3] >= 128 if a.shape[-1] == 4 else np.ones(a.shape[:2], bool)
+    bx = ((np.abs(rgb[:, 1:] - rgb[:, :-1]).sum(-1) > seuil) & (op[:, 1:] | op[:, :-1])).sum(0)
+    by = ((np.abs(rgb[1:] - rgb[:-1]).sum(-1) > seuil) & (op[1:] | op[:-1])).sum(1)
+    total = bx.sum() + by.sum()
+    if total < 50:
+        return None
+    ix, iy = np.arange(1, len(bx) + 1), np.arange(1, len(by) + 1)  # bord entre i-1 et i
+    scores = {}
+    for p_ in periodes:
+        # un pixel de marge : un bord flouté (image générée) s'étale sur deux colonnes
+        cx = np.array([bx[ix % p_ == d].sum() for d in range(p_)])
+        cy = np.array([by[iy % p_ == d].sum() for d in range(p_)])
+        sx = cx + np.roll(cx, 1) + np.roll(cx, -1)
+        sy = cy + np.roll(cy, 1) + np.roll(cy, -1)
+        dx, dy = int(np.argmax(sx)), int(np.argmax(sy))
+        # décalage = colonne où le bord est le plus franc dans la fenêtre
+        dx = int((dx + np.argmax([cx[(dx - 1) % p_], cx[dx], cx[(dx + 1) % p_]]) - 1) % p_)
+        dy = int((dy + np.argmax([cy[(dy - 1) % p_], cy[dy], cy[(dy + 1) % p_]]) - 1) % p_)
+        scores[p_] = (min(1.0, (sx.max() + sy.max()) / total), dx, dy)
+    meilleur = max(s[0] for s in scores.values())
+    if meilleur < 0.5:
+        return None
+    p_ = max(q for q, s in scores.items() if s[0] >= 0.85 * meilleur)
+    return p_, scores[p_][1], scores[p_][2], round(float(scores[p_][0]), 3)
+
+
+def nettoyer(sprite, ecart=130):
+    """Pixels isolés retirés : un pixel entouré sur au moins 3 côtés d'une même couleur proche (écart < `ecart`)
+    prend cette couleur (mouchetures grises dans des cheveux blonds). Un détail franc (œil noir sur la peau, reflet
+    blanc) est gardé : il est loin de la couleur qui l'entoure."""
+    s = sprite.copy()
+    h, w = s.shape[:2]
+    a = sprite.astype(int)
+    for y in range(1, h - 1):
+        for x in range(1, w - 1):
+            if sprite[y, x, 3] == 0:
+                continue
+            v = [a[y - 1, x], a[y + 1, x], a[y, x - 1], a[y, x + 1]]
+            if any(c[3] == 0 for c in v):
+                continue
+            c0 = a[y, x, :3]
+            for c in v:
+                pareil = sum(1 for d in v if (d[:3] == c[:3]).all())
+                if pareil >= 3 and not (c[:3] == c0).all() and np.abs(c[:3] - c0).sum() < ecart:
+                    s[y, x, :3] = c[:3]
+                    break
+    return s
+
+
+def pixeliser_grille(image, couleurs=15, toile=64, contour=CONTOUR_DEFAUT, hauteur_min=32):
+    """Sprite d'une image déjà dessinée en gros pixels (SDXL + LoRA) : un pixel par case de sa grille
+    (`grille_approchee`, couleur médiane du centre de la case), sans rééchantillonnage — le réduire à une hauteur
+    fixe mélangeait deux cases en une et déformait les yeux (sprite de l'utilisateur du 31/10). Palette de
+    `couleurs` couleurs, pixels isolés nettoyés, contour, posé en bas au centre. None si l'image n'a pas de grille
+    nette ou si le personnage ne tient pas dans la toile (l'appelant revient à `pixeliser`)."""
+    im = image.convert("RGBA")
+    if np.array(im)[..., 3].min() == 255:
+        im = _sans_fond_uni(im)
+    a = np.array(im)
+    g = grille_approchee(a)
+    if g is None:
+        return None
+    p_, dx, dy, part = g
+    h, w = (a.shape[0] - dy) // p_, (a.shape[1] - dx) // p_
+    if h < 4 or w < 4:
+        return None
+    cases = a[dy:dy + h * p_, dx:dx + w * p_].reshape(h, p_, w, p_, 4).transpose(0, 2, 1, 3, 4)
+    q = max(1, p_ // 4)
+    centre = cases[:, :, q:p_ - q, q:p_ - q].reshape(h, w, -1, 4)
+    opaque = (cases[..., 3] >= 128).mean(axis=(2, 3)) > 0.5
+    natif = np.zeros((h, w, 4), np.uint8)
+    natif[..., :3] = np.median(centre[..., :3], axis=2).astype(np.uint8)
+    natif[..., 3] = np.where(opaque, 255, 0)
+    lignes, colonnes = np.where(opaque)
+    if not len(lignes):
+        return None
+    natif = natif[lignes.min():lignes.max() + 1, colonnes.min():colonnes.max() + 1]
+    hn, wn = natif.shape[:2]
+    if hn > toile or wn > toile or hn < hauteur_min:
+        return None
+    op = natif[..., 3] > 0
+    palette = np.asarray(_palette(natif[..., :3][op], couleurs), np.uint8)
+    # détails rares mais francs (reflet blanc d'un œil, bouton rouge) : la palette les fondait dans la peau
+    pixels = natif[..., :3][op].astype(int)
+    for _ in range(4):
+        ecarts = np.abs(pixels[:, None, :] - palette[None, :, :].astype(int)).sum(-1).min(1)
+        if ecarts.max() < 120:
+            break
+        palette = np.vstack([palette, pixels[int(ecarts.argmax())].astype(np.uint8)])
+    natif[op, :3] = palette[_plus_proche(natif[..., :3][op], palette)]
+    natif = contourer(nettoyer(natif), contour)
+    sprite = np.zeros((toile, toile, 4), np.uint8)
+    x0 = (toile - wn) // 2
+    sprite[toile - hn:, x0:x0 + wn] = natif
+    return Image.fromarray(sprite, "RGBA"), {"palette": palette.tolist(), "grille": p_, "part": part,
+                                             "taille": [wn, hn]}
+
+
 def blocs_dominants(fin, palette, h, w):
     """Image RGBA de h×w blocs de k×k sous-pixels → sprite h×w : couleur de la palette la plus présente dans chaque
     bloc (pas la moyenne, qui donne des couleurs boueuses), transparent si plus de la moitié du bloc l'est."""
