@@ -26,7 +26,7 @@ from . import config as cfg
 from .audio import charger
 from .images import scenes_du_texte
 from .mixage import load_stereo
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .styles import musique
 from .videos import duree_lisible
 
@@ -246,7 +246,7 @@ def generer(fichier, feuille, entetes, col_desc, col_nom, col_paroles, col_duree
     lot = _limiter(entrees(fichier, feuille, entetes, col_desc, col_nom, col_paroles, col_duree, liste, numeroter,
                            duree_defaut), limite)
     formats = [f for f in (formats or []) if f in FORMATS] or ["wav"]
-    reference = str(getattr(reference, "name", reference)) if reference else None
+    reference = str(chemin_fichier(reference)) if reference else None
     if reference and not Path(reference).is_file():
         raise gr.Error(f"Musique de référence introuvable : {reference}")
     nom = serie._slug(nom, "musiques")
@@ -278,7 +278,7 @@ def generer(fichier, feuille, entetes, col_desc, col_nom, col_paroles, col_duree
              "thinking": bool(thinking), "versions": max(1, min(2, int(versions or 1))), "formats": formats,
              "cible": cible_label if cible_label in export.CIBLES else next(iter(export.CIBLES)),
              "style_commun": style_commun(genre, style, instruments, ambiance, extra, style_libre), "graine": graine,
-             "source": Path(str(getattr(fichier, "name", fichier))).name if fichier else "liste", "musiques": lot}
+             "source": Path(str(chemin_fichier(fichier))).name if fichier else "liste", "musiques": lot}
     (dossier / "lot.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
     return _executer(dossier, progress, note)
 

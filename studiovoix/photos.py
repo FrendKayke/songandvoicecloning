@@ -20,7 +20,7 @@ import gradio as gr
 
 from . import config as cfg
 from . import diffusion
-from .outils import ecrire_creation, nouveau_dossier
+from .outils import ecrire_creation, nouveau_dossier, chemin_fichier
 
 ACTIONS = {
     "✨ Améliorer la qualité (agrandir, nettoyer, visages)": "ameliorer",
@@ -113,7 +113,7 @@ def traiter_lot(fichiers, action_label, echelle_label, rapide, visages, force, f
     """Le traitement choisi sur plusieurs photos. Détourage, personne, tête : un seul passage du moteur (BiRefNet
     chargé une fois) ; amélioration : une photo après l'autre, une en échec n'arrête pas les autres. Renvoie
     (message, galerie [(image, légende)], fichiers, dossier)."""
-    sources = [Path(getattr(f, "name", f)) for f in (fichiers or []) if f]
+    sources = [Path(chemin_fichier(f)) for f in (fichiers or []) if f]
     if not sources:
         raise gr.Error("Ajoute les photos à traiter (plusieurs à la fois).")
     if len(sources) > PHOTOS_LOT_MAX:

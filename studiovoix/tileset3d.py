@@ -27,7 +27,7 @@ from PIL import Image
 
 from . import config as cfg
 from . import diffusion, hd2d, modele3d
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .serie import _slug
 
 QUALITE = "Low poly (jeu : formes simples, détails dans la texture)"  # dans modele3d.QUALITES
@@ -257,7 +257,7 @@ def libelle(p):
 
 def analyser(fichier, cote=0, nom="tileset"):
     """Onglet : (message, galerie [(image, légende)], choix possibles, choix cochés, dossier)."""
-    fichier = getattr(fichier, "name", fichier)
+    fichier = chemin_fichier(fichier)
     if not fichier:
         raise gr.Error("Dépose le tileset (PNG) à découper.")
     dossier, pieces = decouper(fichier, nom, cote)

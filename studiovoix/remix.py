@@ -23,7 +23,7 @@ import numpy as np
 from . import acestep
 from . import config as cfg
 from .audio import charger
-from .outils import ecrire_creation, nouveau_dossier
+from .outils import ecrire_creation, nouveau_dossier, chemin_fichier
 from .styles import musique
 from .videos import duree_lisible
 
@@ -76,7 +76,7 @@ def description(styles, instruments=None, ambiance=None, extra=None):
 
 
 def _chemins(fichiers):
-    chemins = [str(getattr(f, "name", f)) for f in (fichiers if isinstance(fichiers, (list, tuple)) else [fichiers])
+    chemins = [str(chemin_fichier(f)) for f in (fichiers if isinstance(fichiers, (list, tuple)) else [fichiers])
                if f]
     if not chemins:
         raise gr.Error("Ajoute la musique à remixer (MP3, WAV, FLAC, OGG, M4A…).")

@@ -29,7 +29,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import config as cfg
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 
 IMAGES = {".png", ".jpg", ".jpeg", ".jfif", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".avif",
           ".ico"}
@@ -410,7 +410,7 @@ def _nom_libre(dossier, nom):
 def convertir(fichiers, fusionner=False, nom="", progress=gr.Progress()):
     """Convertit chaque fichier en PDF (et, si demandé, les réunit dans un seul PDF, dans l'ordre).
     Renvoie (message, fichiers PDF, dossier)."""
-    chemins = [Path(str(getattr(f, "name", f))) for f in (fichiers or []) if f]
+    chemins = [Path(str(chemin_fichier(f))) for f in (fichiers or []) if f]
     if not chemins:
         raise gr.Error("Ajoute un ou plusieurs fichiers à convertir.")
     nom = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", (nom or "").strip()).strip(". ") or "documents"

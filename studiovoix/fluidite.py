@@ -13,7 +13,7 @@ import gradio as gr
 
 from . import config as cfg
 from . import diffusion
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .serie import _slug
 
 FACTEURS = {"× 2 (24 → 48 images/s)": 2, "× 3": 3, "× 4": 4}
@@ -34,7 +34,7 @@ def _destination(source, facteur, ralenti):
 
 def fluidifier(video, facteur_label=FACTEUR_DEFAUT, mode=FLUIDE, progress=gr.Progress()):
     """Renvoie (message, vidéo obtenue, dossier)."""
-    source = Path(str(getattr(video, "name", video))) if video else None
+    source = Path(str(chemin_fichier(video))) if video else None
     if not source or not source.is_file():
         raise gr.Error("Choisis d'abord une vidéo.")
     facteur = FACTEURS.get(facteur_label, 2)

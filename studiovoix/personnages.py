@@ -13,6 +13,7 @@ import gradio as gr
 from PIL import Image
 
 from . import config as cfg
+from .outils import chemin_fichier
 
 AUCUN = "(aucun : Z-Image-Turbo)"
 REFERENCES_MAX = 4  # limite de FLUX.2 klein (API de Black Forest Labs) ; chaque image ajoute du calcul
@@ -85,7 +86,7 @@ def ajouter(projet, nom, images):
     ajoutees = 0
     for i, chemin in enumerate(images[:place]):
         try:
-            with Image.open(getattr(chemin, "name", chemin)) as im:
+            with Image.open(chemin_fichier(chemin)) as im:
                 im = im.convert("RGB")
                 im.thumbnail((COTE_MAX, COTE_MAX))
                 im.save(d / f"ref_{suivant + i}.png")

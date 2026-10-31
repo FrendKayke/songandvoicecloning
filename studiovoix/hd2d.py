@@ -24,7 +24,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from . import config as cfg
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .pixel_art import _gif, _sans_fond_uni, agrandir, reduire, remettre
 from .serie import _slug
 
@@ -453,7 +453,7 @@ def convertir(fichiers, type_label=AUTO, colonnes=0, lignes=0, force=2.0, arrond
               pixels_par_metre=32, nom="hd2d", progress=gr.Progress()):
     """Chaque image → couleur, relief, normales (+ émission), aperçu éclairé et objet 3D. Renvoie (message, aperçus,
     fichiers, dossier)."""
-    fichiers = [getattr(f, "name", f) for f in (fichiers or [])]
+    fichiers = [chemin_fichier(f) for f in (fichiers or [])]
     if not fichiers:
         raise gr.Error("Ajoute un ou plusieurs fichiers : sprites, planches d'animation, tuiles ou effets.")
     dossier = nouveau_dossier(cfg.HD2D_DIR, _slug(nom, "hd2d"))

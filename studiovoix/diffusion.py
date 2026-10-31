@@ -233,6 +233,9 @@ def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=Non
     if texte:
         tache["texte"] = texte
     if image:
+        image = Path(image).resolve()  # le moteur tourne dans un autre dossier : jamais de chemin relatif
+        if not image.is_file():
+            raise gr.Error(f"Image introuvable pour Qwen3-VL : {image}")
         tache["image"] = str(image)
     if suite:
         tache["suite"] = suite

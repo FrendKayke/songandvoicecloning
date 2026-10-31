@@ -635,8 +635,10 @@ def test_videos(faux_diffusion):
     assert videos.preparer("un dragon s'envole", progress=no_progress) == "a red potion bottle"
     assert _journal()[-1]["tache"] == {"mode": "video", "texte": "un dragon s'envole"}
     # avec une image de départ, Qwen la voit (sinon il inventait les couleurs)
-    videos.prompt_pret("un dragon s'envole", "", "depart.png", progress=no_progress)
-    assert _journal()[-1]["tache"] == {"mode": "video", "texte": "un dragon s'envole", "image": "depart.png"}
+    depart = faux_diffusion / "depart.png"
+    Image.new("RGB", (64, 64)).save(depart)
+    videos.prompt_pret("un dragon s'envole", "", str(depart), progress=no_progress)
+    assert _journal()[-1]["tache"] == {"mode": "video", "texte": "un dragon s'envole", "image": str(depart.resolve())}
     with pytest.raises(gr.Error, match="prompt"):
         videos.generer(" ", None, videos.AUTO, "5 s", 30, 0, progress=no_progress)
     # texte → vidéo : format automatique sans image = paysage 720p ; 5 s = 121 images
@@ -2068,3 +2070,14 @@ def test_modeles_manquants_vus_sans_reseau(tmp_path, monkeypatch, capsys):
     for f in moteur.MODELES["fluidite"][0][1]:
         (tmp_path / "photos" / f).write_text("x")
     assert manquants("sprites_dresseur", "qwen", "detourage", "fluidite") == []
+
+
+def test_image_introuvable_pour_qwen(env, monkeypatch, tmp_path):
+    monkeypatch.setattr(diffusion, "_verifier", lambda *n: None)
+    with pytest.raises(gr.Error, match="Image introuvable"):
+        diffusion.decrire("sprite", "x", image=tmp_path / "photo.jpg")
+    # le moteur refuse avant de charger Qwen, sans le nouvel essai en ligne réservé aux modèles incomplets
+    tache = tmp_path / "tache.json"
+    tache.write_text(json.dumps({"mode": "sprite", "texte": "x", "image": "photo.jpg"}), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        moteur.principal(["decrire", str(tache)])

@@ -15,7 +15,7 @@ from PIL import Image, ImageOps
 from . import cartes
 from . import config as cfg
 from . import diffusion
-from .outils import ecrire_creation, nouveau_dossier
+from .outils import ecrire_creation, nouveau_dossier, chemin_fichier
 from .styles import image as style_image
 from .videos import MOTS_PROMPT_COURT, duree_lisible
 
@@ -57,7 +57,7 @@ def photos_de(photo, autres=None):
     """La photo principale (chemin ou None) puis les autres photos (chemins ou fichiers Gradio), 4 au plus ; accepte
     aussi une liste déjà faite. Vérifie qu'elles existent."""
     liste = list(photo) if isinstance(photo, (list, tuple)) else ([photo] if photo else [])
-    liste += [getattr(f, "name", f) for f in (autres or []) if f]
+    liste += [chemin_fichier(f) for f in (autres or []) if f]
     liste = [str(c) for c in liste]
     if len(liste) > PHOTOS_MAX:
         raise gr.Error(f"{len(liste)} photos : {PHOTOS_MAX} au plus (la photo principale et 3 autres).")
@@ -238,7 +238,7 @@ DEPART = ("Use the characters, creatures, places and art style shown in the refe
 def images_de_depart(fichiers, photo=None):
     """Images de départ de l'histoire : celles du volet (3 au plus), sinon la photo de l'onglet. Accepte des
     chemins ou des fichiers Gradio."""
-    chemins = [str(getattr(f, "name", f)) for f in (fichiers or []) if f]
+    chemins = [str(chemin_fichier(f)) for f in (fichiers or []) if f]
     if not chemins and photo:
         chemins = [str(photo)]
     if len(chemins) > REFERENCES_MAX:

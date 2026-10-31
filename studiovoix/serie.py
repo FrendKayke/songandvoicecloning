@@ -29,7 +29,7 @@ from . import config as cfg
 from . import diffusion
 from .images import FORMATS as FORMATS_IMAGES
 from .images import STYLES as STYLES_IMAGES
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .styles import image as style_image
 from .videos import duree_lisible
 
@@ -108,7 +108,7 @@ def _lire_csv(chemin):
 def lire_tableau(chemin):
     """{feuille: lignes (listes de textes)}. .xlsx/.xlsm (openpyxl, valeurs calculées), .csv/.tsv, .txt (une ligne
     = une cellule)."""
-    chemin = str(getattr(chemin, "name", chemin) or "")
+    chemin = str(chemin_fichier(chemin) or "")
     if not chemin or not Path(chemin).is_file():
         raise gr.Error("Fichier introuvable : dépose un fichier Excel (.xlsx), CSV ou texte.")
     ext = Path(chemin).suffix.lower()
@@ -397,7 +397,7 @@ def _preparer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case
 
 
 def _images_de_style(fichiers):
-    chemins = [str(getattr(f, "name", f)) for f in (fichiers or []) if f]
+    chemins = [str(chemin_fichier(f)) for f in (fichiers or []) if f]
     if len(chemins) > STYLES_IMAGES_MAX:
         raise gr.Error(f"{len(chemins)} images de style : {STYLES_IMAGES_MAX} au plus.")
     for c in chemins:
@@ -452,7 +452,7 @@ def generer(fichier, feuille, entetes, col_prompt, col_nom, col_contexte, case_c
              "largeur": largeur, "hauteur": hauteur, "tailles": sorted({int(t) for t in tailles or []}, reverse=True),
              "images_style": [c.name for c in copies],
              "references": [r.name for r in references], "graine": graine, "meme_graine": bool(meme_graine),
-             "source": Path(str(getattr(fichier, "name", fichier))).name if fichier else "liste",
+             "source": Path(str(chemin_fichier(fichier))).name if fichier else "liste",
              "moteur": ("FLUX.2 klein 4B" if references else "Z-Image-Turbo") + (" + BiRefNet" if transparent else ""),
              "transparent": transparent, "images": lot}
     (dossier / "lot.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")

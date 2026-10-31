@@ -18,7 +18,7 @@ import gradio as gr
 
 from . import config as cfg
 from . import diffusion, projets
-from .outils import ecrire_creation, nouveau_dossier
+from .outils import ecrire_creation, nouveau_dossier, chemin_fichier
 
 # Le modèle de forme est la version « turbo » (distillée) : 5 pas suffisent (gradio_app.py d'Hunyuan3D-2 :
 # `value=5 if 'turbo' in args.subfolder else 30`). La qualité se joue sur la résolution de l'octree (finesse de
@@ -249,7 +249,7 @@ def facetter(dossier, faces=3000, couleurs=24, progress=gr.Progress()):
 def generer_lot(images, prefixe, qualite, texture, graine, formats, projet=None, progress=gr.Progress()):
     """Plusieurs images à la suite, une création par image (même réglages ; graine 0 = aléatoire pour chacune).
     Une image en échec n'arrête pas les suivantes. Renvoie (rapport, GLB du dernier modèle réussi, dossier)."""
-    images = [getattr(i, "name", i) for i in (images or [])]
+    images = [chemin_fichier(i) for i in (images or [])]
     if not images:
         raise gr.Error("Ajoute des images (plusieurs fichiers à la fois).")
     prefixe = nettoyer_nom(prefixe, "modele")

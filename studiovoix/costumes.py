@@ -17,7 +17,7 @@ import gradio as gr
 
 from . import config as cfg
 from . import diffusion, images
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .serie import _slug
 from .tileset3d import _partie
 from .videos import duree_lisible
@@ -41,7 +41,7 @@ RENDU_DESSIN = "Redraw the whole picture in the drawing style of image 2, the pe
 
 
 def _chemins(fichiers):
-    return [str(getattr(f, "name", f)) for f in (fichiers or []) if f]
+    return [str(chemin_fichier(f)) for f in (fichiers or []) if f]
 
 
 def decrire_tenue(costume, precisions="", progress=gr.Progress()):

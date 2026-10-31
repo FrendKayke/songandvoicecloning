@@ -18,7 +18,7 @@ import soundfile as sf
 from . import config as cfg
 from . import diffusion
 from .audio import charger
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .serie import _slug
 
 CARACTERES_LIGNE = 42
@@ -152,7 +152,7 @@ def incruster(video, sous_titres, sortie, progress=None):
 # --- Onglet -----------------------------------------------------------------------------------------------------
 def transcrire(fichier, langue_label=LANGUE_AUTO, traduire=False, incruster_video=True, progress=gr.Progress()):
     """Renvoie (message, texte, fichiers [txt, srt, vtt, vidéo sous-titrée], vidéo sous-titrée ou None, dossier)."""
-    source = Path(str(getattr(fichier, "name", fichier))) if fichier else None
+    source = Path(str(chemin_fichier(fichier))) if fichier else None
     if not source or not source.is_file():
         raise gr.Error("Ajoute un fichier audio ou vidéo à transcrire.")
     debut = time.monotonic()

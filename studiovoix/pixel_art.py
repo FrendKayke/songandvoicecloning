@@ -22,7 +22,7 @@ from PIL import Image, ImageOps
 
 from . import config as cfg
 from . import diffusion
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .serie import _slug
 
 IMAGES_ANIMATION = 30  # comme les sprites animés des jeux de la DS : 30 images, 5 s, en boucle
@@ -77,7 +77,7 @@ def analyser_style(fichiers):
     """Style commun de sprites d'exemple : {toile, hauteur, couleurs, agrandissement, contour} (médianes)."""
     mesures = []
     for f in fichiers or []:
-        im = Image.open(getattr(f, "name", f)).convert("RGBA")
+        im = Image.open(chemin_fichier(f)).convert("RGBA")
         a = np.array(im)
         k = _facteur(a)
         opaque = a[..., 3] >= 128
@@ -333,7 +333,7 @@ def _detourer(source, dossier, progress):
 def convertir(images, exemples, hauteur, couleurs, toile, agrandissement, contour, detourer, nom="pixel_art",
               progress=gr.Progress()):
     """Chaque image → sprite (taille d'origine et agrandi). Renvoie (message, aperçus, fichiers, dossier)."""
-    images = [getattr(i, "name", i) for i in (images or [])]
+    images = [chemin_fichier(i) for i in (images or [])]
     if not images:
         raise gr.Error("Ajoute une ou plusieurs images à convertir.")
     style = _style(exemples, hauteur, couleurs, toile, agrandissement, contour)
@@ -397,7 +397,7 @@ def prompt_personnage(photo, demande, progress=None):
 def creer_personnages(photo, texte, exemples, hauteur, couleurs, toile, agrandissement, contour, graine,
                       nom="personnages", progress=gr.Progress()):
     """Un sprite par ligne du texte. Renvoie (message, aperçus, fichiers, dossier, dernier sprite)."""
-    photo = getattr(photo, "name", photo)
+    photo = chemin_fichier(photo)
     if not photo or not Path(photo).is_file():
         raise gr.Error("Ajoute la photo des personnes.")
     demandes = lignes_personnages(texte)
@@ -484,7 +484,7 @@ ECART_FOND = 60  # écart de couleur (0–441) en dessous duquel un pixel de la 
 
 def _sprite_de(source):
     """Sprite à la taille d'origine : une image agrandie (carrés k×k) est ramenée à 1 pixel par carré."""
-    a, k, _ = reduire(np.array(Image.open(getattr(source, "name", source)).convert("RGBA")))
+    a, k, _ = reduire(np.array(Image.open(chemin_fichier(source)).convert("RGBA")))
     return Image.fromarray(np.ascontiguousarray(a), "RGBA"), k
 
 
@@ -500,7 +500,7 @@ def lire_rythme(fichiers):
     mesures = []
     for f in fichiers or []:
         try:
-            with Image.open(getattr(f, "name", f)) as im:
+            with Image.open(chemin_fichier(f)) as im:
                 if getattr(im, "n_frames", 1) < 3:
                     continue
                 d = []

@@ -604,11 +604,13 @@ def _sans_gqa_sdpa():
 def decrire(chemin_tache):
     """Tâche : {mode: son|image (d'après une image) ou objet|bruitage|carte|video (texte reformulé), image?, texte?}.
     Renvoie RESULTAT {"texte": …}."""
+    t = _lire(chemin_tache)
+    if t.get("image") and not Path(t["image"]).is_file():  # avant de charger Qwen (8,9 Go)
+        _erreur(f"image introuvable : {t['image']}")
     import torch
     from PIL import Image, ImageOps
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
-    t = _lire(chemin_tache)
     mode = t.get("mode")
     if mode not in CONSIGNES:
         _erreur(f"mode de description inconnu : {mode}")
@@ -2479,6 +2481,9 @@ def principal(argv):
 
             if not constants.HF_HUB_OFFLINE or _HORS_LIGNE_IMPOSE:
                 raise
+            nom_fichier = str(getattr(e, "filename", "") or "")
+            if isinstance(e, FileNotFoundError) and nom_fichier and "models--" not in nom_fichier:
+                raise  # fichier de l'utilisateur (image, son), pas du cache des modèles : réessayer en ligne n'y fait rien
             print(f"Fichier de modèle manquant hors ligne ({type(e).__name__}) : nouvel essai en ligne.", flush=True)
             global _EN_LIGNE_FORCE
             _EN_LIGNE_FORCE = True

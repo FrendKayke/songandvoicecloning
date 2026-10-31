@@ -31,7 +31,7 @@ from . import config as cfg
 from . import diffusion
 from . import modele_sprites
 from . import pixel_art as px
-from .outils import nouveau_dossier
+from .outils import nouveau_dossier, chemin_fichier
 from .serie import _slug
 
 # Mesuré sur les exemples de l'utilisateur (28/10) : GBA = sprites de face 64×64 affichés ×2, 15 couleurs + la
@@ -134,7 +134,7 @@ def apercu_gabarit(style, feuille, nom):
 def ajouter_gabarits(style, feuille_libelle, fichiers):
     """Sprites d'exemple ajoutés à la bibliothèque (chacun vérifié). Renvoie (message, choix des trois listes)."""
     feuille = CLES_FEUILLES.get(feuille_libelle)
-    fichiers = [getattr(f, "name", f) for f in (fichiers or [])]
+    fichiers = [chemin_fichier(f) for f in (fichiers or [])]
     if not feuille or not fichiers:
         raise gr.Error("Choisis le type de feuille et dépose un ou plusieurs sprites d'exemple.")
     d = dossier_gabarits(style, feuille)
@@ -348,7 +348,7 @@ def recolorer(gabarit, nouvelles):
 def preparer_description(photo, demande, progress=gr.Progress()):
     """Description anglaise du personnage (modifiable avant la création) : Qwen3-VL d'après la photo et les
     changements demandés, ou d'après la seule description (souvent en français) quand il n'y a pas de photo."""
-    photo = getattr(photo, "name", photo)
+    photo = chemin_fichier(photo)
     demande = (demande or "").strip()
     if not photo and not demande:
         raise gr.Error("Ajoute la photo de la personne, ou décris le personnage (« une dresseuse rousse aux cheveux "
@@ -365,7 +365,7 @@ def preparer_description(photo, demande, progress=gr.Progress()):
 def lire_couleurs(photo, demande, description=None, progress=gr.Progress()):
     """Couleurs de la personne, modifiables : la description du personnage si elle est écrite (elle fait foi), sinon
     la photo (Qwen3-VL la voit et applique les changements demandés), sinon la demande seule."""
-    photo = getattr(photo, "name", photo)
+    photo = chemin_fichier(photo)
     description, demande = (description or "").strip(), (demande or "").strip()
     if not photo and not description and not demande:
         raise gr.Error("Ajoute la photo de la personne, ou décris le personnage.")
@@ -480,7 +480,7 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
     feuilles = [CLES_FEUILLES[f] for f in (feuilles or []) if f in CLES_FEUILLES]
     if not feuilles:
         raise gr.Error("Coche au moins un élément à créer (sprite de face, lancer, marche).")
-    photo = getattr(photo, "name", photo)
+    photo = chemin_fichier(photo)
     description = (description or "").strip()
     dessiner = "face" in feuilles and mode_face == DESSINER
     lora = "face" in feuilles and mode_face == LORA

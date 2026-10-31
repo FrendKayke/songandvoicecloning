@@ -244,3 +244,27 @@ def test_nuances_gardees():
                                             (0, 0, 0): (0, 0, 0)})
     clair, fonce = np.array(proches[(200, 40, 40)]), np.array(proches[(140, 20, 20)])
     assert dresseur._lum(fonce) < dresseur._lum(clair) - 0.1 and proches[(0, 0, 0)] == (0, 0, 0)
+
+
+def test_photo_du_kit_envoyee_avec_son_chemin_complet(faux_klein, monkeypatch):
+    """Un Path a un attribut `.name` (le nom seul) : il était pris pour l'objet fichier de Gradio et le moteur
+    recevait « photo.jpg » (FileNotFoundError chez l'utilisateur, kit avec un modèle de feuilles entraîné)."""
+    from studiovoix.outils import chemin_fichier
+
+    appels, photo, tmp = faux_klein
+    _bibliotheque(tmp)
+    assert chemin_fichier(photo) == photo and chemin_fichier(str(photo)) == str(photo)
+    assert chemin_fichier(type("Fichier", (), {"name": "/tmp/gradio/a.png"})()) == "/tmp/gradio/a.png"
+    monkeypatch.setattr(diffusion, "present", lambda nom: nom == "qwen")
+    vus = []
+
+    def decrire(mode, texte, image=None, progress=None):
+        if image is not None:
+            assert Path(image).is_absolute() and Path(image).is_file(), image
+            vus.append(mode)
+        return "hair: red; top: blue" if "couleurs" in mode else "a woman with red hair"
+
+    monkeypatch.setattr(diffusion, "decrire", decrire)
+    dresseur.creer_kit(GBA, str(photo), "la femme", "", dresseur.FEUILLES, dresseur.LORA, None, "trback002",
+                       "trchar113", 3, variantes=1, progress=no_progress)
+    assert vus == ["couleurs", "sprite"]

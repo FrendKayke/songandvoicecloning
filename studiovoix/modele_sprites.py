@@ -25,7 +25,7 @@ from . import diffusion
 from . import pixel_art as px
 from . import retraits
 from . import serveur_acestep
-from .outils import lancer_moteur, nouveau_dossier
+from .outils import lancer_moteur, nouveau_dossier, chemin_fichier
 from .serie import _slug
 
 FOND = (255, 0, 255)  # magenta : jamais dans un sprite, retiré sans erreur après la génération
@@ -115,7 +115,7 @@ def fichiers_feuilles(fichiers):
 
     sortie, dossier = [], None
     for f in fichiers or []:
-        f = Path(getattr(f, "name", f))
+        f = Path(chemin_fichier(f))
         if f.suffix.lower() not in ARCHIVES:
             sortie.append(f)
             continue

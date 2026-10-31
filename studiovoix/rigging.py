@@ -16,7 +16,7 @@ import gradio as gr
 from . import config as cfg
 from . import retraits
 from . import serveur_acestep
-from .outils import lancer_moteur, nouveau_dossier, stream_command
+from .outils import lancer_moteur, nouveau_dossier, stream_command, chemin_fichier
 from .serie import _slug
 
 DEPOT = "VAST-AI/UniRig"
@@ -71,7 +71,7 @@ def source_du_modele(dossier):
 def animer(dossier=None, fichier=None, graine=0, progress=gr.Progress()):
     """Ajoute un squelette au modèle importé (`fichier`) ou au dernier modèle créé (`dossier`).
     Renvoie (message, GLB animable, fichiers produits)."""
-    fichier = getattr(fichier, "name", fichier)
+    fichier = chemin_fichier(fichier)
     if fichier:
         source = Path(fichier)
         if source.suffix.lower() not in FORMATS:

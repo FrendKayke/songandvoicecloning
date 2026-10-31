@@ -16,6 +16,15 @@ def has_weights(folder: Path) -> bool:
     return folder.is_dir() and any(f.suffix in WEIGHT_SUFFIXES for f in folder.rglob("*") if f.is_file())
 
 
+def chemin_fichier(f):
+    """Chemin d'un fichier reçu de Gradio (chaîne, ou objet dont `.name` est le chemin complet) ou du code (Path) :
+    un Path a aussi un attribut `.name`, mais c'est le nom seul (« photo.jpg ») — l'employer envoyait au moteur
+    un chemin relatif introuvable (constaté chez l'utilisateur avec le kit de dresseur, 31/10)."""
+    if f is None or isinstance(f, (str, os.PathLike)):
+        return f
+    return getattr(f, "name", f)
+
+
 def nouveau_dossier(parent: Path, nom: str = "") -> Path:
     """Crée parent/<horodatage>[_<nom>] (suffixé _2, _3… si deux travaux démarrent dans la même seconde)."""
     base = datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_{nom}" if nom else "")
