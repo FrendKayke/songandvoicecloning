@@ -65,6 +65,7 @@ LIBELLES_FEUILLES = {v: k for k, v in CLES_FEUILLES.items()}
 LORA = "Dessiner avec le modèle de sprites de dresseurs (SDXL + LoRA, style du jeu)"
 RECOLORER = "Recolorer le sprite d'exemple (style exact, forme de l'exemple)"
 MARCHE_EXEMPLE = "— recolorer un sprite d'exemple —"
+FACE_SWIZAD = "— LoRA de dresseurs de sWizad (par défaut) —"
 DESSINER = "Dessiner avec FLUX.2 klein d'après la photo (style approché)"
 MODES_FACE = [LORA, RECOLORER, DESSINER]
 VARIANTES_MAX = 6
@@ -495,6 +496,22 @@ def _face_dessinee(style, photo, demande, couleurs, graine, dossier, progress, d
     return np.array(sprite), prompt
 
 
+def _face_modele_entraine(style, photo, demande, couleurs, graine, variantes, dossier, progress, description,
+                          lora_face):
+    """Sprites de face avec un modèle entraîné sur les sprites de l'utilisateur (onglet « Entraîner un modèle de
+    sprites », type « Sprites de face ») : description courte, dans la forme des légendes d'entraînement (CLIP ne lit
+    que 77 jetons), sauf si l'utilisateur a écrit la sienne."""
+    infos = modele_sprites.infos_modele(lora_face)
+    if int(infos.get("toile", STYLES[style]["toile"])) != STYLES[style]["toile"]:
+        raise gr.Error(f"Le modèle « {lora_face} » a été entraîné pour le style « {infos.get('style')} » : choisis ce "
+                       "style, ou un modèle de sprites de face entraîné pour celui-ci.")
+    texte = description or _description_marche(photo, demande, couleurs, progress)
+    sources = [dossier / f"face_{i}_source.png" for i in range(1, variantes + 1)]
+    sprites, prompt = modele_sprites.generer_faces(lora_face, texte, sources, [graine + i for i in range(variantes)],
+                                                   STYLES[style]["couleurs"], progress=progress)
+    return sprites, prompt, texte
+
+
 def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, progress, description=None):
     """Sprites de face par SDXL + LoRA de sprites de dresseurs : `variantes` images 1024², fond uni retiré (BiRefNet
     si présent, sinon par pixeliser), puis la grille et la palette du style. Description : celle de l'utilisateur,
@@ -561,12 +578,24 @@ def _durees_lancer(n):
 def liste_loras_marche():
     """Choix de la feuille de marche : recoloriage d'un exemple, ou un modèle entraîné (onglet « Entraîner un modèle
     de sprites »)."""
-    choix = [MARCHE_EXEMPLE] + list(modele_sprites.loras())
-    return gr.update(choices=choix, value=choix[-1] if len(choix) > 1 else MARCHE_EXEMPLE)
+    choix = [MARCHE_EXEMPLE] + list(modele_sprites.loras(modele_sprites.MARCHE))
+    return gr.update(choices=choix, value=choix[1] if len(choix) > 1 else MARCHE_EXEMPLE)
+
+
+def choix_loras_face():
+    return [FACE_SWIZAD] + list(modele_sprites.loras(modele_sprites.FACE))
+
+
+def liste_loras_face():
+    """Choix du modèle du sprite de face : le LoRA de sWizad, ou un modèle entraîné sur les sprites de l'utilisateur
+    (le plus récent proposé d'abord)."""
+    choix = choix_loras_face()
+    return gr.update(choices=choix, value=choix[1] if len(choix) > 1 else FACE_SWIZAD)
 
 
 def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_lancer, g_marche, graine,
-              nom="dresseur", variantes=2, lora_marche=None, description=None, progress=gr.Progress()):
+              nom="dresseur", variantes=2, lora_marche=None, lora_face=None, description=None,
+              progress=gr.Progress()):
     """Kit de dresseur, d'après une photo ou une simple description. lora_marche : nom d'un modèle entraîné pour la
     feuille de marche (sinon recoloriage d'un exemple). description : description anglaise du personnage (préparée
     par `preparer_description` puis modifiée), prioritaire sur la photo et la demande. Renvoie (message, aperçus,
@@ -588,7 +617,11 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
                        "rouge »).")
     choix = {"face": g_face, "lancer": g_lancer, "marche": g_marche}
     lora_marche = lora_marche if lora_marche and lora_marche != MARCHE_EXEMPLE and "marche" in feuilles else None
-    if lora_marche and lora_marche not in modele_sprites.loras():
+    lora_face = lora_face if lora_face and lora_face != FACE_SWIZAD and lora else None
+    if lora_face and lora_face not in modele_sprites.loras(modele_sprites.FACE):
+        raise gr.Error(f"Modèle de sprites de face « {lora_face} » introuvable : entraîne-le dans « Entraîner un modèle "
+                       "de sprites », ou choisis le LoRA de sWizad.")
+    if lora_marche and lora_marche not in modele_sprites.loras(modele_sprites.MARCHE):
         raise gr.Error(f"Modèle de feuilles « {lora_marche} » introuvable : entraîne-le dans « Entraîner un modèle de "
                        "sprites », ou choisis le recoloriage d'un exemple.")
     gabarits = {}
@@ -630,12 +663,18 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
     references = []
     variantes_face = []
     if lora:
-        progress(0.1, desc="Sprites de face (SDXL + LoRA de sprites de dresseurs)…")
-        variantes_face, prompt, description = _face_lora(style, copie, demande, couleurs, graine,
-                                                         max(1, min(VARIANTES_MAX, int(variantes or 1))), dossier,
-                                                         progress, description)
+        n_var = max(1, min(VARIANTES_MAX, int(variantes or 1)))
+        if lora_face:
+            progress(0.1, desc=f"Sprites de face (SDXL + modèle « {lora_face} »)…")
+            variantes_face, prompt, description = _face_modele_entraine(style, copie, demande, couleurs, graine, n_var,
+                                                                        dossier, progress, description, lora_face)
+        else:
+            progress(0.1, desc="Sprites de face (SDXL + LoRA de sprites de dresseurs)…")
+            variantes_face, prompt, description = _face_lora(style, copie, demande, couleurs, graine, n_var, dossier,
+                                                             progress, description)
         resultats["face"] = variantes_face[0]
-        infos["feuilles"]["face"] = {"mode": "lora", "prompt": prompt, "variantes": len(variantes_face)}
+        infos["feuilles"]["face"] = {"mode": "lora", "prompt": prompt, "variantes": len(variantes_face),
+                                     "modele": lora_face or "sWizad/pokemon-trainer-sprite-pixelart"}
         references.append(resultats["face"])
     if dessiner:
         progress(0.1, desc="Sprite de face d'après la photo (FLUX.2 klein)…")

@@ -214,3 +214,84 @@ def test_preparation_depuis_une_archive_et_legendes_modifiees(faux_entrainement,
     assert "a trainer" in (jeu / "002.txt").read_text(encoding="utf-8")
     with pytest.raises(gr.Error, match="Prépare d'abord"):
         modele_sprites.enregistrer_legendes("inconnu", lignes)
+
+
+def _sprite_face(k=3, couleur=(40, 90, 200), fond=None):
+    """Sprite de face de 40×56 pixels de jeu (tête, yeux, corps), agrandi ×k."""
+    im = Image.new("RGBA", (40, 56), fond or (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rectangle((10, 20, 29, 55), fill=couleur + (255,))
+    d.ellipse((12, 2, 27, 19), fill=(240, 200, 160, 255))
+    d.point([(16, 10), (23, 10)], fill=(16, 16, 24, 255))
+    return im.resize((im.width * k, im.height * k), Image.Resampling.NEAREST)
+
+
+def test_modele_de_sprites_de_face(faux_entrainement, tmp_path, monkeypatch):
+    """Sprites de face (demande du 01/11) : vérifiés, posés en bas au centre de la toile, agrandis ×16 (1024² en GBA),
+    légendés « pixelsprite… » ; modèle entraîné à 1024² puis choisi dans le kit, sprite relu sur sa grille exacte."""
+    sprites = []
+    for i in range(9):
+        f = tmp_path / f"face{i:03d}.png"
+        _sprite_face(1 + i % 3, (20 * i, 90, 200 - 10 * i), fond=(200, 220, 240, 255) if i % 2 else None).save(f)
+        sprites.append(str(f))
+    trop_grand = tmp_path / "geant.png"
+    geant = Image.new("RGBA", (72, 72), (0, 0, 0, 0))
+    ImageDraw.Draw(geant).rectangle((1, 1, 70, 70), fill=(200, 0, 0, 255))
+    for x in range(1, 71):  # damier d'un pixel : pas d'agrandissement à retirer
+        for y in range(1 + x % 2, 71, 2):
+            geant.putpixel((x, y), (0, 0, 200, 255))
+    geant.save(trop_grand)
+    g = modele_sprites.guide(GBA, "Sprites de face")
+    assert "64×64" in g and "×16" in g and "1024×1024" in g and "pixelsprite" in g
+    msg, lignes = modele_sprites.verifier_feuilles(sprites + [str(trop_grand)], GBA, "Sprites de face")
+    assert "9 sprite(s) bon(s) sur 10" in msg and "plus grand que la toile" in lignes[-1][3]
+    modes = []
+    monkeypatch.setattr(diffusion, "present", lambda nom: nom == "qwen")
+    monkeypatch.setattr(diffusion, "decrire", lambda mode, texte, image=None, progress=None:
+                        modes.append(mode) or "a girl with blue dress.")
+    msg, dossier = modele_sprites.preparer(sprites, "face_gba", GBA, type_="Sprites de face", progress=no_progress)
+    jeu = Path(dossier) / "jeu" / f"{modele_sprites.REPETITIONS}_{modele_sprites.DECLENCHEUR_FACE}"
+    images = sorted(jeu.glob("*.png"))
+    assert len(images) == 9 and set(modes) == {"sprite_face"}
+    a = np.array(Image.open(images[0]))
+    assert a.shape == (1024, 1024, 3)
+    # personnage de 40×56 posé en bas au centre de la toile de 64 : pieds sur la dernière ligne
+    assert tuple(a[-8, 512]) != modele_sprites.FOND and tuple(a[(64 - 57) * 16 + 8, 512]) == modele_sprites.FOND
+    assert images[0].with_suffix(".txt").read_text(encoding="utf-8") == (
+        "pixelsprite, trainer battle sprite, front view, full body, a girl with blue dress, on a magenta background")
+    assert modele_sprites.legendes("face_gba")[0][1].startswith("pixelsprite")
+    monkeypatch.setattr(diffusion, "present", lambda nom: False)
+    _, fichier = modele_sprites.entrainer("face_gba", epoques=6, dim=16, progress=no_progress)
+    assert json.loads(Path(fichier).read_bytes()[5:])["taille"] == [1024, 1024]
+    assert modele_sprites.loras("face") == {"face_gba": Path(fichier)} and modele_sprites.loras("marche") == {}
+    assert dresseur.liste_loras_face()["value"] == "face_gba"
+    assert dresseur.liste_loras_marche()["value"] == dresseur.MARCHE_EXEMPLE
+
+    appels = []
+
+    def sprite_dresseur(prompts, sorties, graines, largeur=1024, hauteur=1024, etapes=30, guidage=7.0, negatif=None,
+                        lora_echelle=1.0, lora=None, progress=None):
+        appels.append({"prompt": prompts, "taille": (largeur, hauteur), "lora": lora, "graines": graines})
+        for s in sorties:  # le modèle dessine à l'échelle exacte : un pixel du jeu = 16 px, fond magenta
+            natif = np.array(modele_sprites.lire_sprite(sprites[0], 64))
+            rgb = np.where(natif[..., 3:] > 0, natif[..., :3], np.array(modele_sprites.FOND, np.uint8))
+            Image.fromarray(rgb, "RGB").resize((1024, 1024), Image.Resampling.NEAREST).save(s)
+
+    monkeypatch.setattr(diffusion, "sprite_dresseur", sprite_dresseur)
+    monkeypatch.setattr(diffusion, "verifier", lambda *n: None)
+    msg, apercus, fichiers, dossier, face, _, description = dresseur.creer_kit(
+        GBA, None, "x", "", [dresseur.FACE], dresseur.LORA, None, None, None, 5, variantes=2, lora_face="face_gba",
+        description="a girl with a blue dress", progress=no_progress)
+    assert appels[0]["lora"] == str(fichier) and appels[0]["taille"] == (1024, 1024) and appels[0]["graines"] == [5, 6]
+    assert appels[0]["prompt"] == ("pixelsprite, trainer battle sprite, front view, full body, a girl with a blue "
+                                   "dress, on a magenta background")
+    a = np.array(Image.open(Path(dossier) / "face.png"))
+    assert a.shape == (64, 64, 4) and a[0, 0, 3] == 0
+    natif = modele_sprites.lire_sprite(sprites[0], 64)
+    assert ((a[..., 3] > 0) == (natif[..., 3] > 0)).mean() > 0.97  # même silhouette, pixel pour pixel
+    assert (a[63 - 45, 32 - 4, :3] < 60).all()  # œil gardé (point sombre à sa place)
+    infos = json.loads((Path(dossier) / "kit.json").read_text(encoding="utf-8"))
+    assert infos["feuilles"]["face"]["modele"] == "face_gba"
+    with pytest.raises(gr.Error, match="entraîné pour le style"):
+        dresseur.creer_kit(DS, None, "x", "", [dresseur.FACE], dresseur.LORA, None, None, None, 5,
+                           lora_face="face_gba", description="x", progress=no_progress)

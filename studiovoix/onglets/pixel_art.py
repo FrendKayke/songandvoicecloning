@@ -70,7 +70,8 @@ def construire():
                             "sans photo : un jeune dresseur blond, casquette verte, t-shirt noir, sac à dos jaune")
             with gr.Row():
                 kit_description = gr.Textbox(
-                    label="Description du personnage (anglais, modifiable ; vide = préparée à la création)", lines=3,
+                    label="Description du personnage (anglais, modifiable ; vide = préparée à la création ; vidée "
+                          "quand tu changes de photo)", lines=3,
                     placeholder="a young man with short blond hair, green cap, black t-shirt and yellow backpack",
                     scale=3)
                 btn_kit_description = gr.Button("📝 Préparer la description", scale=1)
@@ -80,8 +81,12 @@ def construire():
                 btn_kit_couleurs = gr.Button("🎨 Lire les couleurs", scale=1)
             kit_feuilles = gr.CheckboxGroup(dresseur.FEUILLES, value=dresseur.FEUILLES, label="À créer")
             kit_mode_face = gr.Radio(dresseur.MODES_FACE, value=dresseur.LORA, label="Sprite de face")
-            _loras = [dresseur.MARCHE_EXEMPLE] + list(dresseur.modele_sprites.loras())
-            kit_lora_marche = gr.Dropdown(_loras, value=_loras[-1] if len(_loras) > 1 else dresseur.MARCHE_EXEMPLE,
+            _faces = dresseur.choix_loras_face()
+            kit_lora_face = gr.Dropdown(_faces, value=_faces[1] if len(_faces) > 1 else dresseur.FACE_SWIZAD,
+                                        label="Modèle du sprite de face : LoRA de sWizad ou modèle entraîné sur tes "
+                                              "sprites de face (onglet « Entraîner un modèle de sprites »)")
+            _loras = [dresseur.MARCHE_EXEMPLE] + list(dresseur.modele_sprites.loras(dresseur.modele_sprites.MARCHE))
+            kit_lora_marche = gr.Dropdown(_loras, value=_loras[1] if len(_loras) > 1 else dresseur.MARCHE_EXEMPLE,
                                           label="Feuille de marche : modèle entraîné (onglet « Entraîner un modèle "
                                                 "de sprites ») ou recoloriage d'un exemple")
             with gr.Row():
@@ -194,10 +199,14 @@ def brancher(c, demo, o):
                      [c.kit_ajout_msg, liste], js=confirmer)
     c.btn_kit_ajout.click(dresseur.ajouter_gabarits, [c.kit_style, c.kit_ajout_type, c.kit_ajout],
                           [c.kit_ajout_msg, *listes])
+    # nouvelle photo : la description et les couleurs de l'ancienne personne ne servent plus (elles sont
+    # prioritaires sur la photo : le kit refaisait l'ancien personnage, constaté chez l'utilisateur le 01/11)
+    c.kit_photo.change(lambda _: ("", ""), c.kit_photo, [c.kit_description, c.kit_couleurs])
     c.btn_kit_description.click(dresseur.preparer_description, [c.kit_photo, c.kit_demande], c.kit_description)
     c.btn_kit_couleurs.click(dresseur.lire_couleurs, [c.kit_photo, c.kit_demande, c.kit_description], c.kit_couleurs)
     c.btn_kit.click(_kit, [c.kit_style, c.kit_photo, c.kit_demande, c.kit_couleurs, c.kit_feuilles, c.kit_mode_face,
-                           *listes, c.kit_graine, c.kit_nom, c.kit_variantes, c.kit_lora_marche, c.kit_description],
+                           *listes, c.kit_graine, c.kit_nom, c.kit_variantes, c.kit_lora_marche, c.kit_lora_face,
+                           c.kit_description],
                     [*sorties, c.px_sprite, c.kit_couleurs, c.kit_description])
     c.px_galerie.select(_choisir, c.px_apercus, c.px_sprite)
     c.btn_px_animer.click(pixel_art.animer, [c.px_sprite, c.px_mode, c.px_mouvement, c.px_anim_graine,

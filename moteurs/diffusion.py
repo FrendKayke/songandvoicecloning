@@ -494,6 +494,13 @@ CONSIGNES = {
                 "for a training caption: gender or age (man, woman, boy, girl, old man…), hair color and style, hat or "
                 "headwear, outfit and its colors, any held object. No name of any game or character. Answer with the "
                 "phrase only, for example: a young man with brown hair, red cap, blue jacket and backpack."),
+    # légende d'entraînement d'un modèle de sprites de face (même forme que « feuille »)
+    "sprite_face": ("The attached image is a pixel art battle sprite of one video game character, seen from the "
+                    "front, full body. Describe that character in one short English phrase for a training caption: "
+                    "gender or age (man, woman, boy, girl, old man…), hair color and style, hat or headwear, outfit "
+                    "and its colors, pose, any held object. No name of any game or character. Answer with the phrase "
+                    "only, for example: a young woman with long red hair, white hat, blue dress, waving, holding a "
+                    "ball."),
     # kit de dresseur avec un modèle de feuilles entraîné : description courte de la personne, dans la forme des
     # légendes d'entraînement (« a man with brown hair, red cap, blue jacket »)
     "legende": ("The attached photo shows one or several people. Find the person designated in the request below and "

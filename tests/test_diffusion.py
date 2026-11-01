@@ -200,7 +200,7 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets", "costume", "tenue", "couleurs", "feuille", "legende", "sprite_texte", "couleurs_texte", "legende_texte"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets", "costume", "tenue", "couleurs", "feuille", "sprite_face", "legende", "sprite_texte", "couleurs_texte", "legende_texte"}
     assert "sprite_dresseur" in moteur.ACTIONS
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
     assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets", "tenue", "couleurs", "legende", "sprite_texte", "couleurs_texte", "legende_texte"}

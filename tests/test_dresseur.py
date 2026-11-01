@@ -140,7 +140,8 @@ def test_face_par_le_modele_de_sprites(faux_klein, monkeypatch):
     # les feuilles sont recolorées d'après ce sprite (image 2 du recoloriage), couleurs lues sur le sprite
     assert len(appels) == 2 and len(appels[1]["references"]) == 2
     infos = json.loads((d / "kit.json").read_text(encoding="utf-8"))
-    assert infos["feuilles"]["face"] == {"mode": "lora", "prompt": appels[0]["prompt"], "variantes": 3}
+    assert infos["feuilles"]["face"] == {"mode": "lora", "prompt": appels[0]["prompt"], "variantes": 3,
+                                         "modele": "sWizad/pokemon-trainer-sprite-pixelart"}
     import zipfile
     noms = zipfile.ZipFile(d / f"{d.name}.zip").namelist()
     assert "face_2.png" in noms and not any(n.endswith("_source.png") for n in noms)
