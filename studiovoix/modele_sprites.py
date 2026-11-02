@@ -122,9 +122,34 @@ def lire_feuille(chemin, grille, cellule):
     a, _, _ = px.reduire(np.array(im))
     (cols, rows), (cw, ch) = grille, cellule
     if a.shape[1] != cols * cw or a.shape[0] != rows * ch:
-        raise ValueError(f"{a.shape[1]}×{a.shape[0]} pixels de jeu au lieu de {cols * cw}×{rows * ch} "
-                         f"({cols}×{rows} cases de {cw}×{ch})")
+        a = _cases_plus_grandes(a, grille, cellule)
     return np.ascontiguousarray(a)
+
+
+def _cases_plus_grandes(a, grille, cellule):
+    """Même grille avec des cases plus grandes (RPG Maker XP : 4×4 cases de 32×48 pour un personnage de ~14×20) :
+    la même fenêtre est découpée dans chaque case (le pas de marche est gardé) et posée en bas au centre d'une case
+    du style. Erreur si les cases ne sont pas plus grandes ou si le personnage ne tient pas dans la case."""
+    (cols, rows), (cw, ch) = grille, cellule
+    h, w = a.shape[:2]
+    attendu = f"{cols * cw}×{rows * ch} ({cols}×{rows} cases de {cw}×{ch})"
+    if w % cols or h % rows or w // cols < cw or h // rows < ch:
+        raise ValueError(f"{w}×{h} pixels de jeu au lieu de {attendu}")
+    gw, gh = w // cols, h // rows
+    cases = a.reshape(rows, gh, cols, gw, 4).transpose(0, 2, 1, 3, 4)
+    y, x = np.where((cases[..., 3] > 0).any(axis=(0, 1)))
+    if not len(y):
+        raise ValueError("image vide (fond seul)")
+    y0, y1, x0, x1 = y.min(), y.max() + 1, x.min(), x.max() + 1
+    if x1 - x0 > cw or y1 - y0 > ch:
+        raise ValueError(f"cases de {gw}×{gh} avec un personnage de {x1 - x0}×{y1 - y0} pixels de jeu, trop grand "
+                         f"pour les cases de {cw}×{ch} du style (feuille attendue : {attendu})")
+    sortie = np.zeros((rows * ch, cols * cw, 4), a.dtype)
+    oy, ox = ch - (y1 - y0), (cw - (x1 - x0)) // 2
+    for r in range(rows):
+        for c in range(cols):
+            sortie[r * ch + oy:(r + 1) * ch, c * cw + ox:c * cw + ox + x1 - x0] = cases[r, c, y0:y1, x0:x1]
+    return sortie
 
 
 def lire_sprite(chemin, toile):
@@ -263,7 +288,7 @@ def guide(style, type_=MARCHE):
 **Étape 1 — Tes feuilles de marche** (champ « Feuilles de marche d'exemple »)
 - **Type de fichier** : images **PNG** (GIF, WebP et BMP acceptés ; évite le JPEG, sa compression brouille les pixels), ou une **archive .zip** qui les contient (les sous-dossiers sont lus). Une archive .7z ou .rar : décompresse-la d'abord, puis dépose les images ou refais un .zip.
 - **Une feuille = un seul personnage**, toutes ses poses de marche dans une grille, **sans marge, sans texte, sans autre personnage**.
-- **Grille du style « {style} »** : {cols} colonnes × {rows} lignes de cases de {cw}×{ch} pixels, soit **{w}×{h} pixels** de jeu. La feuille peut être agrandie d'un nombre entier de fois : {w * 2}×{h * 2} (×2), {w * 3}×{h * 3} (×3)… Les lignes vont dans l'ordre : {", ".join(sens)}.
+- **Grille du style « {style} »** : {cols} colonnes × {rows} lignes de cases de {cw}×{ch} pixels, soit **{w}×{h} pixels** de jeu. La feuille peut être agrandie d'un nombre entier de fois : {w * 2}×{h * 2} (×2), {w * 3}×{h * 3} (×3)… Des cases plus grandes sont acceptées si le personnage tient dans {cw}×{ch} (par exemple les feuilles RPG Maker XP de {cols}×{rows} cases de 32×48) : il est recadré. Les lignes vont dans l'ordre : {", ".join(sens)}.
 - **Fond** : transparent, ou une couleur unie (retirée automatiquement).
 - **Combien** : {FEUILLES_MIN} au minimum, **50 à 100** pour un bon résultat (personnages variés : hommes, femmes, enfants, tenues et couleurs différentes).
 - Dès que tu déposes les fichiers, le tableau « Vérification » dit pour chacun s'il est bon, et pourquoi sinon.

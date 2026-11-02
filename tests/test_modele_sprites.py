@@ -194,6 +194,33 @@ def test_guide_et_verification_des_fichiers(env, tmp_path, monkeypatch):
     assert modele_sprites.verifier_feuilles([], GBA)[1] == []
 
 
+def test_feuille_rpg_maker_xp_a_grandes_cases(tmp_path):
+    """Feuille de 4×4 cases de 32×48 à pixels ×1 (RPG Maker XP), personnage de 14×20 qui monte d'un pixel au pas :
+    ramenée aux cases de 16×24 du style GBA, pas de marche gardé ; refusée si le personnage dépasse la case."""
+    grande = Image.new("RGBA", (128, 192), (0, 0, 0, 0))
+    d = ImageDraw.Draw(grande)
+    for r in range(4):
+        for c in range(4):
+            haut = r * 48 + 26 - (c % 2)  # pas : un pixel plus haut
+            d.rectangle((c * 32 + 9, haut, c * 32 + 22, haut + 19), fill=(200, 40, 40, 255))
+    f = tmp_path / "rmxp.png"
+    grande.save(f)
+    a = modele_sprites.lire_feuille(f, (4, 4), (16, 24))
+    assert a.shape == (96, 64, 4)
+    for r in range(4):
+        for c in range(4):
+            y, x = np.where(a[r * 24:(r + 1) * 24, c * 16:(c + 1) * 16, 3] > 0)
+            assert (x.min(), x.max()) == (1, 14) and y.max() == (23 if c % 2 == 0 else 22) and y.max() - y.min() == 19
+    _, lignes = modele_sprites.verifier_feuilles([str(f)], GBA)
+    assert lignes[0][3] == "✅ bonne"
+    d.rectangle((0, 0, 30, 47), fill=(0, 0, 200, 255))  # personnage plus large que 16 px
+    grande.save(f)
+    with pytest.raises(ValueError, match="trop grand"):
+        modele_sprites.lire_feuille(f, (4, 4), (16, 24))
+    with pytest.raises(ValueError, match="96×128"):  # 4 colonnes ne font pas les 3 de la grille DS
+        modele_sprites.lire_feuille(f, (3, 4), (32, 32))
+
+
 def test_preparation_depuis_une_archive_et_legendes_modifiees(faux_entrainement, tmp_path):
     import zipfile
 
