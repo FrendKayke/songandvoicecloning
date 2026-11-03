@@ -466,7 +466,7 @@ def recoller(fichiers, format_label="MP4 (H.264, partout)", nom="montage", progr
         progress(i / len(chemins), desc=f"{i + 1}/{len(chemins)} : {c.name}…")
         if cv and not d["video"]:
             raise gr.Error(f"« {c.name} » n'a pas d'image : on ne peut pas le recoller dans une vidéo "
-                           "(ajoute-le plutôt en musique de fond, une fois cette fonction disponible).")
+                           "(ajoute-le plutôt en musique de fond dans l'onglet « Montage »).")
         position += _alimenter(ec, c, position, progress=progress, part=(i / len(chemins), 1 / len(chemins)))
     ec.fermer()
     return (f"✅ {len(chemins)} fichiers recollés ({duree_lisible(position)}) en {time.monotonic() - t0:.0f} s : "

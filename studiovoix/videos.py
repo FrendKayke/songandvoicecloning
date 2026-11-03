@@ -296,6 +296,9 @@ def recreer(chemin, infos, graine, progress=gr.Progress()):
     if infos.get("voix_off"):
         raise gr.Error("Vidéo avec voix off : refais-la depuis l'onglet « Vidéo avec voix off » (la vidéo d'origine "
                        "est dans son dossier).")
+    if infos.get("montage"):
+        raise gr.Error("Montage : refais-le depuis l'onglet « Audio / vidéo → Montage » avec les mêmes morceaux "
+                       f"({', '.join(infos['montage'].get('morceaux') or [])}).")
     if infos.get("parlante"):  # image qui parle (StableAvatar) : même image, même son
         from . import parlante
 

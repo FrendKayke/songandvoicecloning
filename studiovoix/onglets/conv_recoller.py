@@ -10,7 +10,7 @@ def construire():
     """Composants de l'onglet (dans l'onglet ouvert par l'appelant)."""
     gr.Markdown("**Mets des vidéos (ou des sons) bout à bout**, dans l'ordre où tu les déposes. Les vidéos prennent la taille et la "
         "cadence de la première (bandes noires si une vidéo a d'autres proportions, une vidéo muette reçoit du "
-        "silence). Pour des fondus, une musique de fond ou un titre : le futur « Montage vidéo ».")
+        "silence). Pour des fondus, une musique de fond ou un titre : l'onglet « Montage ».")
     cr_entree = entree("Fichiers à recoller, dans l'ordre")
     with gr.Row():
         cr_format = gr.Dropdown(list(convertir.FORMATS), value="MP4 (H.264, partout)",
