@@ -149,6 +149,14 @@ FAUX_MOTEUR = textwrap.dedent("""
         fps = 24 if t["ralenti"] else 24 * t["facteur"]
         print("RESULTAT " + json.dumps({"sortie": t["sortie"], "images": 97, "fps": fps, "duree": round(97 / fps, 2),
                                         "plans": 1}), flush=True)
+    elif action == "fond_video":
+        assert Path(t["entree"]).is_file() and t["modele"] in ("personne", "general") and 0 <= t["lissage"] <= 0.8
+        print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
+        Path(t["sortie"]).write_bytes(Path(t["entree"]).read_bytes())  # relue si on la choisit dans la galerie
+        if t["masque"]:
+            Path(t["masque"]).write_bytes(b"masque")
+        print("RESULTAT " + json.dumps({"sortie": t["sortie"], "masque": t["masque"], "images": 48, "fps": 24.0,
+                                        "duree": 2.0, "largeur": 640, "hauteur": 360, "couverture": 0.31}), flush=True)
     elif action == "parler":
         info = sf.info(t["audio"])
         assert info.samplerate == 16000 and info.channels == 1 and Path(t["image"]).exists()
@@ -2097,3 +2105,58 @@ def test_peft_pour_les_lora(monkeypatch, capsys):
     with pytest.raises(SystemExit):
         moteur._peft_requis()
     assert "METTRE_A_JOUR.bat" in capsys.readouterr().out
+
+
+def test_retirer_le_fond_d_une_video(faux_diffusion):
+    """BiRefNet image par image (faux moteur) : WebM transparent, MOV ProRes sans aperçu, couleur lue du
+    ColorPicker, image de fond copiée, vidéo de la galerie, masque ; creation.json pour la galerie."""
+    from test_convertir import _clip
+
+    from studiovoix import fond_video as fv
+    from studiovoix import galerie
+
+    clip = _clip(cfg.DATA_DIR.parent / "danse.mp4", 2, 12)
+    msg, video, fichiers, dossier = fv.traiter(str(clip), None, fv.TRANSPARENT_WEBM, progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert _journal()[-1]["action"] == "fond_video" and t["fond"] == "transparent" and t["modele"] == "personne"
+    assert video.endswith("_transparent.webm") and t["masque"] is None and "48 images" in msg
+    infos = galerie.lire(dossier)
+    assert infos["type"] == "video" and infos["fond_video"]["original"] == "danse.mp4"
+
+    msg, video, fichiers, _ = fv.traiter(str(clip), None, fv.TRANSPARENT_MOV, avec_masque=True, progress=no_progress)
+    assert video is None and fichiers[0].endswith(".mov") and fichiers[1].endswith("masque.mp4") and "ProRes" in msg
+
+    fv.traiter(None, dossier, fv.COULEUR, "rgba(255, 128, 0, 1)", None, list(fv.MODELES)[1], 0.5,
+               progress=no_progress)
+    t = _journal()[-1]["tache"]
+    assert t["fond"] == "#ff8000" and t["modele"] == "general" and t["lissage"] == 0.5
+    assert t["entree"].endswith("_transparent.webm")  # vidéo choisie dans la galerie
+
+    from PIL import Image
+    Image.new("RGB", (50, 50), (0, 0, 255)).save(cfg.DATA_DIR.parent / "plage.jpg")
+    _, video, _, d = fv.traiter(str(clip), None, fv.IMAGE, image_fond=str(cfg.DATA_DIR.parent / "plage.jpg"),
+                                progress=no_progress)
+    assert _journal()[-1]["tache"]["fond"] == str(Path(d) / "fond.jpg") and video.endswith("_nouveau_fond.mp4")
+    with pytest.raises(gr.Error, match="image de fond"):
+        fv.traiter(str(clip), None, fv.IMAGE, progress=no_progress)
+    with pytest.raises(gr.Error, match="Ajoute une vidéo"):
+        fv.traiter(None, None, progress=no_progress)
+    assert fv._couleur("#0F0") == "#00ff00"
+
+
+def test_fond_video_lissage_et_composition():
+    """Fonctions du moteur (numpy seul) : le lissage n'agit que là où l'alpha bouge peu ; transparent = RGBA ;
+    une couleur ou une image prennent la place du fond selon l'alpha."""
+    import numpy as np
+
+    precedent = np.array([[0.0, 1.0, 0.0]], np.float32)
+    alpha = np.array([[0.1, 0.9, 1.0]], np.float32)  # bord qui scintille, bord qui scintille, vrai mouvement
+    lisse = moteur._lisser_alpha(alpha, precedent, 0.5)
+    assert np.allclose(lisse, [[0.05, 0.95, 1.0]])
+    assert moteur._lisser_alpha(alpha, None, 0.5) is alpha
+    rgb = np.full((1, 3, 3), 200, np.uint8)
+    rgba = moteur._composer(rgb, np.array([[0.0, 0.5, 1.0]], np.float32), "transparent")
+    assert rgba.shape == (1, 3, 4) and list(rgba[0, :, 3]) == [0, 128, 255]
+    vert = moteur._fond_pour("#00ff00", 3, 1)
+    sortie = moteur._composer(rgb, np.array([[0.0, 0.5, 1.0]], np.float32), "#00ff00", vert)
+    assert list(sortie[0, 0]) == [0, 255, 0] and list(sortie[0, 2]) == [200, 200, 200] and sortie[0, 1, 1] == 228

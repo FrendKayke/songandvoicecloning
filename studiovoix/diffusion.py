@@ -376,6 +376,17 @@ def fluidifier(entree, sortie, facteur=2, ralenti=False, progress=None):
                   {1: "chargement de RIFE", 2: "images intermédiaires"})
 
 
+def fond_video(entree, sortie, modele="personne", fond="transparent", lissage=0.3, masque=None, progress=None):
+    """BiRefNet image par image : fond retiré (WebM VP9 ou MOV ProRes 4444 transparents, d'après l'extension de la
+    sortie) ou remplacé (« #rrggbb », « flou », chemin d'une image : MP4). Son d'origine gardé.
+    RESULTAT {sortie, masque, images, fps, duree, largeur, hauteur, couverture}."""
+    _verifier("photo_detourage")
+    tache = {"entree": str(entree), "sortie": str(sortie), "modele": modele, "fond": fond,
+             "lissage": float(lissage), "masque": str(masque) if masque else None}
+    return lancer("fond_video", tache, Path(sortie).parent, "Fond de la vidéo", progress,
+                  {1: "chargement du modèle de détourage", 2: "détourage image par image"})
+
+
 def parler(image, audio, son, sortie, prompt, largeur, hauteur, etapes=30, graine=0, guidage_audio=5.0,
            progress=None):
     """StableAvatar : vidéo MP4 (25 images/s) où la personne de l'image parle ou chante sur `audio` (WAV 16 kHz

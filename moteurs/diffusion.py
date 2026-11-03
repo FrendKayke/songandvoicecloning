@@ -2100,6 +2100,156 @@ def fluidifier(chemin_tache):
     print(f"TERMINE {t['sortie']}", flush=True)
 
 
+# --- Fond d'une vidéo : BiRefNet image par image ---------------------------------------------------------------
+LISSAGE_ECART = 0.25  # au-delà de cet écart d'alpha avec l'image précédente, c'est un mouvement : pas de lissage
+# Sorties à fond transparent : WebM VP9 (navigateurs, moteurs de jeu) ou MOV ProRes 4444 (logiciels de montage)
+ECRITURES_ALPHA = {
+    "webm": ("libvpx-vp9", "yuva420p", ["-b:v", "0", "-crf", "30", "-row-mt", "1", "-auto-alt-ref", "0"], "libopus"),
+    "mov": ("prores_ks", "yuva444p10le", ["-profile:v", "4444", "-qscale:v", "11", "-vendor", "apl0"], "aac"),
+}
+
+
+def _lisser_alpha(alpha, precedent, force):
+    """Alpha (réels 0–1) mélangé à celui de l'image précédente là où il bouge peu : BiRefNet, image par image,
+    fait scintiller les bords (cheveux) ; un vrai mouvement (écart > LISSAGE_ECART) n'est pas traîné."""
+    import numpy as np
+
+    if precedent is None or force <= 0:
+        return alpha
+    calme = np.abs(alpha - precedent) < LISSAGE_ECART
+    return np.where(calme, (1 - force) * alpha + force * precedent, alpha).astype(np.float32)
+
+
+def _fond_pour(fond, largeur, hauteur):
+    """Fond fixe (H×W×3 uint8) d'après la tâche : « #rrggbb » ou chemin d'une image (recadrée) ; None sinon."""
+    import numpy as np
+    from PIL import Image, ImageColor, ImageOps
+
+    if not fond or fond in ("transparent", "flou"):
+        return None
+    if str(fond).startswith("#"):
+        return np.broadcast_to(np.array(ImageColor.getrgb(fond)[:3], np.uint8), (hauteur, largeur, 3))
+    image, _ = _ouvrir_photo(fond)
+    return np.asarray(ImageOps.fit(image, (largeur, hauteur), Image.LANCZOS))
+
+
+def _composer(rgb, alpha, fond, fond_fixe=None):
+    """Image finale : RGBA (fond transparent) ou sujet posé sur le fond (couleur, image, ou sa propre image
+    floutée). rgb H×W×3 uint8, alpha H×W réels 0–1."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    if not fond or fond == "transparent":
+        return np.dstack([rgb, (alpha * 255 + 0.5).astype(np.uint8)])
+    if fond == "flou":
+        im = Image.fromarray(rgb)
+        base = np.asarray(im.filter(ImageFilter.GaussianBlur(max(im.size) / 80)), np.float32)
+    else:
+        base = fond_fixe.astype(np.float32)
+    a = alpha[..., None]
+    return (rgb.astype(np.float32) * a + base * (1 - a) + 0.5).astype(np.uint8)
+
+
+def fond_video(chemin_tache):
+    """Tâche : {entree, sortie, modele: personne | general, fond: transparent | flou | "#rrggbb" | chemin d'image,
+    lissage: 0–0,8, masque: chemin ou None, lot: images par passage}. BiRefNet sur chaque image (fp16 sur la carte,
+    par paquets), alpha lissé dans le temps, puis la vidéo réécrite par imageio-ffmpeg : fond transparent →
+    WebM VP9 (yuva420p) ou MOV ProRes 4444 selon l'extension de la sortie ; sinon MP4 H.264. Son d'origine gardé.
+    Pas de décontamination des bords (pymatting : plusieurs secondes par image). RESULTAT {sortie, masque, images,
+    fps, duree, couverture}."""
+    import imageio_ffmpeg
+    import numpy as np
+    import torch
+    from PIL import Image
+    from torchvision import transforms
+    from transformers import AutoModelForImageSegmentation
+
+    t = _lire(chemin_tache)
+    depot, revision, cote = BIREFNET[t.get("modele") or "personne"]
+    cote = int(t.get("cote") or cote)
+    depot, revision = t.get("depot", depot), t.get("revision", revision)
+    device = _device()
+    _hors_ligne_si_present(depot)
+    print("PROGRESSION 1/2 chargement de BiRefNet", flush=True)
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    torch.set_float32_matmul_precision("high")
+    modele = _garder(
+        ("BiRefNet", depot, revision, device),
+        lambda: AutoModelForImageSegmentation.from_pretrained(depot, trust_remote_code=True, revision=revision)
+        .to(device=device, dtype=dtype).eval(),
+        1.0, vers_cpu=lambda m: m.to("cpu"), vers_gpu=lambda m: m.to(device))
+
+    lecteur = imageio_ffmpeg.read_frames(t["entree"], pix_fmt="rgb24")
+    meta = lecteur.__next__()
+    largeur, hauteur = meta["size"]
+    fps = float(meta.get("fps") or 24)
+    total = max(1, int(round(float(meta.get("duration") or 0) * fps)))
+    fond = t.get("fond") or "transparent"
+    fond_fixe = _fond_pour(fond, largeur, hauteur)
+    ext = Path(t["sortie"]).suffix.lower().lstrip(".")
+    son = t["entree"] if meta.get("audio_codec") else None
+    if fond == "transparent":
+        codec, pix_out, options, codec_son = ECRITURES_ALPHA.get(ext, ECRITURES_ALPHA["webm"])
+        pix_in = "rgba"
+    else:
+        codec, pix_out, options, codec_son, pix_in = "libx264", "yuv420p", ["-crf", "18", "-preset", "medium"], \
+            "aac", "rgb24"
+    Path(t["sortie"]).parent.mkdir(parents=True, exist_ok=True)
+    ecrivain = imageio_ffmpeg.write_frames(t["sortie"], (largeur, hauteur), fps=fps, codec=codec, pix_fmt_in=pix_in,
+                                           pix_fmt_out=pix_out, quality=None, macro_block_size=1,
+                                           output_params=options, audio_path=son,
+                                           audio_codec=codec_son if son else None)
+    ecrivain.send(None)
+    ecrivain_masque = None
+    if t.get("masque"):
+        ecrivain_masque = imageio_ffmpeg.write_frames(t["masque"], (largeur, hauteur), fps=fps, codec="libx264",
+                                                      pix_fmt_in="gray", pix_fmt_out="yuv420p", quality=None,
+                                                      macro_block_size=1, output_params=["-crf", "18"])
+        ecrivain_masque.send(None)
+
+    preparation = transforms.Compose([transforms.Resize((cote, cote)), transforms.ToTensor(),
+                                      transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+    lot = max(1, int(t.get("lot") or (4 if device == "cuda" else 1)))
+    lissage = max(0.0, min(0.8, float(t.get("lissage", 0.3))))
+    print(f"PROGRESSION 2/2 détourage de {total} images ({largeur}×{hauteur})", flush=True)
+    precedent, n, couverture = None, 0, 0.0
+
+    def traiter(paquet):
+        nonlocal precedent, n, couverture
+        x = torch.stack([preparation(Image.fromarray(rgb)) for rgb in paquet]).to(device=device, dtype=dtype)
+        with torch.inference_mode():
+            predictions = _memoire(modele)(x)[-1].sigmoid().float().cpu()[:, 0].numpy()
+        for rgb, p in zip(paquet, predictions):
+            alpha = np.asarray(Image.fromarray(p).resize((largeur, hauteur), Image.BILINEAR), np.float32)
+            alpha = _lisser_alpha(np.clip(alpha, 0, 1), precedent, lissage)
+            precedent = alpha
+            ecrivain.send(np.ascontiguousarray(_composer(rgb, alpha, fond, fond_fixe)))
+            if ecrivain_masque is not None:
+                ecrivain_masque.send(np.ascontiguousarray((alpha * 255 + 0.5).astype(np.uint8)))
+            couverture += float(alpha.mean())
+            n += 1
+            if n % 10 == 0:
+                print(f"Image {n}/{total}", flush=True)
+
+    paquet = []
+    for brut in lecteur:
+        paquet.append(np.frombuffer(brut, np.uint8).reshape(hauteur, largeur, 3))
+        if len(paquet) == lot:
+            traiter(paquet)
+            paquet = []
+    if paquet:
+        traiter(paquet)
+    ecrivain.close()
+    if ecrivain_masque is not None:
+        ecrivain_masque.close()
+    if not n:
+        _erreur("aucune image lue dans la vidéo.")
+    _resultat({"sortie": t["sortie"], "masque": t.get("masque"), "images": n, "fps": round(fps, 3),
+               "duree": round(n / fps, 2), "largeur": largeur, "hauteur": hauteur,
+               "couverture": round(couverture / n, 3)})
+    print(f"TERMINE {t['sortie']}", flush=True)
+
+
 # --- StableAvatar : vidéo parlante (lèvres synchronisées sur une voix) -----------------------------------------
 def _dossier_code():
     return Path(os.environ.get("STUDIOVOIX_CODE") or Path.cwd() / "code")
@@ -2448,7 +2598,7 @@ ACTIONS = {"decrire": decrire, "bruitage": bruitage, "image": image, "personnage
            "sprite_dresseur": sprite_dresseur,
            "assembler": assembler, "detourer": detourer, "ameliorer": ameliorer, "forme3d": forme3d, "alleger": alleger,
            "facetter": facetter,
-           "transcrire": transcrire, "fluidifier": fluidifier, "parler": parler}
+           "transcrire": transcrire, "fluidifier": fluidifier, "fond_video": fond_video, "parler": parler}
 
 
 def _present_localement(nom):
