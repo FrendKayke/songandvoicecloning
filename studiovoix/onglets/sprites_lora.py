@@ -62,8 +62,8 @@ def construire():
         btn_lo_entrainer = gr.Button("2️⃣ Entraîner (environ une heure)", variant="primary")
     lo_msg = gr.Markdown()
     lo_fichier = gr.File(label="Modèle entraîné (LoRA SDXL, .safetensors)", interactive=False)
-    gr.Markdown("#### 4️⃣ S'en servir : onglet Pixel art → 🎒 Kit de dresseur → liste « Feuille de marche » ou "
-                "« Modèle du sprite de face »")
+    gr.Markdown("#### 4️⃣ S'en servir : onglet 🎒 Kit de dresseur → liste « Feuille de marche » ou « Modèle du sprite "
+                "de face »")
     lo_liste = gr.Markdown(etat_modeles())
     btn_lo_dossier = gr.Button("📂 Ouvrir le dossier des modèles entraînés")
     return espace_de_noms(locals())
@@ -111,7 +111,7 @@ def brancher(c, demo, o):
     c.btn_lo_relire.click(modele_sprites.legendes, c.lo_nom, c.lo_legendes)
     c.btn_lo_entrainer.click(modele_sprites.entrainer, [c.lo_nom, c.lo_epoques, c.lo_dim, c.lo_graine],
                              [c.lo_msg, c.lo_fichier]).then(etat_modeles, None, c.lo_liste).then(
-        dresseur.liste_loras_marche, None, o.pixel_art.kit_lora_marche).then(
-        dresseur.liste_loras_face, None, o.pixel_art.kit_lora_face)
+        dresseur.liste_loras_marche, None, o.dresseur.kit_lora_marche).then(
+        dresseur.liste_loras_face, None, o.dresseur.kit_lora_face)
     demo.load(modele_sprites.etat_prerequis, None, c.lo_prerequis)
     c.btn_lo_dossier.click(lambda: open_folder(modele_sprites.cfg.LORAS_DIR, create=True))

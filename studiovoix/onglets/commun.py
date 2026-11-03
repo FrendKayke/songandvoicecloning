@@ -28,3 +28,17 @@ def liste_style(cle, label, info=None):
         LISTES[cle], value=[], multiselect=True, allow_custom_value=True, label=label,
         info=info or "Choisis dans la liste, ou tape ton propre terme (en anglais de préférence) puis Entrée.",
     )
+
+
+def synchro_toutes_les_voix(evt, o, sauf=None):
+    """Après une opération sur la bibliothèque (ajout, nettoyage enregistré, renommage, suppression) : toutes les
+    listes de voix de l'application sont remises à jour (chanson, lecture d'un texte, vidéo parlante, voix off,
+    nettoyage, bibliothèque), la sélection gardée si elle existe encore. `sauf` : liste déjà mise à jour par
+    l'événement lui-même."""
+    listes = [o.bibliotheque.biblio, o.nettoyer.net_voix, o.chanson.voix, o.synthese.tts_voix, o.parlante.par_voix,
+              getattr(getattr(o, "voix_off", None), "vo_voix", None)]
+    for liste in listes:
+        if liste is not None and liste is not sauf:
+            evt = evt.then(synchro_voix, liste, liste)
+    return evt.then(lambda v: gr.update(choices=list_voices(), value=[x for x in (v or []) if x in list_voices()]),
+                    o.rvc.rvc_biblio, o.rvc.rvc_biblio)

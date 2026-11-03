@@ -1,4 +1,4 @@
-"""Vidéo parlante (onglet « Image et vidéo → Faire parler une image ») : StableAvatar, moteur de diffusion, action
+"""Vidéo parlante (onglet « Vidéo → Faire parler un visage ») : StableAvatar, moteur de diffusion, action
 « parler ».
 
 Une image (photo, illustration, personnage) et une voix → une vidéo où la personne parle ou chante, lèvres

@@ -1,4 +1,5 @@
-"""Onglet « Galerie » : toutes les créations, écoute ou affichage, recréation, retouche d'un passage, suppression."""
+"""Onglet « Galerie » : toutes les créations, écoute ou affichage, recréation, suppression (« Refaire un passage »
+a son onglet dans le groupe Musique)."""
 import gradio as gr
 
 from .. import galerie
@@ -33,27 +34,14 @@ def construire():
                 gal_dossier = gr.Button("📂 Ouvrir le dossier")
                 gal_suppr = gr.Button("🗑️ Supprimer", variant="stop")
     gal_msg = gr.Markdown()
-    with gr.Accordion("✏️ Refaire un passage (chansons et pistes de jeu)", open=False):
-        gr.Markdown(
-            "Un refrain raté, une fin bizarre ? Indique le passage en secondes : seul ce passage est "
-            "réinventé (tâche *repaint* d'ACE-Step), le reste est gardé, puis la suite du traitement est "
-            "refaite (ta voix, retrait d'instruments, boucle…). Le résultat est une **nouvelle création**, "
-            "l'originale reste dans la galerie. Tu peux modifier la description ou les paroles du passage."
-        )
-        with gr.Row():
-            gal_debut = gr.Number(value=0, label="Début (s)")
-            gal_fin = gr.Number(value=10, label="Fin (s)")
-            gal_force = gr.Radio(list(galerie.FORCES), value=list(galerie.FORCES)[1], label="Retouche")
-        gal_desc = gr.Textbox(label="Description", lines=2)
-        gal_paroles = gr.Textbox(label="Paroles (chansons)", lines=6)
-        gal_refaire = gr.Button("✏️ Refaire ce passage", variant="primary")
+    gal_desc, gal_paroles, gal_fin = gr.State(), gr.State(), gr.State()  # remplis par details(), lus par « Refaire un passage »
     return espace_de_noms(locals())
 
 
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
-    sorties_details = [c.gal_details, c.gal_audio, c.gal_version, c.gal_desc, c.gal_paroles, c.gal_fin, c.gal_modele, c.gal_image,
-                       c.gal_video]
+    sorties_details = [c.gal_details, c.gal_audio, c.gal_version, c.gal_desc, c.gal_paroles, c.gal_fin, c.gal_modele,
+                       c.gal_image, c.gal_video]
     for evt in (c.gal_filtre.change, c.gal_maj.click, demo.load):
         evt(galerie.maj_liste, [c.gal_filtre, c.gal_liste], c.gal_liste)
     c.gal_liste.change(galerie.details, [c.gal_liste], sorties_details)
@@ -69,9 +57,6 @@ def brancher(c, demo, o):
     c.gal_version.input(galerie.details, [c.gal_liste, c.gal_version], sorties_details)
     c.gal_recreer.click(galerie.recreer, [c.gal_liste, c.gal_version], [c.gal_msg, c.gal_etat]).then(
         galerie.maj_liste, [c.gal_filtre, c.gal_etat], c.gal_liste)
-    c.gal_refaire.click(galerie.refaire_passage,
-                      [c.gal_liste, c.gal_version, c.gal_debut, c.gal_fin, c.gal_desc, c.gal_paroles, c.gal_force],
-                      [c.gal_msg, c.gal_etat]).then(galerie.maj_liste, [c.gal_filtre, c.gal_etat], c.gal_liste)
     c.gal_suppr.click(galerie.supprimer, c.gal_liste, c.gal_msg, js=CONFIRMER_SUPPRESSION_CREATION).then(
         galerie.maj_liste, [c.gal_filtre], c.gal_liste)
     c.gal_dossier.click(lambda d: open_folder(d) if d else None, c.gal_liste)

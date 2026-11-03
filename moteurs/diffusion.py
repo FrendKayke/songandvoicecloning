@@ -206,7 +206,7 @@ def _memoire(action):
         except torch.cuda.OutOfMemoryError:
             _erreur("mémoire de la carte graphique insuffisante. Ferme les autres programmes qui utilisent la "
                     "carte (jeux, vidéos) ; si tu as désactivé la libération automatique, arrête ACE-Step "
-                    "dans Outils → Modèles et diagnostic, puis relance.", 3)
+                    "dans Outils → Modèles, puis relance.", 3)
     return enveloppe
 
 
@@ -736,7 +736,7 @@ def bruitage(chemin_tache):
         except Exception as e:  # accès refusé : licence non acceptée ou jeton absent
             if "401" in str(e) or "403" in str(e) or "gated" in str(e).lower() or "Access" in str(e):
                 _erreur("Stable Audio Open n'est pas téléchargé : accepte sa licence sur Hugging Face et enregistre "
-                        "ton jeton (Outils → Modèles et diagnostic → Télécharger les bruitages).", 4)
+                        "ton jeton (Outils → Modèles → Télécharger les bruitages).", 4)
             raise
 
     pipe = _garder(("Stable Audio Open", depot, device), charger, 3.5, vers_cpu=lambda p_: p_.to("cpu"),
@@ -2046,7 +2046,7 @@ def fluidifier(chemin_tache):
     print("PROGRESSION 1/2 chargement de RIFE", flush=True)
     poids = Path(t.get("poids") or (_dossier_photos() / "flownet_v4.26.pkl"))
     if not poids.exists():
-        _erreur("modèle RIFE absent : télécharge-le dans Outils → Modèles et diagnostic.")
+        _erreur("modèle RIFE absent : télécharge-le dans Outils → Modèles.")
     net = _garder(("RIFE", str(poids), device), lambda: rife.charger(str(poids), device), 0.1,
                   vers_cpu=lambda m: m.to("cpu"), vers_gpu=lambda m: m.to(device))
     lecteur = imageio_ffmpeg.read_frames(t["entree"], pix_fmt="rgb24")
@@ -2186,7 +2186,7 @@ def parler(chemin_tache):
     device = _device()
     code = Path(t.get("code") or _code_stableavatar())
     if not (code / "wan").is_dir():
-        _erreur("code de StableAvatar absent : télécharge « StableAvatar » dans Outils → Modèles et diagnostic.")
+        _erreur("code de StableAvatar absent : télécharge « StableAvatar » dans Outils → Modèles.")
     if str(code) not in sys.path:
         sys.path.insert(0, str(code))
     _hors_ligne_si_present(STABLEAVATAR, WAN)

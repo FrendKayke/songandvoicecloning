@@ -1,7 +1,7 @@
-"""Onglet « Bande-son de jeu » : situations, thème de référence, génération en lot, pack du jeu."""
+"""Onglet « Musiques de jeu » : situations, thème de référence, génération en lot (le pack du jeu a son onglet)."""
 import gradio as gr
 
-from .. import export, jeu, projets
+from .. import jeu, projets
 from .commun import espace_de_noms, liste_style
 
 
@@ -10,7 +10,8 @@ def construire():
     gr.Markdown(
         "Musiques **sans voix** pour ton jeu, par situation : écran titre, combat, victoire… "
         "Les musiques de fond sont faites pour tourner en boucle, les jingles sont courts. "
-        "On décrit un style (JRPG, 16-bit…), jamais une œuvre existante : la musique produite est originale."
+        "On décrit un style (JRPG, 16-bit…), jamais une œuvre existante : la musique produite est originale. "
+        "L'export pour le jeu (OGG / MP3, volume harmonisé) se fait dans l'onglet « 📦 Pack du jeu »."
     )
     with gr.Row():
         jeu_projet = gr.Dropdown(projets.tous() or ["mon jeu de cartes"], value=(projets.tous() or ["mon jeu de cartes"])[0],
@@ -53,26 +54,11 @@ def construire():
         jeu_liste = gr.Dropdown([], label="Écouter une piste générée")
         jeu_audio = gr.Audio(label="Piste (en boucle dans le jeu)", type="filepath")
         jeu_jonction = gr.Audio(label="Jonction : 5 s de fin puis 5 s de début", type="filepath")
-    with gr.Accordion("📦 Export pour le jeu (OGG / MP3, volume harmonisé, manifest.json)", open=False):
-        gr.Markdown(
-            "Réunit tout le projet dans `data/jeux/<projet>/export/` et une archive zip : la piste la plus récente "
-            "de chaque situation et les bruitages gardés, au même volume (OGG pour les navigateurs récents, MP3 en "
-            "secours, boucles exactes), les illustrations gardées, les cartes composées et les modèles 3D du projet "
-            "(version web si elle existe), avec un seul `manifest.json`."
-        )
-        with gr.Row():
-            jeu_cible = gr.Dropdown(list(export.CIBLES), value=list(export.CIBLES)[1], label="Volume cible")
-            jeu_formats = gr.CheckboxGroup([("OGG", "ogg"), ("MP3", "mp3")], value=["ogg", "mp3"],
-                                           label="Formats")
-        btn_export_jeu = gr.Button("📦 Exporter le pack du jeu (musiques, bruitages, illustrations, cartes, 3D)")
-        jeu_export_msg = gr.Markdown()
-        jeu_zip = gr.File(label="Archive à télécharger")
     return espace_de_noms(locals())
 
 
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
-    c.btn_export_jeu.click(export.exporter_pack, [c.jeu_projet, c.jeu_cible, c.jeu_formats], [c.jeu_zip, c.jeu_export_msg])
     champs_jeu = [c.jeu_epoque, c.jeu_univers, c.jeu_situations, c.jeu_extra, c.jeu_duree]
     for champ in champs_jeu:
         champ.change(jeu.apercu, champs_jeu, c.jeu_apercu)

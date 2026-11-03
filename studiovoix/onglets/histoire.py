@@ -1,7 +1,8 @@
-"""Onglet « Histoire en images » : un texte ou des descriptions → plusieurs images, puis une mini-vidéo par image."""
+"""Onglet « Histoire en images » : un texte ou des descriptions → plusieurs images (les mini-vidéos par image ont
+leur onglet dans le groupe Vidéo)."""
 import gradio as gr
 
-from .. import images, videos
+from .. import images
 from ..outils import open_folder
 from .commun import espace_de_noms
 
@@ -9,8 +10,8 @@ from .commun import espace_de_noms
 def construire():
     """Composants de l'onglet (dans l'onglet ouvert par l'appelant)."""
     gr.Markdown(
-        "**Plusieurs images qui racontent une histoire**, avec les mêmes personnages d'une image à l'autre, puis, "
-        "si tu veux, une mini-vidéo par image.\n\n"
+        "**Plusieurs images qui racontent une histoire**, avec les mêmes personnages d'une image à l'autre (puis, "
+        "si tu veux, une mini-vidéo par image : onglet « 🎞️ Mini-vidéos d'une histoire » du groupe Vidéo).\n\n"
         "1. **Écris tout toi-même, en anglais** : un **contexte commun** (envoyé tel quel avec chaque image : les "
         "personnages, leur nombre et leur genre — « four bearded men, all male » —, leur apparence, le lieu, "
         "l'époque), puis, pour chaque image, ce qu'elle montre. Une image laissée vide reprend le contexte seul.\n"
@@ -54,17 +55,6 @@ def construire():
     hist_galerie = gr.Gallery(label="Images de l'histoire", columns=4, height=520, object_fit="contain")
     with gr.Row():
         btn_hist_dossier = gr.Button("📂 Ouvrir le dossier")
-    gr.Markdown("### 🎬 Ensuite : une mini-vidéo par image\nWan 2.2 anime chaque image (~4 à 7 min par mini-vidéo de "
-                "3 s sur la RTX 4070), puis les assemble si tu veux.")
-    with gr.Row():
-        hist_duree = gr.Radio(["2 s", "3 s"], value="3 s", label="Durée de chaque mini-vidéo")
-        hist_etapes = gr.Slider(10, 40, value=20, step=1, label="Pas (plus = plus fin, plus long)")
-        hist_assembler = gr.Checkbox(value=True, label="Assembler en une seule vidéo")
-    hist_mouvement = gr.Textbox(label="Mouvement (facultatif, anglais ; vide = la scène s'anime doucement)",
-                                placeholder=videos.MOUVEMENT_DEFAUT)
-    btn_hist_videos = gr.Button("🎬 Faire les mini-vidéos")
-    hist_vid_statut = gr.Markdown()
-    hist_video = gr.Video(label="Mini-vidéos", height=420)
     return espace_de_noms({**locals(), **champs_images})
 
 
@@ -87,11 +77,6 @@ def _generer_histoire(depart, styles, format_label, memes, graine, nom, histoire
                                    memes, graine, nom, histoire, contexte, progress=progress)
 
 
-def _mini_videos(dossier, duree, etapes, mouvement, assembler, nom, progress=gr.Progress()):
-    msg, video, _ = videos.generer_depuis_images(dossier, duree, etapes, mouvement, assembler, nom, progress=progress)
-    return msg, video
-
-
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     champs = [getattr(c, f"hist_image_{i}") for i in range(1, images.NOMBRE_MAX + 1)]
@@ -102,9 +87,6 @@ def brancher(c, demo, o):
                      champs).success(
         _generer_histoire, [c.hist_depart, c.hist_styles, c.hist_format, c.hist_memes, c.hist_graine, c.hist_nom,
                             c.hist_texte, c.hist_contexte, c.hist_nombre, *champs],
-        [c.hist_statut, c.hist_galerie, c.hist_dossier])
+        [c.hist_statut, c.hist_galerie, c.hist_dossier]).then(
+        lambda d: gr.update(value=d), c.hist_dossier, o.mini_videos.mv_histoire)  # proposée dans l'onglet des mini-vidéos
     c.btn_hist_dossier.click(lambda d: open_folder(d) if d else None, c.hist_dossier)
-    c.btn_hist_videos.click(_mini_videos,
-                            [c.hist_dossier, c.hist_duree, c.hist_etapes, c.hist_mouvement, c.hist_assembler,
-                             c.hist_nom],
-                            [c.hist_vid_statut, c.hist_video])

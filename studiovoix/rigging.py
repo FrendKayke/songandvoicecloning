@@ -84,7 +84,7 @@ def animer(dossier=None, fichier=None, graine=0, progress=gr.Progress()):
         raise gr.Error("Crée d'abord un modèle 3D, ou importe un fichier GLB, FBX ou OBJ à animer.")
     _installe()
     if missing_components():
-        raise gr.Error("Modèles d'UniRig à télécharger dans « Outils → Modèles et diagnostic » : "
+        raise gr.Error("Modèles d'UniRig à télécharger dans « Outils → Modèles » : "
                        + ", ".join(missing_components()) + ".")
     sortie, fbx = d / "modele_anime.glb", d / "modele_anime.fbx"
     tache = d / "tache_rigging.json"

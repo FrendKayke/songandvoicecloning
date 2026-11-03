@@ -1543,14 +1543,17 @@ def test_reviser_un_modele_3d(faux_diffusion):
     from PIL import Image
 
     from studiovoix import galerie
-    from studiovoix.onglets import modeles_3d
+    from studiovoix.onglets import revision_3d
 
     face = faux_diffusion / "archer.png"
     Image.new("RGB", (600, 900), "white").save(face)
     msg, glb, _, _, dossier = modele3d.generer(str(face), "Archer", "Normale", True, 0, ["glb"], progress=no_progress)
     image, dos, graine = modele3d.reprendre_images(dossier)
     assert dos is None and graine == 555 and Path(image).name == "image.png"
-    assert modeles_3d._graine_du_modele(dossier) == (555, None, None)
+    # l'onglet « Corriger un modèle » reprend les images, la graine et les réglages du modèle choisi
+    charge = revision_3d._charger(dossier)
+    assert charge[:3] == (image, None, 555) and charge[3] == "Archer" and charge[4] == "Normale" and "graine 555" in charge[8]
+    assert revision_3d.maj_liste(dossier)["value"] == dossier
     # correction de la face : consigne de Qwen + « garder le reste », proportions de l'image
     corrigee, msg, note = modele3d.corriger_image(image, "refais l'arc", progress=no_progress)
     j = _journal()
@@ -1561,17 +1564,17 @@ def test_reviser_un_modele_3d(faux_diffusion):
     # vue de dos (avec une précision), puis correction de la vue de dos depuis l'onglet
     vue_dos, msg = modele3d.creer_vue_de_dos(corrigee, "l'arc bien visible", progress=no_progress)
     assert modele3d.VUE_DE_DOS in _journal()[-1]["tache"]["prompt"] and Path(vue_dos).name == "dos.png"
-    face2, dos2, msg, note, de = modeles_3d._corriger("La vue de dos", corrigee, vue_dos, "corde visible", dossier,
-                                                     progress=no_progress)
-    assert face2 == corrigee and Path(dos2).name == "revision.png" and de == dossier
+    face2, dos2, msg, note = revision_3d._corriger("La vue de dos", corrigee, vue_dos, "corde visible",
+                                                  progress=no_progress)
+    assert face2 == corrigee and Path(dos2).name == "revision.png"
     with pytest.raises(gr.Error, match="vue de dos"):
-        modeles_3d._corriger("La vue de dos", corrigee, None, "x", dossier, progress=no_progress)
+        revision_3d._corriger("La vue de dos", corrigee, None, "x", progress=no_progress)
     with pytest.raises(gr.Error, match="Écris ce qu'il faut corriger"):
         modele3d.corriger_image(image, " ", progress=no_progress)
     # nouveau modèle : face corrigée + dos, même graine, révision notée ; forme multi-vues (5 pas, même en Maximale)
-    msg, glb, _, _, d2 = modele3d.generer(face2, "Archer", "Maximale (modèle complet, 50 étapes, la plus détaillée)",
-                                          True, graine, ["glb"], image_dos=dos2, revision="refais l'arc",
-                                          revision_de=dossier, progress=no_progress)
+    msg, glb, _, _, d2 = revision_3d._refaire(dossier, face2, dos2, graine, "Archer",
+                                              "Maximale (modèle complet, 50 étapes, la plus détaillée)", True, ["glb"],
+                                              None, "refais l'arc", progress=no_progress)
     t = _journal()[-1]["tache"]
     assert t["dos"] == str(Path(d2) / "image_dos.png") and t["etapes"] == 5 and "sous_dossier" not in t
     assert t["graine"] == 555 and "face et le dos" in msg

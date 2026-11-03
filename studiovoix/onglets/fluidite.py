@@ -1,4 +1,4 @@
-"""Onglet « Fluidifier ou ralentir une vidéo » (groupe Image et vidéo) : RIFE."""
+"""Onglet « Fluidifier ou ralentir une vidéo » (groupe Vidéo) : RIFE."""
 import gradio as gr
 
 from .. import fluidite

@@ -1,4 +1,4 @@
-"""Kit de dresseur (onglet « Pixel art et sprites ») : sprite de combat de face, feuille de lancer vue de dos et
+"""Kit de dresseur (onglet « Kit de dresseur ») : sprite de combat de face, feuille de lancer vue de dos et
 feuille de marche aux couleurs d'une personne, dans le style exact des sprites d'exemple de l'utilisateur (jeux de rôle
 portables GBA ou DS).
 

@@ -8,23 +8,25 @@ from types import SimpleNamespace
 
 import gradio as gr
 
-from .onglets import (bande_son, bibliotheque, bruitages, chanson, costumes, entrainement, espace, galerie, hd2d,
-                      histoire,
-                      fluidite, kit3d, illustrations, images, modeles, modeles_3d, parlante, pdf, photos,
-                      pixel_art, plans, sprites_lora,
-                      remix, serie, serie_musique,
-                      sous_titres, synthese, tileset3d, videos)
+from .onglets import (alleger_3d, bande_son, bibliotheque, bruitages, chanson, composer, costumes, diagnostic,
+                      entrainement, espace, fluidite, galerie, hd2d, histoire, illustrations, images, kit3d, lot_3d,
+                      mini_videos, modeles, modeles_3d, nettoyer, pack, parlante, passage, pdf, personnages_cartes,
+                      photos, photos_lot, pixel_animer, pixel_convertir, pixel_personnages, dresseur, plans, remix,
+                      revision_3d, rigging_3d, serie, serie_musique, sous_titres, sprites_lora, synthese, tileset3d,
+                      videos)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
 
 # apercu_description, maj_mode et synthese_puis_rvc sont réexportés pour les tests
 __all__ = ["GROUPES", "ONGLETS", "build_ui", "apercu_description", "maj_mode", "synthese_puis_rvc"]
 
-# Cinq groupes, chacun avec ses onglets : (titre du groupe, [(clé dans o, module, titre de l'onglet)]). Un onglet =
-# une chose à faire, nommée par ce qu'on y fait (demande de l'utilisateur : « un onglet avec ce que je peux faire »).
+# Huit groupes (huit onglets au plus chacun, pour qu'ils restent tous visibles), chacun avec ses onglets : (titre du groupe, [(clé dans o, module, titre de l'onglet)]). Un onglet =
+# une seule chose à faire, nommée par ce qu'on y fait (demandes de l'utilisateur : « un onglet avec ce que je peux
+# faire », puis « une page : une fonction », 03/11).
 GROUPES = [
     ("🎤 Voix", [
-        ("bibliotheque", bibliotheque, "🎙️ Mes voix (enregistrer, nettoyer)"),
+        ("bibliotheque", bibliotheque, "🎙️ Mes voix (ajouter, écouter, renommer)"),
+        ("nettoyer", nettoyer, "🧽 Nettoyer une voix"),
         ("synthese", synthese, "🗣️ Lire un texte avec une voix"),
         ("rvc", entrainement, "🧠 Entraîner un modèle de ma voix"),
     ]),
@@ -32,34 +34,56 @@ GROUPES = [
         ("chanson", chanson, "🎵 Créer une chanson ou une musique"),
         ("remix", remix, "🎛️ Remixer une musique (autre style)"),
         ("serie_musique", serie_musique, "🗂️ Musiques en série (Excel, liste)"),
+        ("passage", passage, "✏️ Refaire un passage d'une chanson"),
     ]),
-    ("🖼️ Image et vidéo", [
+    ("🖼️ Image", [
         ("images", images, "🖼️ Une image (texte ou photo)"),
         ("serie", serie, "🗂️ Images en série (Excel, liste)"),
         ("histoire", histoire, "📖 Histoire en images"),
-        ("videos", videos, "🎬 Une vidéo"),
-        ("plans", plans, "🎞️ Vidéo en plusieurs plans"),
-        ("parlante", parlante, "🗣️ Faire parler une image"),
-        ("fluidite", fluidite, "⏩ Fluidifier ou ralentir une vidéo"),
-        ("pixel_art", pixel_art, "👾 Pixel art et sprites"),
-        ("sprites_lora", sprites_lora, "🧪 Entraîner un modèle de sprites"),
         ("photos", photos, "📷 Retoucher une photo"),
+        ("photos_lot", photos_lot, "📦 Photos en lot"),
         ("costumes", costumes, "👗 Changer les vêtements"),
+    ]),
+    ("👾 Pixel art", [
+        ("pixel_convertir", pixel_convertir, "👾 Convertir en pixel art"),
+        ("pixel_personnages", pixel_personnages, "🧙 Personnages pixel art d'après une photo"),
+        ("pixel_animer", pixel_animer, "🎞️ Animer un sprite"),
+        ("dresseur", dresseur, "🎒 Kit de dresseur"),
+        ("sprites_lora", sprites_lora, "🧪 Entraîner un modèle de sprites"),
+    ]),
+    ("🎬 Vidéo", [
+        ("videos", videos, "🎬 Une vidéo"),
+        ("plans", plans, "🎞️ Plusieurs plans"),
+        ("mini_videos", mini_videos, "🎞️ Mini-vidéos (histoire)"),
+        ("parlante", parlante, "🗣️ Faire parler un visage"),
+        ("fluidite", fluidite, "⏩ Fluidifier / ralentir"),
+        ("sous_titres", sous_titres, "📝 Sous-titrer (transcrire)"),
     ]),
     ("🎮 Jeu", [
         ("bande_son", bande_son, "🎼 Musiques de jeu"),
         ("bruitages", bruitages, "🔊 Bruitages"),
         ("illustrations", illustrations, "🃏 Illustrations de cartes"),
-        ("modeles_3d", modeles_3d, "🧊 Modèles 3D"),
-        ("hd2d", hd2d, "🏔️ Passer en HD-2D"),
-        ("tileset3d", tileset3d, "🧱 Tileset en objets 3D"),
-        ("kit3d", kit3d, "🏙️ Kit d'objets 3D"),
+        ("personnages_cartes", personnages_cartes, "👤 Personnages récurrents"),
+        ("composer", composer, "🃏 Composer une carte"),
+        ("pack", pack, "📦 Pack du jeu (export)"),
+    ]),
+    ("🧊 3D", [
+        ("modeles_3d", modeles_3d, "🧊 Image → modèle 3D"),
+        ("revision_3d", revision_3d, "✏️ Corriger"),
+        ("rigging_3d", rigging_3d, "🦴 Squelette"),
+        ("lot_3d", lot_3d, "📚 En lot"),
+        ("alleger_3d", alleger_3d, "🪶 Alléger / facetter"),
+        ("hd2d", hd2d, "🏔️ HD-2D"),
+        ("tileset3d", tileset3d, "🧱 Tileset → objets 3D"),
+        ("kit3d", kit3d, "🏙️ Kit d'objets"),
+    ]),
+    ("📄 PDF", [
+        ("pdf", pdf, "📄 Convertir en PDF"),
     ]),
     ("🧰 Outils", [
         ("galerie", galerie, "🗃️ Galerie (toutes mes créations)"),
-        ("modeles", modeles, "⚙️ Modèles et diagnostic"),
-        ("sous_titres", sous_titres, "📝 Transcrire et sous-titrer"),
-        ("pdf", pdf, "📄 Convertir en PDF"),
+        ("modeles", modeles, "⚙️ Modèles (télécharger, importer)"),
+        ("diagnostic", diagnostic, "🩺 Diagnostic et carte graphique"),
         ("espace", espace, "💽 Espace disque"),
     ]),
 ]
@@ -68,7 +92,7 @@ ONGLETS = [onglet for _, onglets in GROUPES for onglet in onglets]
 
 def build_ui():
     with gr.Blocks(title="Studio Voix") as demo:
-        gr.Markdown("# 🎤 Studio Voix\nClone ta voix, écris tes paroles, choisis le style : la chanson est générée en local.")
+        gr.Markdown("# 🎤 Studio Voix\nVoix, musique, images, vidéos, jeu, PDF : tout est généré en local. Un onglet = une chose à faire.")
         o = SimpleNamespace()
         with gr.Tabs():
             for titre_groupe, onglets in GROUPES:

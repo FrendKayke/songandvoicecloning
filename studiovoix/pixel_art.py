@@ -1,4 +1,4 @@
-"""Pixel art (onglet « Image et vidéo → Pixel art et sprites ») : une image convertie en pixel art, une personne d'une
+"""Pixel art (onglets « Image → Convertir en pixel art », « Personnages pixel art », « Animer un sprite ») : une image convertie en pixel art, une personne d'une
 photo transformée en personnage de jeu (sprite), et un sprite animé (30 images sur 5 s, en boucle).
 
 Le style vient de sprites d'exemple (`analyser_style`) : taille de la grille d'origine (un sprite de 128 px fait de

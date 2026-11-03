@@ -269,7 +269,7 @@ def guide_face(style):
 - Mêmes réglages que pour les feuilles ({EPOQUES_DEFAUT} époques, dimension {DIM_DEFAUT}). Compte une à deux heures pour 150 sprites sur une RTX 4070.
 - **Résultat** : **`data\\loras\\<nom>\\<nom>.safetensors`**.
 
-**Étape 4 — S'en servir** (onglet Pixel art, section 🎒 Kit de dresseur)
+**Étape 4 — S'en servir** (onglet 🎒 Kit de dresseur, groupe Image)
 - Choisis ce modèle dans la liste « Modèle du sprite de face ». Le sprite est dessiné à l'échelle exacte du jeu ({toile}×{toile}) puis remis sur sa grille, sans réduction.
 """
 
@@ -302,7 +302,7 @@ def guide(style, type_=MARCHE):
 - Réglages : époques (passages sur toutes les feuilles, chacune vue {REPETITIONS} fois par époque ; {EPOQUES_DEFAUT} conseillées) et dimension du LoRA ({DIM_DEFAUT} conseillée). Compte environ une heure pour 60 feuilles sur une RTX 4070 ; ferme les jeux et logiciels qui utilisent la carte.
 - **Résultat** : le fichier **`data\\loras\\<nom>\\<nom>.safetensors`** (le modèle LoRA SDXL), proposé au téléchargement ci-dessous. `modele.json` à côté garde les réglages.
 
-**Étape 4 — S'en servir** (onglet Pixel art, section 🎒 Kit de dresseur)
+**Étape 4 — S'en servir** (onglet 🎒 Kit de dresseur, groupe Image)
 - Choisis ce modèle dans la liste « Feuille de marche ». La feuille d'un nouveau personnage est générée d'après sa description (photo ou texte), puis remise sur la grille {cols}×{rows} de {cw}×{ch} px et aux couleurs du sprite de face.
 - **Résultat** : `marche.png` ({w}×{h} px, fond transparent), sa version agrandie et un GIF par direction, dans le dossier du kit.
 """
@@ -316,7 +316,7 @@ def etat_prerequis():
                   + ("" if env_ok else " : lance **METTRE_A_JOUR.bat** (étape 19 de l'installateur)."))
     sdxl = diffusion.present("sprites_dresseur")
     lignes.append(("✅" if sdxl else "❌") + " SDXL + LoRA de sprites (modèle de base)"
-                  + ("" if sdxl else " : Outils → Modèles et diagnostic → Télécharger, ou METTRE_A_JOUR.bat."))
+                  + ("" if sdxl else " : Outils → Modèles → Télécharger, ou METTRE_A_JOUR.bat."))
     qwen = diffusion.present("qwen")
     lignes.append(("✅" if qwen else "⚠️") + " Qwen3-VL pour les légendes"
                   + ("" if qwen else " (facultatif : sans lui, légendes génériques, moins bon résultat)."))

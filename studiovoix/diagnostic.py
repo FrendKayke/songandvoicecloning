@@ -1,4 +1,4 @@
-"""Diagnostic (onglet Modèles) : état de la machine et essai réel de chaque moteur, avec un rapport texte à envoyer
+"""Diagnostic (onglet « Diagnostic et carte graphique ») : état de la machine et essai réel de chaque moteur, avec un rapport texte à envoyer
 pour dépannage.
 
 - Diagnostic rapide (moins d'une minute) : système, carte graphique (nvidia-smi), espace disque, chaque environnement
@@ -119,7 +119,7 @@ class SuiviGPU:
 
 
 def surveiller_gpu(duree=60, periode=2.0, attendre=time.sleep):
-    """Générateur (bouton de l'onglet Modèles) : utilisation de la carte graphique en direct pendant `duree` s,
+    """Générateur (bouton de l'onglet « Diagnostic et carte graphique ») : utilisation de la carte graphique en direct pendant `duree` s,
     pendant qu'une génération tourne dans un autre onglet."""
     if not shutil.which("nvidia-smi"):
         yield "❌ nvidia-smi introuvable : le pilote NVIDIA n'est pas installé ou pas dans le PATH."

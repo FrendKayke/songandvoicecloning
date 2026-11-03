@@ -62,7 +62,7 @@ def _retoucher(choisie):
 def _animer(choisie):
     if not choisie:
         raise gr.Error("Clique d'abord sur une variante.")
-    gr.Info("Image envoyée dans l'onglet « Une vidéo » (Image et vidéo → Une vidéo) comme image de départ.")
+    gr.Info("Image envoyée dans l'onglet « Une vidéo » (Vidéo → Une vidéo) comme image de départ.")
     return choisie
 
 
