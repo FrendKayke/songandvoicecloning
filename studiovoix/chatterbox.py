@@ -105,3 +105,38 @@ def synthese(voix, texte, langue_label, exaggeration, cfg_weight, temperature, g
         attendu=sortie, resident="Chatterbox",
     )
     return str(sortie), f"Terminé. Fichier : {sortie}"
+
+
+def synthese_lot(voix_wav, textes, langue_code, dossier, exaggeration=0.5, cfg_weight=0.5, temperature=0.8, graine=0,
+                 progress=None):
+    """Plusieurs textes lus par la même voix (un WAV 24 kHz par texte, voix analysée une seule fois) : doublage
+    phrase par phrase. voix_wav : n'importe quel enregistrement (seules ses 10 premières secondes servent).
+    Renvoie la liste des fichiers, dans l'ordre des textes."""
+    textes = [(t or "").strip() for t in textes]
+    if not any(textes):
+        raise gr.Error("Aucun texte à faire lire.")
+    if not Path(cfg.CHATTERBOX_PYTHON).exists():
+        raise gr.Error(
+            f"Chatterbox n'est pas installé ({cfg.CHATTERBOX_PYTHON} introuvable). {retraits.conseil('chatterbox')}"
+        )
+    dossier = Path(dossier)
+    dossier.mkdir(parents=True, exist_ok=True)
+    sorties = [dossier / f"phrase_{i:03d}.wav" for i in range(1, len(textes) + 1)]
+    tache = dossier / "tache_voix.json"
+    tache.write_text(json.dumps({
+        "textes": [t or "…" for t in textes], "sorties": [str(s) for s in sorties], "langue": langue_code,
+        "voix": str(voix_wav), "exaggeration": float(exaggeration), "cfg_weight": float(cfg_weight),
+        "temperature": float(temperature), "graine": int(graine or 0),
+    }, ensure_ascii=False, indent=1), encoding="utf-8")
+    env = _env()
+    if not missing_components():
+        env["HF_HUB_OFFLINE"] = "1"
+    serveur_acestep.liberer_gpu(progress)
+    lancer_moteur(
+        [cfg.CHATTERBOX_PYTHON, str(script()), str(tache)], dossier, env, "Chatterbox",
+        (lambda i, n: progress(0.55 + 0.3 * (i - 1) / n, desc=f"Voix doublée : morceau {i}/{n}…")) if progress
+        else None,
+        attendu=sorties[-1], resident="Chatterbox",
+    )
+    return sorties
+

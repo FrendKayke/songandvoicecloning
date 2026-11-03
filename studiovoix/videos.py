@@ -296,6 +296,9 @@ def recreer(chemin, infos, graine, progress=gr.Progress()):
     if infos.get("voix_off"):
         raise gr.Error("Vidéo avec voix off : refais-la depuis l'onglet « Vidéo avec voix off » (la vidéo d'origine "
                        "est dans son dossier).")
+    if infos.get("doublage"):
+        raise gr.Error("Doublage : refais-le depuis l'onglet « Voix → Traduire et doubler » "
+                       f"(vidéo d'origine : {infos['doublage'].get('original')}).")
     if infos.get("karaoke"):
         raise gr.Error("Karaoké : refais-le depuis l'onglet « Musique → Karaoké » "
                        f"(chanson : {infos['karaoke'].get('chanson')}).")

@@ -100,9 +100,14 @@ def synthese(chemin_tache):
 
     with open(chemin_tache, encoding="utf-8") as f:
         t = json.load(f)
-    morceaux = decouper(t["texte"])
-    if not morceaux:
+    # Plusieurs textes, un fichier chacun (doublage : une phrase par moment de la vidéo) ; la voix n'est analysée
+    # qu'une fois. Sinon un seul texte, un seul fichier.
+    lot = [(texte, sortie) for texte, sortie in zip(t["textes"], t["sorties"])] if "textes" in t \
+        else [(t["texte"], t["sortie"])]
+    lot = [(decouper(texte), sortie) for texte, sortie in lot]
+    if not any(morceaux for morceaux, _ in lot):
         _erreur("Le texte est vide.")
+    total = sum(len(m) for m, _ in lot)
 
     if torch.cuda.is_available():
         device = "cuda"
@@ -125,28 +130,31 @@ def synthese(chemin_tache):
         # La voix de référence est analysée une seule fois (encodeur de voix, jetons S3, mel) : avec
         # audio_prompt_path, generate() refaisait prepare_conditionals() à chaque morceau (mtl_tts.py)
         modele.prepare_conditionals(t["voix"], exaggeration=float(t.get("exaggeration", 0.5)))
-        segments = []
-        for i, bout in enumerate(morceaux, 1):
-            print(f"PROGRESSION {i}/{len(morceaux)}", flush=True)
-            wav = modele.generate(
-                bout,
-                language_id=t["langue"],
-                audio_prompt_path=None,
-                exaggeration=float(t.get("exaggeration", 0.5)),
-                cfg_weight=float(t.get("cfg_weight", 0.5)),
-                temperature=float(t.get("temperature", 0.8)),
-            )
-            segments.append(wav.squeeze(0).detach().cpu().numpy().astype("float32"))
-            if i < len(morceaux):
-                segments.append(np.zeros(int(PAUSE_S * modele.sr), dtype="float32"))
+        fait = 0
+        for morceaux, sortie in lot:
+            segments = []
+            for i, bout in enumerate(morceaux, 1):
+                fait += 1
+                print(f"PROGRESSION {fait}/{total}", flush=True)
+                wav = modele.generate(
+                    bout,
+                    language_id=t["langue"],
+                    audio_prompt_path=None,
+                    exaggeration=float(t.get("exaggeration", 0.5)),
+                    cfg_weight=float(t.get("cfg_weight", 0.5)),
+                    temperature=float(t.get("temperature", 0.8)),
+                )
+                segments.append(wav.squeeze(0).detach().cpu().numpy().astype("float32"))
+                if i < len(morceaux):
+                    segments.append(np.zeros(int(PAUSE_S * modele.sr), dtype="float32"))
+            sf.write(sortie, np.concatenate(segments) if segments else np.zeros(1, np.float32), modele.sr)
     except torch.cuda.OutOfMemoryError:
         _erreur(
             "mémoire de la carte graphique insuffisante. Ferme les autres programmes qui utilisent la carte "
             "(jeux, vidéos) ; si tu as désactivé la libération automatique, arrête ACE-Step dans l'onglet "
             "Modèles, puis relance la synthèse.", 3
         )
-    sf.write(t["sortie"], np.concatenate(segments), modele.sr)
-    print(f"TERMINE {t['sortie']}", flush=True)
+    print(f"TERMINE {lot[-1][1]}", flush=True)
 
 
 def principal(argv):

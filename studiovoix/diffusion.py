@@ -221,7 +221,8 @@ def lancer(action, tache: dict, dossier: Path, nom, progress=None, libelles=None
 
 
 # --- Actions ----------------------------------------------------------------------------------------------
-def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=None, nombre=None, photos=None):
+def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=None, nombre=None, photos=None,
+            langue_cible=None):
     """Texte reformulé en anglais (mode « bruitage » ou « objet ») ou description d'une image (« son », « image »).
     suite : {plans, indice, precedent} pour un plan d'une vidéo en plusieurs plans (continuité)."""
     nom = qwen_nom()
@@ -243,6 +244,8 @@ def decrire(mode, texte=None, image=None, dossier=None, progress=None, suite=Non
         tache["nombre"] = int(nombre)
     if photos and int(photos) > 1:  # image = planche de plusieurs photos numérotées de gauche à droite
         tache["photos"] = int(photos)
+    if langue_cible:  # mode « traduction » : langue d'arrivée, en anglais (« French », « Japanese »…)
+        tache["langue_cible"] = langue_cible
     return lancer("decrire", tache, dossier, "Qwen3-VL", progress,
                   {1: "chargement du modèle de description", 2: "description"})["texte"]
 

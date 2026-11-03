@@ -124,3 +124,57 @@ def test_etat_des_modeles(faux_chatterbox):
         (snap / f).write_bytes(b"0")
     assert chatterbox.missing_components() == []
     assert "| Chatterbox Multilingual V3 (synthèse vocale) | ✅ présent |" in models_status_md()
+
+
+def test_moteur_plusieurs_textes(tmp_path, monkeypatch):
+    """Mode liste du vrai script (doublage) : voix analysée une seule fois, un fichier par texte, morceaux d'un même
+    texte recollés avec une pause ; modèle et torch remplacés (pas de GPU ici)."""
+    import types
+
+    import numpy as np
+
+    faux_torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False,
+                                                                  OutOfMemoryError=MemoryError),
+                                       manual_seed=lambda g: None)
+    monkeypatch.setitem(sys.modules, "torch", faux_torch)
+
+    class Sortie:
+        def __init__(self, n):
+            self.n = n
+
+        def squeeze(self, _):
+            return self
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return np.ones(self.n, np.float32)
+
+    class Modele:
+        sr = 1000
+        preparations = 0
+
+        def prepare_conditionals(self, voix, exaggeration):
+            Modele.preparations += 1
+
+        def generate(self, texte, **k):
+            assert k["audio_prompt_path"] is None and k["language_id"] == "en"
+            return Sortie(len(texte))
+
+    monkeypatch.setattr(moteur, "_charger_modele", lambda device: Modele())
+    longue = "Une phrase assez longue pour être coupée. " * 12
+    sorties = [tmp_path / "a.wav", tmp_path / "b.wav"]
+    tache = tmp_path / "t.json"
+    tache.write_text(json.dumps({"textes": ["Hello there.", longue], "sorties": [str(s) for s in sorties],
+                                 "langue": "en", "voix": "v.wav"}), encoding="utf-8")
+    moteur.synthese(str(tache))
+    assert Modele.preparations == 1
+    assert sf.info(sorties[0]).frames == len("Hello there.")
+    morceaux = moteur.decouper(longue)
+    assert len(morceaux) > 1
+    pauses = int(moteur.PAUSE_S * 1000) * (len(morceaux) - 1)
+    assert sf.info(sorties[1]).frames == sum(len(m) for m in morceaux) + pauses

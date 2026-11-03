@@ -32,6 +32,10 @@ FAUX_MOTEUR = textwrap.dedent("""
     if action == "decrire":
         print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
         if t["mode"] == "style": texte = "watercolor painting, soft washes, paper texture"
+        elif t["mode"] == "traduction":  # « N. phrase » → « N. [langue] phrase » ; « MANQUE » : une ligne de moins
+            lignes = [l for l in t["texte"].splitlines()[2:] if l.strip()]
+            texte = chr(10).join(f"{l.split('. ', 1)[0]}. [{t['langue_cible']}] {l.split('. ', 1)[1]}" for l in lignes
+                                 if not ("MANQUE" in l and len(lignes) > 1))
         elif t["mode"] == "objets": texte = chr(10).join(f"{i}. object number {i}" for i in range(1, t["nombre"] + 1))
         elif t.get("image"): texte = "metal clink on a table"
         else: texte = "wooden door creaking then slamming" if t["mode"] == "bruitage" else "a red potion bottle"
@@ -215,10 +219,10 @@ def _journal():
 
 
 def test_consignes_du_vrai_moteur():
-    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets", "costume", "tenue", "couleurs", "feuille", "sprite_face", "legende", "sprite_texte", "couleurs_texte", "legende_texte"}
+    assert set(moteur.CONSIGNES) == {"son", "objet", "bruitage", "image", "carte", "video", "scene", "retouche", "histoire", "style", "musiques", "parlante", "sprite", "tuile3d", "objets", "costume", "tenue", "couleurs", "feuille", "sprite_face", "legende", "sprite_texte", "couleurs_texte", "legende_texte", "traduction"}
     assert "sprite_dresseur" in moteur.ACTIONS
     # le texte de l'utilisateur est ajouté à toutes les consignes de reformulation (oubli constaté pour « video »)
-    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets", "tenue", "couleurs", "legende", "sprite_texte", "couleurs_texte", "legende_texte"}
+    assert moteur.MODES_TEXTE == {"objet", "bruitage", "carte", "video", "scene", "retouche", "histoire", "musiques", "sprite", "objets", "tenue", "couleurs", "legende", "sprite_texte", "couleurs_texte", "legende_texte", "traduction"}
     assert set(moteur.MODELES) == set(diffusion.MODELES)  # mêmes noms côté application et côté moteur
 
 

@@ -9,7 +9,7 @@ fonction) ; aucune ne demande de carte graphique sauf mention.
 - [x] **Montage vidéo simple** (fait le 03/11 : « 🔧 Audio / vidéo → 🎬 Montage ») : assembler des clips avec des fondus, ajouter une musique de fond, un titre, un logo.
 - [x] **Nettoyer le fond d'une vidéo** (fait le 03/11 : « 🎬 Vidéo → ✂️ Retirer le fond ») : BiRefNet image par image (fond vert sans fond vert). Carte graphique.
 - [x] **Karaoké** (fait le 03/11 : « 🎵 Musique → 🎤 Karaoké ») : paroles affichées au rythme de la chanson (Whisper donne déjà les temps des mots).
-- [ ] **Traduction et doublage** : transcrire une vidéo (Whisper), traduire (Qwen3-VL), relire avec ta voix dans
+- [x] **Traduction et doublage** (fait le 03/11 : « 🎤 Voix → 🌍 Traduire et doubler ») : transcrire une vidéo (Whisper), traduire (Qwen3-VL), relire avec ta voix dans
   l'autre langue (Chatterbox), remettre en voix off (onglet existant). Carte graphique.
 - [ ] **Images → vidéo diaporama** : effet Ken Burns, musique et voix off.
 

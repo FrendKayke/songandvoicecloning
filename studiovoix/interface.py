@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import gradio as gr
 
 from .onglets import (alleger_3d, bande_son, bibliotheque, bruitages, chanson, composer, conv_couper, conv_format,
-                      conv_montage, conv_recoller, conv_reduire, conv_son, costumes, diagnostic, entrainement,
+                      conv_montage, conv_recoller, conv_reduire, conv_son, costumes, diagnostic, doublage, entrainement,
                       espace, fluidite, fond_video, galerie, hd2d, histoire, illustrations, images, karaoke, kit3d,
                       lot_3d, mini_videos, modeles, modeles_3d, nettoyer, pack, parlante, passage, pdf, pdf_compresser,
                       pdf_filigrane, pdf_fusion, pdf_images, pdf_numeroter, pdf_pages, pdf_pivoter, pdf_proteger,
@@ -32,6 +32,7 @@ GROUPES = [
         ("nettoyer", nettoyer, "🧽 Nettoyer une voix"),
         ("synthese", synthese, "🗣️ Lire un texte avec une voix"),
         ("rvc", entrainement, "🧠 Entraîner un modèle de ma voix"),
+        ("doublage", doublage, "🌍 Traduire et doubler"),
     ]),
     ("🎵 Musique", [
         ("chanson", chanson, "🎵 Créer une chanson ou une musique"),

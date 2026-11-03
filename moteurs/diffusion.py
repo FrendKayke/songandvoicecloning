@@ -458,6 +458,12 @@ CONSIGNES = {
                  "situation mentioned). No song titles, no artist or existing work, no lyrics. Answer with exactly "
                  "the same number of lines, numbered 1., 2., 3. and so on, one description per line, nothing "
                  "else:\n\n"),
+    # onglet « Traduire et doubler » : une phrase dite par ligne → la même phrase dans la langue {langue}, à peu
+    # près aussi longue (elle sera relue à la place de l'originale, au même moment de la vidéo)
+    "traduction": ("Translate each numbered line below into {langue}. These are sentences spoken in a video; they "
+                   "will be dubbed at the same moment, so keep each translation natural and spoken, and about as "
+                   "long as the original. Keep names as they are. Answer with exactly the same number of lines, "
+                   "numbered 1., 2., 3. and so on, one translation per line, nothing else:\n\n"),
     # onglet « Kit d'objets 3D » : un objet par ligne (souvent en français) → description anglaise d'un objet seul
     "objets": ("Translate each numbered line below into a short English description of ONE object for a 3D game "
                "asset generator: what the object is, its shape, parts, materials and colors (keep every detail "
@@ -578,9 +584,10 @@ IMAGE_PERSONNAGES = ("The attached image shows the main character(s), creatures 
 RAPPEL_HISTOIRE = ("\n\nEnd of the story. Now write exactly {n} numbered prompts, one per line, IN ENGLISH (translate "
                    "everything except the characters' names), nothing else.")
 RAPPEL_MUSIQUES = "\n\nEnd of the lines. Now write exactly {n} numbered lines, IN ENGLISH, nothing else."
+RAPPEL_TRADUCTION = "\n\nEnd of the lines. Now write exactly {n} numbered lines, IN {langue}, nothing else."
 # Modes qui répondent par une liste numérotée (une ligne par élément) : jetons par élément, rappel ajouté au texte
 LISTES_NUMEROTEES = {"histoire": (180, RAPPEL_HISTOIRE), "musiques": (50, RAPPEL_MUSIQUES),
-                     "objets": (50, RAPPEL_MUSIQUES)}
+                     "objets": (50, RAPPEL_MUSIQUES), "traduction": (90, RAPPEL_TRADUCTION)}
 
 # Plan d'une suite (plusieurs plans enchaînés) : chaque plan était reformulé seul, sans les autres ; « A kraken
 # appears » devenait un océan sans les aventuriers, « They are fighting him » une ruelle à néons avec d'autres
@@ -642,7 +649,8 @@ def decrire(chemin_tache):
             im = ImageOps.exif_transpose(im).convert("RGB")
         im.thumbnail((QWEN_COTE_MAX, QWEN_COTE_MAX), Image.LANCZOS)
         contenu.append({"type": "image", "image": im})
-    consigne = CONSIGNES[mode]
+    langue_cible = str(t.get("langue_cible") or "English")  # mode « traduction »
+    consigne = CONSIGNES[mode].replace("{langue}", langue_cible)
     if t.get("image") and mode in MODES_TEXTE:  # texte + image : Qwen la voit (vidéo : première image ;
         consigne = {"video": IMAGE_DE_DEPART, "scene": IMAGE_REFERENCE,  # image : modèle)
                     "histoire": IMAGE_PERSONNAGES}.get(mode, "") + consigne
@@ -670,7 +678,8 @@ def decrire(chemin_tache):
             _erreur("description vide : écris ce que tu veux obtenir.")
         consigne += texte_
         if mode in LISTES_NUMEROTEES:
-            consigne += LISTES_NUMEROTEES[mode][1].format(n=max(1, int(t.get("nombre", 4))))
+            consigne += LISTES_NUMEROTEES[mode][1].format(n=max(1, int(t.get("nombre", 4))),
+                                                          langue=langue_cible.upper())
     contenu.append({"type": "text", "text": consigne})
     entrees = processeur.apply_chat_template([{"role": "user", "content": contenu}], tokenize=True,
                                              add_generation_prompt=True, return_dict=True, return_tensors="pt")
