@@ -2171,3 +2171,23 @@ def test_fond_video_lissage_et_composition():
     vert = moteur._fond_pour("#00ff00", 3, 1)
     sortie = moteur._composer(rgb, np.array([[0.0, 0.5, 1.0]], np.float32), "#00ff00", vert)
     assert list(sortie[0, 0]) == [0, 255, 0] and list(sortie[0, 2]) == [200, 200, 200] and sortie[0, 1, 1] == 228
+
+
+def test_progression_collee_derriere_la_barre_tqdm(env, tmp_path):
+    """diffusers écrit sa barre tqdm sur le même tube, sans fin de ligne : « \\r 12%|…|PROGRESSION 3/17 ». Avant,
+    seules les lignes commençant par PROGRESSION comptaient : rien ne bougeait pendant 16 min (yeux d'un sprite)."""
+    import sys
+
+    from studiovoix import outils
+
+    script = tmp_path / "moteur.py"
+    script.write_text(
+        "import sys\n"
+        "print('PROGRESSION 1/3 chargement', flush=True)\n"
+        "for k in (2, 3):\n"
+        "    sys.stderr.write(f'\\r {k * 30}%|###| {k}/3 [00:01<00:00, 2.00it/s]'); sys.stderr.flush()\n"
+        "    print(f'PROGRESSION {k}/3', flush=True)\n"
+        "print('PROGRESSION x/y illisible', flush=True)\n", encoding="utf-8")
+    vus = []
+    outils.lancer_moteur([sys.executable, str(script)], tmp_path, None, "Essai", suivi=lambda i, n: vus.append((i, n)))
+    assert vus == [(1, 3), (2, 3), (3, 3)]

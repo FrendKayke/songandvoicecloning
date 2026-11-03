@@ -145,8 +145,14 @@ def _lancer_moteur(cmd, cwd, extra_env, nom, suivi=None, attendu=None, resident=
             if journal:
                 journal.write(f"[{(datetime.now() - debut).total_seconds():7.1f} s] {ligne}\n")
                 journal.flush()
-            if ligne.startswith("PROGRESSION ") and suivi:
-                i, n = (int(x) for x in ligne.split()[1].split("/"))
+            if "PROGRESSION " in ligne and suivi:
+                # la barre tqdm de diffusers écrit sur le même tube sans fin de ligne (« \r 40%|…| »), collée devant
+                # notre ligne : « 0%|…|PROGRESSION 2/17 » (progression jamais vue pendant le calcul des sprites et des
+                # vidéos, 16 min d'attente muette chez l'utilisateur le 03/11)
+                try:
+                    i, n = (int(x) for x in ligne[ligne.index("PROGRESSION "):].split()[1].split("/"))
+                except (IndexError, ValueError):
+                    continue
                 suivi(i, n)
             elif ligne.startswith("AVERTISSEMENT : "):
                 _avertir(ligne[len("AVERTISSEMENT : "):])

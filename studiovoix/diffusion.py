@@ -313,8 +313,18 @@ def sprite_dresseur(prompts, sorties, graines_, largeur=1024, hauteur=1024, etap
                                       "lora": str(lora) if lora else None,
                                       **({"image": str(image), "masque": str(masque), "force": float(force)}
                                          if image else {})},
-                  Path(sorties[0]).parent, "Sprites de dresseur", progress,
-                  {1: "chargement de SDXL et du LoRA de sprites", 2: f"génération de {len(sorties)} sprite(s)"})
+                  Path(sorties[0]).parent, "Sprites de dresseur", progress, libelles_sdxl(len(sorties), etapes,
+                                                                                      force if image else None))
+
+
+def libelles_sdxl(n, etapes, force=None):
+    """Libellés de la progression pas à pas du moteur (même calcul : une repasse ne fait que etapes × force pas)."""
+    pas = min(int(etapes), max(1, int(int(etapes) * float(force)))) if force is not None else int(etapes)
+    libelles = {1: "chargement de SDXL et du LoRA de sprites (une à deux minutes la première fois)"}
+    for i in range(n):
+        for k in range(pas):
+            libelles[2 + i * pas + k] = f"sprite {i + 1}/{n}, étape {k + 1}/{pas}"
+    return libelles
 
 
 def video(prompt, sortie, image=None, largeur=1280, hauteur=704, images=121, etapes=30, graine=0, negatif=None,

@@ -29,6 +29,7 @@ import gc
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 QWEN = "Qwen/Qwen3-VL-4B-Instruct"  # 8,9 Go en bf16 : seul sur la carte, prompts plus fidèles que le 2B
@@ -943,7 +944,12 @@ def sprite_dresseur(chemin_tache):
     depot = t.get("depot", SDXL)
     _hors_ligne_si_present(depot, LORA_DRESSEUR[0])
     dtype = torch.float16 if device == "cuda" else torch.float32
-    print("PROGRESSION 1/2 chargement de SDXL et du LoRA de sprites", flush=True)
+    etapes = int(t.get("etapes", 30))
+    # pas réellement calculés : une repasse (img2img / inpainting) n'en fait que etapes × force (diffusers)
+    pas = min(etapes, max(1, int(etapes * float(t.get("force", 0.85))))) if t.get("image") else etapes
+    total = 1 + len(t["sorties"]) * pas  # progression pas à pas (avant : 2 étapes, rien pendant des minutes)
+    print(f"PROGRESSION 1/{total} chargement de SDXL et du LoRA de sprites", flush=True)
+    debut_chargement = time.monotonic()
 
     def charger():
         _precharger((depot, "unet"))
@@ -979,15 +985,25 @@ def sprite_dresseur(chemin_tache):
                     "mask_image": Image.open(t["masque"]).convert("L"), "strength": float(t.get("force", 0.85))}
     else:
         appel = pipe
-    print(f"PROGRESSION 2/2 génération de {len(sorties)} sprite(s)", flush=True)
+    print(f"SDXL prêt en {time.monotonic() - debut_chargement:.0f} s ({largeur}×{hauteur}, {pas} pas par image, "
+          f"{'repasse sur une zone' if retouche else 'image entière'}, sur {device})", flush=True)
     for i, (sortie, graine, prompt) in enumerate(zip(sorties, graines, prompts), 1):
+        debut = time.monotonic()
+
+        def pas_fait(_pipe, k, _t, kwargs, i=i):
+            print(f"PROGRESSION {min(total, 1 + (i - 1) * pas + k + 1)}/{total}", flush=True)
+            return kwargs
+
         im = _memoire(appel)(
             prompt=prompt, negative_prompt=t.get("negatif") or NEGATIF_SPRITE_SDXL, height=hauteur, width=largeur,
-            num_inference_steps=int(t.get("etapes", 30)), guidance_scale=float(t.get("guidage", 7.0)),
-            generator=torch.Generator("cpu").manual_seed(graine), **retouche).images[0]
+            num_inference_steps=etapes, guidance_scale=float(t.get("guidage", 7.0)),
+            generator=torch.Generator("cpu").manual_seed(graine), callback_on_step_end=pas_fait,
+            **retouche).images[0]
         Path(sortie).parent.mkdir(parents=True, exist_ok=True)
         im.save(sortie)
-        print(f"Sprite {i}/{len(sorties)} : {sortie} (graine {graine})", flush=True)
+        duree = time.monotonic() - debut
+        print(f"Sprite {i}/{len(sorties)} : {sortie} (graine {graine}) en {duree:.0f} s, "
+              f"{pas / max(duree, 1e-6):.2f} pas/s", flush=True)
     _resultat({"fichiers": sorties, "graines": graines})
     print(f"TERMINE {sorties[0]}", flush=True)
 
