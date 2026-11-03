@@ -11,7 +11,7 @@ fonction) ; aucune ne demande de carte graphique sauf mention.
 - [x] **Karaoké** (fait le 03/11 : « 🎵 Musique → 🎤 Karaoké ») : paroles affichées au rythme de la chanson (Whisper donne déjà les temps des mots).
 - [x] **Traduction et doublage** (fait le 03/11 : « 🎤 Voix → 🌍 Traduire et doubler ») : transcrire une vidéo (Whisper), traduire (Qwen3-VL), relire avec ta voix dans
   l'autre langue (Chatterbox), remettre en voix off (onglet existant). Carte graphique.
-- [ ] **Images → vidéo diaporama** : effet Ken Burns, musique et voix off.
+- [x] **Images → vidéo diaporama** (fait le 03/11 : « 🔧 Audio / vidéo → 🖼️ Diaporama ») : effet Ken Burns, musique et voix off.
 
 ## Scripts
 - [ ] **File de tâches pour la nuit** : un `.bat` qui lance chansons, images, 3D… à partir d'un fichier texte.

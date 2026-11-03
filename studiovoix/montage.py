@@ -129,6 +129,32 @@ def _images_video(chemin, n, fps, largeur, hauteur, mode):
         j += 1
 
 
+def _images_ken_burns(rgb, n, largeur, hauteur, amplitude, numero):
+    """Image fixe animée (effet « Ken Burns ») : zoom avant, zoom arrière, travelling vers la droite puis vers la
+    gauche, à tour de rôle selon le numéro de l'image ; mouvement adouci au début et à la fin. L'image remplit
+    l'écran (recadrée). Rendu sous-pixel (`resize` avec une boîte en réels) : pas de saccade."""
+    from PIL import Image, ImageOps
+
+    s = 1.0 + amplitude
+    w, h = int(round(largeur * s)), int(round(hauteur * s))
+    base = ImageOps.fit(Image.fromarray(rgb), (w, h), Image.Resampling.LANCZOS)
+    mouvement = numero % 4
+    for j in range(n):
+        p = j / max(n - 1, 1)
+        p = p * p * (3 - 2 * p)
+        if mouvement == 0:
+            z, decalage = 1.0 + amplitude * p, 0.0
+        elif mouvement == 1:
+            z, decalage = s - amplitude * p, 0.0
+        else:
+            z, decalage = s, (2 * p - 1) * (1 if mouvement == 2 else -1)
+        cw, ch = w / z, h / z
+        cx = w / 2 + decalage * (w - cw) / 2
+        cy = h / 2
+        boite = (max(0.0, cx - cw / 2), max(0.0, cy - ch / 2), min(w, cx + cw / 2), min(h, cy + ch / 2))
+        yield np.asarray(base.resize((largeur, hauteur), Image.Resampling.BILINEAR, box=boite))
+
+
 def _images_fixes(rgb, n):
     for _ in range(n):
         yield rgb
@@ -286,8 +312,11 @@ def monter(fichiers, creations=None, transition=ENCHAINE, duree_transition=0.8, 
            fondu_debut_fin=True, taille=D_APRES, cadrage=BANDES, son_videos=100, musique=None, volume_musique=40,
            baisser_musique=True, titre="", duree_titre=4.0, position_titre="Au centre", police_titre=None,
            taille_titre=9, logo=None, position_logo="En haut à droite", taille_logo=12, opacite_logo=90,
-           nom="montage", progress=gr.Progress()):
-    """Le montage en MP4 (H.264 + AAC). Renvoie (message, vidéo, [fichiers], dossier)."""
+           nom="montage", ken_burns=0.0, voix=None, debut_voix=1.0, adapter_a_la_voix=True, infos_en_plus=None,
+           progress=gr.Progress()):
+    """Le montage en MP4 (H.264 + AAC). ken_burns : amplitude du mouvement des images fixes (0 = immobiles,
+    0,15 = zoom de 15 %). voix : fichier d'une voix off posée à `debut_voix` s ; les images s'allongent pour qu'elle
+    tienne si `adapter_a_la_voix` (images seules). Renvoie (message, vidéo, [fichiers], dossier)."""
     from .audio import charger
 
     t_debut = time.monotonic()
@@ -303,6 +332,19 @@ def monter(fichiers, creations=None, transition=ENCHAINE, duree_transition=0.8, 
                 raise gr.Error(f"« {c.name} » n'a pas d'image : mets-le plutôt en musique de fond.")
             morceaux.append({"chemin": c, "infos": d, "duree": d.get("duree_video") or d["duree"]})
     videos = [m for m in morceaux if "infos" in m]
+    voix_y = None
+    chemin_voix = chemin_fichier(voix)
+    if chemin_voix:
+        voix_y, _ = charger(str(chemin_voix), sr=FREQ, mono=False)
+        voix_y = _stereo(voix_y)
+        besoin = float(debut_voix or 0) + voix_y.shape[1] / FREQ + 1.0
+        fixes = [m for m in morceaux if "image" in m]
+        if adapter_a_la_voix and fixes:
+            chevauchement = float(duree_transition or 0) * (len(morceaux) - 1) if transition == ENCHAINE else 0.0
+            reste = besoin + chevauchement - sum(m["duree"] for m in morceaux if "infos" in m)
+            par_image = reste / len(fixes)
+            for m in fixes:
+                m["duree"] = max(m["duree"], par_image)
 
     # taille et cadence de sortie
     if TAILLES.get(taille):
@@ -375,6 +417,11 @@ def monter(fichiers, creations=None, transition=ENCHAINE, duree_transition=0.8, 
         gains *= np.interp(np.arange(longueur), (np.arange(m["n"]) + 0.5) / fps * FREQ, images_gain).astype(np.float32)
         piste_videos[:, a0:a0 + longueur] += y * gains * (son_videos / 100.0)
         avec_son_video = True
+    if voix_y is not None:
+        a0 = int(round(float(debut_voix or 0) * FREQ))
+        longueur = max(0, min(voix_y.shape[1], n_son - a0))
+        piste_videos[:, a0:a0 + longueur] += voix_y[:, :longueur]
+        avec_son_video = True
     piste = piste_videos
     chemin_musique = chemin_fichier(musique)
     if chemin_musique:
@@ -407,7 +454,9 @@ def monter(fichiers, creations=None, transition=ENCHAINE, duree_transition=0.8, 
     def image_de(i, k):
         m = morceaux[i]
         if i not in generateurs:
-            generateurs[i] = (_images_fixes(cadrer(m["image"], largeur, hauteur, cadrage), m["n"]) if "image" in m
+            generateurs[i] = (_images_ken_burns(m["image"], m["n"], largeur, hauteur, float(ken_burns), i)
+                              if "image" in m and ken_burns
+                              else _images_fixes(cadrer(m["image"], largeur, hauteur, cadrage), m["n"]) if "image" in m
                               else _images_video(m["chemin"], m["n"], fps, largeur, hauteur, cadrage))
         img = next(generateurs[i])
         if k - m["debut"] == m["n"] - 1:
@@ -450,9 +499,11 @@ def monter(fichiers, creations=None, transition=ENCHAINE, duree_transition=0.8, 
         "type": "video", "nom": nom, "description": (titre or "").strip()[:200] or f"montage de {len(morceaux)} morceaux",
         "montage": {"morceaux": [m["chemin"].name for m in morceaux], "transition": transition,
                     "duree_transition": round(k_trans / fps, 2), "musique": Path(str(chemin_musique)).name
-                    if chemin_musique else None, "titre": (titre or "").strip(), "logo": bool(chemin_logo)},
+                    if chemin_musique else None, "titre": (titre or "").strip(), "logo": bool(chemin_logo),
+                    "ken_burns": float(ken_burns or 0), "voix": Path(str(chemin_voix)).name if chemin_voix else None},
         "duree": round(duree, 2), "largeur": largeur, "hauteur": hauteur, "temps_s": round(temps),
         "versions": [{"graine": 0, "dossier": ".", "fichier": str(sortie)}],
+        **(infos_en_plus or {}),
     })
     note = ""
     if transition != COUPE and len(morceaux) > 1 and k_trans < int(round(float(duree_transition or 0) * fps)):
