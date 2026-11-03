@@ -117,11 +117,21 @@ def _dilater(m):
     return d
 
 
+def cote_fenetre(facteur):
+    """Côté (pixels du sprite) de la fenêtre redessinée : ≤ COTE_IMAGE / facteur, et côté de l'image (× facteur)
+    multiple de 8, exigé par SDXL (« height and width have to be divisible by 8 », 85 × 12 = 1020 chez l'utilisateur
+    avec un modèle de face DS)."""
+    cote = max(8, COTE_IMAGE // facteur)
+    while (cote * facteur) % 8:
+        cote -= 1
+    return cote
+
+
 def preparer(sprite, zone, facteur, fond):
     """(image RGB pour SDXL, masque L, coin de la fenêtre, côté C) : fenêtre du sprite sur le fond du modèle,
     agrandie ×facteur ; masque = zone peinte élargie d'un pixel."""
     h, w = sprite.shape[:2]
-    cote = max(8, COTE_IMAGE // facteur)
+    cote = cote_fenetre(facteur)
     y0, x0 = fenetre(zone, cote, h, w)
     toile = np.zeros((cote, cote, 4), np.uint8)
     m = np.zeros((cote, cote), bool)

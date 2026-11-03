@@ -112,3 +112,13 @@ def test_retoucher_avec_le_lora_par_defaut_et_un_modele_entraine(env, monkeypatc
     assert vu["lora"].endswith("face_gba.safetensors") and vu["prompt"].startswith(modele_sprites.DECLENCHEUR_FACE)
     with pytest.raises(gr.Error, match="Peins"):
         yeux.retoucher(str(dossier / "face.png"), None, progress=no_progress)
+
+
+def test_cote_multiple_de_8():
+    """Modèle de face DS (facteur 12) : 85 × 12 = 1020 refusé par SDXL ; la fenêtre passe à 84 (1008 px)."""
+    from studiovoix import yeux
+
+    assert yeux.cote_fenetre(12) == 84
+    for f in range(2, 33):
+        c = yeux.cote_fenetre(f)
+        assert (c * f) % 8 == 0 and c * f <= yeux.COTE_IMAGE and c * f > yeux.COTE_IMAGE - 8 * max(1, f)
