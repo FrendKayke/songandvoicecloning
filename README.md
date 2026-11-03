@@ -249,6 +249,8 @@ Dans les onglets Bruitages, Illustrations, Une vidéo et Image → modèle 3D, �
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.
 
+Les prochaines fonctionnalités prévues sont listées dans [BACKLOG.md](BACKLOG.md).
+
 ## Comment ça marche
 
 1. **ACE-Step 1.5** génère la chanson complète, avec une voix chantée générique.
