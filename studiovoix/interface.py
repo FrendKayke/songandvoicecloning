@@ -14,7 +14,7 @@ from .onglets import (alleger_3d, bande_son, bibliotheque, bruitages, chanson, c
                       espace, fluidite, fond_video, galerie, hd2d, histoire, illustrations, images, karaoke, kit3d,
                       lot_3d, mini_videos, modeles, modeles_3d, nettoyer, pack, parlante, passage, pdf, pdf_compresser,
                       pdf_filigrane, pdf_fusion, pdf_images, pdf_numeroter, pdf_pages, pdf_pivoter, pdf_proteger,
-                      pdf_signer, pdf_texte, personnages_cartes,
+                      pdf_signer, pdf_texte, personnages_cartes, rangeur,
                       photos, photos_lot, pixel_animer, pixel_convertir, pixel_personnages, dresseur, plans, remix,
                       revision_3d, rigging_3d, serie, serie_musique, sous_titres, sprites_lora, synthese, tileset3d,
                       videos, voix_off, yeux)
@@ -114,6 +114,7 @@ GROUPES = [
         ("galerie", galerie, "🗃️ Galerie (toutes mes créations)"),
         ("modeles", modeles, "⚙️ Modèles (télécharger, importer)"),
         ("diagnostic", diagnostic, "🩺 Diagnostic et carte graphique"),
+        ("rangeur", rangeur, "📦 Ranger mes créations"),
         ("espace", espace, "💽 Espace disque"),
     ]),
 ]

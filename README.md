@@ -136,7 +136,7 @@ Les onglets sont rangés en onze groupes, et dans chaque groupe **un onglet = un
 | 🧊 3D | 🧊 Image → modèle 3D · ✏️ Corriger · 🦴 Squelette · 📚 En lot · 🪶 Alléger / facetter · 🏔️ HD-2D · 🧱 Tileset → objets 3D · 🏙️ Kit d'objets |
 | 📄 PDF | 📄 Convertir en PDF · ➕ Fusionner · ✂️ Pages (extraire, diviser) · 🔄 Pivoter · 🗜️ Compresser · 🖼️ PDF → images · 📝 PDF → texte / Word |
 | 🖋️ PDF : marquer | 🔢 Numéroter les pages · 💧 Filigrane · ✍️ Signer · 🔒 Protéger / déverrouiller |
-| 🧰 Outils | 🗃️ Galerie (toutes mes créations) · ⚙️ Modèles (télécharger, importer) · 🩺 Diagnostic et carte graphique · 💽 Espace disque |
+| 🧰 Outils | 🗃️ Galerie (toutes mes créations) · ⚙️ Modèles (télécharger, importer) · 🩺 Diagnostic et carte graphique · 📦 Ranger mes créations · 💽 Espace disque |
 
 Les paragraphes ci-dessous gardent les anciens noms courts (« Bibliothèque de voix » = 🎙️ Mes voix, « Synthèse vocale » = 🗣️ Lire un texte, « Modèles » = ⚙️ Modèles…). Ce qu'un onglet produit est souvent repris par un autre : la variante d'illustration cliquée part dans « Composer une carte », un sprite cliqué dans « Animer un sprite », le dernier modèle 3D est proposé dans « Corriger », « Squelette » et « Alléger / facetter », la dernière histoire dans « Mini-vidéos », les vidéos créées dans « Voix off ».
 
@@ -262,6 +262,10 @@ Dans les onglets Bruitages, Illustrations, Une vidéo et Image → modèle 3D, �
     - **Ollama** : s'il tourne sur le PC, il garde le dernier modèle utilisé sur la carte graphique (5 minutes par défaut). L'application lui demande de le décharger avant chaque génération (Ollama reste lancé et le rechargera à son prochain usage) ; `STUDIOVOIX_LIBERER_OLLAMA=0` dans `lancer.bat` pour ne jamais y toucher. Le diagnostic rapide liste les modèles d'Ollama chargés et les programmes qui utilisent la carte.
     - Conseil NVIDIA : Panneau de configuration NVIDIA → Gérer les paramètres 3D → « CUDA - Sysmem Fallback Policy » → « Prefer No Sysmem Fallback » : sinon, quand les 12 Go sont pleins, le pilote déborde en silence dans la mémoire vive et tout devient très lent.
     - ACE-Step occupe environ 8 Go de mémoire graphique ; l'application l'arrête d'elle-même avant les autres moteurs, puis le relance à la chanson suivante (une minute de chargement en plus à ce moment-là).
+
+### Ranger mes créations
+
+Outils → **📦 Ranger mes créations** copie tes créations dans un dossier propre, prêt à sauvegarder ou à envoyer : un sous-dossier par type (Chansons, Bande-son, Bruitages, Images, Illustrations, Modèles 3D, Vidéos…), des noms lisibles avec la date (`2026-11-03_Château dans la brume_2.png`), la liste de tout dans `liste.csv` (Excel) et une archive .zip. Choisis un **projet de jeu** (sa bande-son, ses bruitages, ses illustrations et ses modèles 3D), des **types**, une **période** (du… au…), ou rien pour tout prendre ; décoche « Toutes les versions et variantes » pour ne garder que la variante choisie. Rien n'est déplacé ni supprimé. Dossier : `data\rangements\<date>_<nom>\`.
 
 ### Travail de nuit : NUIT.bat
 

@@ -15,7 +15,7 @@ fonction) ; aucune ne demande de carte graphique sauf mention.
 
 ## Scripts
 - [x] **File de tâches pour la nuit** (fait le 03/11 : `NUIT.bat`) : un `.bat` qui lance chansons, images, 3D… à partir d'un fichier texte.
-- [ ] **Rangeur** : exporte toutes les créations d'un projet dans un dossier propre.
+- [x] **Rangeur** (fait le 03/11 : « 🧰 Outils → 📦 Ranger mes créations ») : exporte toutes les créations d'un projet dans un dossier propre.
 
 ## PDF
 - [ ] **OCR** des PDF scannés et des photos de documents (Tesseract ou PaddleOCR, licence Apache) : texte cherchable,
