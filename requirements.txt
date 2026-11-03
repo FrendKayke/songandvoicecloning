@@ -9,3 +9,6 @@ pypdf
 mammoth
 python-pptx
 pillow-heif
+pypdfium2
+python-docx
+cryptography

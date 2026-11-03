@@ -10,7 +10,9 @@ import gradio as gr
 
 from .onglets import (alleger_3d, bande_son, bibliotheque, bruitages, chanson, composer, costumes, diagnostic,
                       entrainement, espace, fluidite, galerie, hd2d, histoire, illustrations, images, kit3d, lot_3d,
-                      mini_videos, modeles, modeles_3d, nettoyer, pack, parlante, passage, pdf, personnages_cartes,
+                      mini_videos, modeles, modeles_3d, nettoyer, pack, parlante, passage, pdf, pdf_compresser,
+                      pdf_filigrane, pdf_fusion, pdf_images, pdf_numeroter, pdf_pages, pdf_pivoter, pdf_proteger,
+                      pdf_signer, pdf_texte, personnages_cartes,
                       photos, photos_lot, pixel_animer, pixel_convertir, pixel_personnages, dresseur, plans, remix,
                       revision_3d, rigging_3d, serie, serie_musique, sous_titres, sprites_lora, synthese, tileset3d,
                       videos, voix_off)
@@ -20,7 +22,7 @@ from .onglets.synthese import synthese_puis_rvc
 # apercu_description, maj_mode et synthese_puis_rvc sont réexportés pour les tests
 __all__ = ["GROUPES", "ONGLETS", "build_ui", "apercu_description", "maj_mode", "synthese_puis_rvc"]
 
-# Huit groupes (huit onglets au plus chacun, pour qu'ils restent tous visibles), chacun avec ses onglets : (titre du groupe, [(clé dans o, module, titre de l'onglet)]). Un onglet =
+# Dix groupes (huit onglets au plus chacun, pour qu'ils restent tous visibles), chacun avec ses onglets : (titre du groupe, [(clé dans o, module, titre de l'onglet)]). Un onglet =
 # une seule chose à faire, nommée par ce qu'on y fait (demandes de l'utilisateur : « un onglet avec ce que je peux
 # faire », puis « une page : une fonction », 03/11).
 GROUPES = [
@@ -80,6 +82,18 @@ GROUPES = [
     ]),
     ("📄 PDF", [
         ("pdf", pdf, "📄 Convertir en PDF"),
+        ("pdf_fusion", pdf_fusion, "➕ Fusionner"),
+        ("pdf_pages", pdf_pages, "✂️ Pages (extraire, diviser)"),
+        ("pdf_pivoter", pdf_pivoter, "🔄 Pivoter"),
+        ("pdf_compresser", pdf_compresser, "🗜️ Compresser"),
+        ("pdf_images", pdf_images, "🖼️ PDF → images"),
+        ("pdf_texte", pdf_texte, "📝 PDF → texte / Word"),
+    ]),
+    ("🖋️ PDF : marquer", [
+        ("pdf_numeroter", pdf_numeroter, "🔢 Numéroter les pages"),
+        ("pdf_filigrane", pdf_filigrane, "💧 Filigrane"),
+        ("pdf_signer", pdf_signer, "✍️ Signer"),
+        ("pdf_proteger", pdf_proteger, "🔒 Protéger / déverrouiller"),
     ]),
     ("🧰 Outils", [
         ("galerie", galerie, "🗃️ Galerie (toutes mes créations)"),
