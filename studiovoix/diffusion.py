@@ -358,11 +358,13 @@ def detourer_lot(entrees, sorties, progress=None, modele="general", tete=False):
                    **{i: f"fond retiré : image {i - 1}/{len(sorties)}" for i in range(2, len(sorties) + 2)}})
 
 
-def transcrire(entree, langue=None, traduire=False, progress=None):
+def transcrire(entree, langue=None, traduire=False, progress=None, mots=False):
     """Whisper large-v3-turbo sur un WAV 16 kHz mono. langue : code ISO (« fr ») ou None (détectée) ; traduire :
-    texte en anglais. RESULTAT {segments: [{debut, fin, texte}], texte, duree}."""
+    texte en anglais ; mots : temps de chaque mot (karaoké). RESULTAT {segments: [{debut, fin, texte}], texte, duree}
+    ou, avec mots, {mots: [{debut, fin, mot}], texte, duree}."""
     _verifier("transcription")
-    return lancer("transcrire", {"entree": str(entree), "langue": langue or None, "traduire": bool(traduire)},
+    return lancer("transcrire", {"entree": str(entree), "langue": langue or None, "traduire": bool(traduire),
+                                 **({"mots": True} if mots else {})},
                   Path(entree).parent, "Whisper", progress,
                   {1: "chargement de Whisper", 2: "transcription"})
 

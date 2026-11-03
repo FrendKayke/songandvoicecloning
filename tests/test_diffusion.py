@@ -138,6 +138,13 @@ FAUX_MOTEUR = textwrap.dedent("""
         assert info.samplerate == 16000 and info.channels == 1
         print("PROGRESSION 1/2 x", flush=True); print("PROGRESSION 2/2 y", flush=True)
         duree = round(info.frames / 16000, 2)
+        if t.get("mots"):  # karaoké : « soleil » mal entendu, « la la la » pas entendu du tout
+            entendus = "le solaire se lève sur la ville".split()
+            print("RESULTAT " + json.dumps({"mots": [{"debut": 1.0 + 0.5 * i, "fin": 1.4 + 0.5 * i, "mot": m}
+                                                     for i, m in enumerate(entendus)],
+                                            "segments": [], "texte": " ".join(entendus), "duree": duree}), flush=True)
+            print("TERMINE -", flush=True)
+            raise SystemExit(0)
         mots = "Bonjour à tous, voici une phrase de démonstration assez longue pour être coupée en plusieurs sous-titres lisibles"
         print("RESULTAT " + json.dumps({"segments": [{"debut": 0.0, "fin": 1.5, "texte": "Il était une fois"},
                                                       {"debut": 1.5, "fin": duree, "texte": mots}],

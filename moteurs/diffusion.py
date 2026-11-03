@@ -2507,6 +2507,17 @@ def transcrire(chemin_tache):
     def charger():
         _precharger((depot, None))
         modele = AutoModelForSpeechSeq2Seq.from_pretrained(depot, dtype=dtype, low_cpu_mem_usage=True).to(device)
+        # Temps des mots (karaoké) : generate demande output_attentions, que l'encodeur suit aussi : 32 couches ×
+        # 20 têtes × 1500² positions gardées par fenêtre de 30 s (tué faute de mémoire à 14 Go ici). Seule
+        # l'attention croisée du décodeur sert aux temps des mots : l'encodeur n'en renvoie plus (5,4 Go).
+        encodeur = modele.get_encoder()
+        avant = encodeur.forward
+
+        def sans_attentions(*a, **k):
+            k["output_attentions"] = False
+            return avant(*a, **k)
+
+        encodeur.forward = sans_attentions
         processeur = AutoProcessor.from_pretrained(depot)
         return pipeline("automatic-speech-recognition", model=modele, tokenizer=processeur.tokenizer,
                         feature_extractor=processeur.feature_extractor, dtype=dtype, device=device)
@@ -2522,9 +2533,21 @@ def transcrire(chemin_tache):
     options = {"task": "translate" if t.get("traduire") else "transcribe"}
     if t.get("langue"):
         options["language"] = t["langue"]
+    mots = bool(t.get("mots"))  # karaoké : temps de chaque mot (têtes d'alignement de Whisper)
     with torch.inference_mode():
-        sortie = _memoire(asr)({"raw": np.ascontiguousarray(audio), "sampling_rate": sr}, return_timestamps=True,
-                               generate_kwargs=options)
+        sortie = _memoire(asr)({"raw": np.ascontiguousarray(audio), "sampling_rate": sr},
+                               return_timestamps="word" if mots else True, generate_kwargs=options)
+    if mots:
+        liste = []
+        for morceau in sortie.get("chunks") or []:
+            debut, fin = morceau["timestamp"]
+            texte = morceau["text"].strip()
+            if texte and debut is not None:
+                liste.append({"debut": round(float(debut), 2),
+                              "fin": round(float(fin if fin is not None else debut + 0.3), 2), "mot": texte})
+        _resultat({"mots": liste, "segments": [], "texte": sortie.get("text", "").strip(), "duree": round(duree, 2)})
+        print("TERMINE -", flush=True)
+        return
     segments = []
     for morceau in sortie.get("chunks") or []:
         debut, fin = morceau["timestamp"]

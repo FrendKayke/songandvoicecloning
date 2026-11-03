@@ -8,7 +8,7 @@ fonction) ; aucune ne demande de carte graphique sauf mention.
   le format, réduire le poids. PyAV est déjà installé (aucune dépendance nouvelle).
 - [x] **Montage vidéo simple** (fait le 03/11 : « 🔧 Audio / vidéo → 🎬 Montage ») : assembler des clips avec des fondus, ajouter une musique de fond, un titre, un logo.
 - [x] **Nettoyer le fond d'une vidéo** (fait le 03/11 : « 🎬 Vidéo → ✂️ Retirer le fond ») : BiRefNet image par image (fond vert sans fond vert). Carte graphique.
-- [ ] **Karaoké** : paroles affichées au rythme de la chanson (Whisper donne déjà les temps des mots).
+- [x] **Karaoké** (fait le 03/11 : « 🎵 Musique → 🎤 Karaoké ») : paroles affichées au rythme de la chanson (Whisper donne déjà les temps des mots).
 - [ ] **Traduction et doublage** : transcrire une vidéo (Whisper), traduire (Qwen3-VL), relire avec ta voix dans
   l'autre langue (Chatterbox), remettre en voix off (onglet existant). Carte graphique.
 - [ ] **Images → vidéo diaporama** : effet Ken Burns, musique et voix off.
