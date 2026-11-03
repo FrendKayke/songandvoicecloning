@@ -293,6 +293,9 @@ def continuer(dossier):
 def recreer(chemin, infos, graine, progress=gr.Progress()):
     """Galerie : même vidéo, mêmes réglages, même graine (résultat proche) ; une suite de plans est refaite avec
     les mêmes prompts."""
+    if infos.get("voix_off"):
+        raise gr.Error("Vidéo avec voix off : refais-la depuis l'onglet « Vidéo avec voix off » (la vidéo d'origine "
+                       "est dans son dossier).")
     if infos.get("parlante"):  # image qui parle (StableAvatar) : même image, même son
         from . import parlante
 

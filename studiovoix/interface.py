@@ -13,7 +13,7 @@ from .onglets import (alleger_3d, bande_son, bibliotheque, bruitages, chanson, c
                       mini_videos, modeles, modeles_3d, nettoyer, pack, parlante, passage, pdf, personnages_cartes,
                       photos, photos_lot, pixel_animer, pixel_convertir, pixel_personnages, dresseur, plans, remix,
                       revision_3d, rigging_3d, serie, serie_musique, sous_titres, sprites_lora, synthese, tileset3d,
-                      videos)
+                      videos, voix_off)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
 
@@ -56,6 +56,7 @@ GROUPES = [
         ("plans", plans, "🎞️ Plusieurs plans"),
         ("mini_videos", mini_videos, "🎞️ Mini-vidéos (histoire)"),
         ("parlante", parlante, "🗣️ Faire parler un visage"),
+        ("voix_off", voix_off, "🎙️ Voix off"),
         ("fluidite", fluidite, "⏩ Fluidifier / ralentir"),
         ("sous_titres", sous_titres, "📝 Sous-titrer (transcrire)"),
     ]),
