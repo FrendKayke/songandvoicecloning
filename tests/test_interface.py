@@ -5,9 +5,10 @@ from studiovoix.interface import build_ui
 from studiovoix.modeles import models_status_md
 
 
-def test_etat_des_modeles(env):
+def test_etat_des_modeles(env, monkeypatch, tmp_path):
+    monkeypatch.setenv("ONNXTR_CACHE_DIR", str(tmp_path / "ocr"))  # modèles de l'OCR absents, même s'ils sont ici
     md = models_status_md()
-    assert md.count("❌ absent") == 8 and "UniRig" in md
+    assert md.count("❌ absent") == 9 and "UniRig" in md and "OnnxTR" in md
     assert str(cfg.VOICES_DIR) in md
 
 
