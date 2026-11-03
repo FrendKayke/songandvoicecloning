@@ -58,6 +58,7 @@ PIXEL_DIR = DATA_DIR / "pixel_art"  # pixel art, sprites de personnages et anima
 HD2D_DIR = DATA_DIR / "hd2d"  # éléments passés en HD-2D (normales, relief, objets 3D) : <horodatage>_<nom>/
 LORAS_DIR = DATA_DIR / "loras"  # modèles entraînés (LoRA SDXL de feuilles de sprites) : loras/<nom>/<nom>.safetensors
 COSTUMES_DIR = DATA_DIR / "costumes"  # photos dont les vêtements ont été changés : <horodatage>_<nom>/
+CONVERSIONS_DIR = DATA_DIR / "conversions"  # fichiers audio / vidéo convertis, coupés, recollés, allégés : <horodatage>_<nom>/
 for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR, GAMES_DIR, SFX_DIR, MODELS3D_DIR, CARDS_DIR, PHOTOS_DIR, VIDEOS_DIR,
           IMAGES_DIR):
     d.mkdir(parents=True, exist_ok=True)
