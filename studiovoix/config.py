@@ -59,6 +59,7 @@ HD2D_DIR = DATA_DIR / "hd2d"  # éléments passés en HD-2D (normales, relief, o
 LORAS_DIR = DATA_DIR / "loras"  # modèles entraînés (LoRA SDXL de feuilles de sprites) : loras/<nom>/<nom>.safetensors
 COSTUMES_DIR = DATA_DIR / "costumes"  # photos dont les vêtements ont été changés : <horodatage>_<nom>/
 CONVERSIONS_DIR = DATA_DIR / "conversions"  # fichiers audio / vidéo convertis, coupés, recollés, allégés : <horodatage>_<nom>/
+NUIT_DIR = DATA_DIR / "nuit"  # files de tâches lancées par NUIT.bat : <horodatage>_<nom>/ (journal.txt, rapport.json)
 for d in (VOICES_DIR, SONGS_DIR, TTS_DIR, CLEAN_DIR, GAMES_DIR, SFX_DIR, MODELS3D_DIR, CARDS_DIR, PHOTOS_DIR, VIDEOS_DIR,
           IMAGES_DIR):
     d.mkdir(parents=True, exist_ok=True)

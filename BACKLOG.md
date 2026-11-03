@@ -14,7 +14,7 @@ fonction) ; aucune ne demande de carte graphique sauf mention.
 - [x] **Images → vidéo diaporama** (fait le 03/11 : « 🔧 Audio / vidéo → 🖼️ Diaporama ») : effet Ken Burns, musique et voix off.
 
 ## Scripts
-- [ ] **File de tâches pour la nuit** : un `.bat` qui lance chansons, images, 3D… à partir d'un fichier texte.
+- [x] **File de tâches pour la nuit** (fait le 03/11 : `NUIT.bat`) : un `.bat` qui lance chansons, images, 3D… à partir d'un fichier texte.
 - [ ] **Rangeur** : exporte toutes les créations d'un projet dans un dossier propre.
 
 ## PDF

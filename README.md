@@ -19,6 +19,7 @@ Configuration testée : Windows 11, NVIDIA RTX 4070 (12 Go).
 | `installation/` | listes des dépendances de chaque environnement (lues par l'installateur et par la vérification automatique) |
 | `lancer.bat` | démarrage (serveur ACE-Step + application) |
 | `LANCER_SANS_APPLIS.bat` | ferme d'abord les applications gourmandes en mémoire (Chrome, Discord, Steam, Stream Deck, Synapse, SteelSeries GG, Wallpaper Engine…), puis lance `lancer.bat` ; liste modifiable en tête du fichier |
+| `NUIT.bat` | **file de tâches pour la nuit** : glisse dessus un fichier texte qui décrit des chansons, musiques, images, modèles 3D, lectures, bruitages et vidéos ; elles sont créées l'une après l'autre, sans interface, et rangées dans la galerie comme d'habitude |
 | `CLAUDE.md` | contexte technique pour Claude Code |
 
 Modules de `studiovoix/` :
@@ -261,6 +262,28 @@ Dans les onglets Bruitages, Illustrations, Une vidéo et Image → modèle 3D, �
     - **Ollama** : s'il tourne sur le PC, il garde le dernier modèle utilisé sur la carte graphique (5 minutes par défaut). L'application lui demande de le décharger avant chaque génération (Ollama reste lancé et le rechargera à son prochain usage) ; `STUDIOVOIX_LIBERER_OLLAMA=0` dans `lancer.bat` pour ne jamais y toucher. Le diagnostic rapide liste les modèles d'Ollama chargés et les programmes qui utilisent la carte.
     - Conseil NVIDIA : Panneau de configuration NVIDIA → Gérer les paramètres 3D → « CUDA - Sysmem Fallback Policy » → « Prefer No Sysmem Fallback » : sinon, quand les 12 Go sont pleins, le pilote déborde en silence dans la mémoire vive et tout devient très lent.
     - ACE-Step occupe environ 8 Go de mémoire graphique ; l'application l'arrête d'elle-même avant les autres moteurs, puis le relance à la chanson suivante (une minute de chargement en plus à ce moment-là).
+
+### Travail de nuit : NUIT.bat
+
+Pour lancer beaucoup de créations d'un coup (le soir, avant d'aller dormir) :
+
+1. Double-clique sur **NUIT.bat** : la première fois, il crée `taches_nuit.txt` avec un exemple et l'ouvre dans le Bloc-notes.
+2. Écris tes tâches, enregistre, puis relance NUIT.bat (ou glisse n'importe quel fichier de tâches dessus).
+3. Le fichier est **vérifié en entier avant de commencer** (type inconnu, voix absente de la bibliothèque, image introuvable, paroles manquantes… avec le numéro de ligne) : pas de mauvaise surprise au milieu de la nuit.
+
+Une tâche commence par `== type : nom`, puis une ligne `clé: valeur` par réglage ; un texte sur plusieurs lignes (paroles, texte à lire) s'écrit la clé seule (`paroles:`) avec le texte dessous, à la fin de la tâche. Les lignes qui commencent par `#` sont ignorées.
+
+| Type | Clés |
+|---|---|
+| `chanson` | `style` (comme dans les listes : « médiéval, taverne, luth »), `voix` (une voix de ta bibliothèque, `ace` pour la voix d'ACE-Step, ou `instrumental`), `paroles`, `chanteurs` (« duo », « chœur »…), `langue`, `duree` (« 2:00 »), `bpm`, `versions`, `graine`, `reflexion` |
+| `musique` | instrumental : `style`, `duree`, `bpm`, `versions`, `graine` |
+| `image` | `description` (français, prompt préparé par l'assistant) ou `prompt` (anglais), `style`, `format` (« carré », « portrait »…, le début suffit), `variantes`, `graine` |
+| `3d` | `description`, `prompt` ou `image` (chemin d'une image), `qualite` (« low poly facetté », « web léger »…), `texture` (oui / non), `obj` (oui / non), `projet`, `graine` |
+| `lecture` | `voix`, `texte`, `langue`, `expressivite`, `graine` |
+| `bruitage` | `description` ou `prompt`, `duree` (s), `variantes`, `etapes`, `projet`, `graine` |
+| `video` | `description` ou `prompt`, `image` (image de départ), `format`, `duree` (« 5 s »), `etapes`, `graine` |
+
+Avant la première tâche : `eteindre: oui` éteint l'ordinateur 5 minutes après la fin (annulable par `shutdown /a`), `arreter apres: 3` arrête la file après 3 échecs à la suite. Windows ne se met pas en veille pendant les calculs. Une tâche en échec est notée et la suivante démarre. Le journal (`journal.txt`), le rapport (`rapport.json`) et le détail des erreurs (`erreurs.txt`) sont dans `data\nuit\<date>_<nom>\`. Pour reprendre à la tâche 7 : `.venv\Scripts\python.exe -m studiovoix.nuit --a-partir-de 7 taches_nuit.txt`. Ferme l'application avant de lancer NUIT.bat : les deux se disputeraient la carte graphique.
 
 Chaque chanson est rangée dans `data\songs\<date>\` : version brute, voix convertie, instrumental, mix final et prompt.
 
