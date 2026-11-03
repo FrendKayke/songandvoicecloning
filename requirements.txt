@@ -12,3 +12,4 @@ pillow-heif
 pypdfium2
 python-docx
 cryptography
+onnxtr[cpu-headless]

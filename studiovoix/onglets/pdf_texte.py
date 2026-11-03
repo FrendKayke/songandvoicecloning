@@ -9,11 +9,12 @@ from .pdf_commun import brancher_sorties, entree_pdf, sorties
 def construire():
     """Composants de l'onglet (dans l'onglet ouvert par l'appelant)."""
     gr.Markdown("**Le texte d'un PDF** en fichier texte (.txt) et en document Word (.docx, un saut de page par page) : le texte, "
-        "pas la mise en page. Un PDF scanné (images seules) n'a pas de texte à extraire : la reconnaissance de "
-        "caractères n'est pas installée.")
+        "pas la mise en page. Les pages scannées (images sans texte) sont lues par reconnaissance de caractères ; "
+        "pour un PDF scanné cherchable ou des photos de documents, voir l'onglet « 🔍 OCR (scans, photos) ».")
     tx_fichier = entree_pdf("PDF")
     with gr.Row():
         tx_word = gr.Checkbox(value=True, label="Aussi en Word (.docx)")
+        tx_scans = gr.Checkbox(value=True, label="Lire aussi les pages scannées (OCR)")
         tx_nom = gr.Textbox(label="Nom (vide = nom du PDF)")
     btn_tx = gr.Button("📝 Extraire le texte", variant="primary")
     tx_statut, tx_fichiers, tx_image, tx_dossier, tx_btn_dossier = sorties(False)
@@ -22,5 +23,5 @@ def construire():
 
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
-    evt = c.btn_tx.click(pdf_outils.en_texte, [c.tx_fichier, c.tx_word, c.tx_nom], [c.tx_statut, c.tx_fichiers, c.tx_dossier])
+    evt = c.btn_tx.click(pdf_outils.en_texte, [c.tx_fichier, c.tx_word, c.tx_nom, c.tx_scans], [c.tx_statut, c.tx_fichiers, c.tx_dossier])
     brancher_sorties(evt, c.tx_fichiers, c.tx_image, c.tx_dossier, c.tx_btn_dossier)

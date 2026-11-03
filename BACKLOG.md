@@ -18,5 +18,5 @@ fonction) ; aucune ne demande de carte graphique sauf mention.
 - [x] **Rangeur** (fait le 03/11 : « 🧰 Outils → 📦 Ranger mes créations ») : exporte toutes les créations d'un projet dans un dossier propre.
 
 ## PDF
-- [ ] **OCR** des PDF scannés et des photos de documents (Tesseract ou PaddleOCR, licence Apache) : texte cherchable,
+- [x] **OCR** (fait le 03/11 : « 📄 PDF → 🔍 OCR (scans, photos) », OnnxTR plutôt que Tesseract ou PaddleOCR : rien à installer à part, processeur seul) des PDF scannés et des photos de documents (Tesseract ou PaddleOCR, licence Apache) : texte cherchable,
   PDF → Word complet (l'onglet « PDF → texte / Word » refuse aujourd'hui les PDF scannés).

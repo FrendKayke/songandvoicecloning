@@ -135,11 +135,11 @@ def test_images_et_texte(doc):
     msg, f, _ = po.en_images(src, "JPEG", 100, "1-2", progress=no_progress)
     assert len(f) == 3 and Path(f[0]).suffix == ".zip" and Image.open(f[1]).size == (827, 1170)
     assert _gris(Image.open(f[1]))[60:140, 80:450].min() < 100  # le titre dessiné
-    msg, f, _ = po.en_texte(src, True, progress=no_progress)
+    msg, f, _ = po.en_texte(src, True, lire_scans=False, progress=no_progress)
     from docx import Document
 
     assert Path(f[0]).read_text(encoding="utf-8").startswith("Page 1 : Été à Noël, garçon")
     assert "1 page(s) sans texte" in msg and [p.text for p in Document(f[1]).paragraphs][0] == "Page 1 : Été à Noël, garçon"
     with pytest.raises(gr.Error, match="Aucun texte"):
-        po.en_texte(str(doc / "img.pdf"), progress=no_progress)
+        po.en_texte(str(doc / "img.pdf"), lire_scans=False, progress=no_progress)
     assert po.apercu(None) is None

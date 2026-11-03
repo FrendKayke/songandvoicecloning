@@ -61,6 +61,7 @@ $env:TORCH_HOME = Join-Path $Eng 'torch-cache'
 $env:HF_HOME = Join-Path $Eng 'hf-home'
 $env:PKUSEG_HOME = Join-Path $Cb 'pkuseg'   # sinon spacy-pkuseg (Chatterbox) écrit dans ~\.pkuseg, sur C:
 $env:U2NET_HOME = Join-Path $Dif 'u2net'    # sinon rembg (détourage) écrit dans ~\.u2net, sur C:
+$env:ONNXTR_CACHE_DIR = Join-Path $Eng 'ocr'    # modèles de l'OCR (OnnxTR), sinon dans ~\.cache\onnxtr
 $env:PYTHONIOENCODING = 'utf-8'
 $env:PATH = "$UvDir;$env:PATH"
 
@@ -544,6 +545,12 @@ try {
         Run $Uv @('venv', '--python', '3.12', $venv)
         Run $Uv @('pip', 'install', '--python', $AppPy, '-r', (Join-Path $App 'requirements.txt'))
         Done $m $sig
+    } else { Write-Host 'Déjà fait.' }
+    # modèles de lecture de texte (OCR des PDF scannés, OnnxTR, ~105 Mo) ; sinon téléchargés au premier usage
+    $m = Join-Path (Join-Path $Eng 'ocr') '.modeles-ok'
+    if (-not (Test-Path $m)) {
+        try { Run $AppPy @('-m', 'studiovoix.ocr', '--telecharger') $App; Done $m }
+        catch { Write-Host "Modèles de l'OCR pas téléchargés : $($_.Exception.Message) (ils le seront au premier usage)." -ForegroundColor Yellow }
     } else { Write-Host 'Déjà fait.' }
 
     # --- 19. Entraînement de modèles de sprites (kohya sd-scripts : LoRA SDXL ; Python 3.10, PyTorch 2.6 CUDA 12.4) ---

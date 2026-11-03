@@ -82,6 +82,7 @@ def test_installation_complete_puis_relance(inst):
     assert any("rigging.py telecharger" in a for a in inst.appels)
     assert "sd-scripts/archive/" in m["entrainement/sd-scripts/.complet"] and re.fullmatch(r"[0-9a-f]{64}", m["entrainement/.env-ok"])
     assert any("lora_sdxl.py telecharger" in a for a in inst.appels) and any("--no-deps -e" in a and "sd-scripts" in a for a in inst.appels)
+    assert any("-m studiovoix.ocr --telecharger" in a for a in inst.appels) and "ocr/.modeles-ok" in m
     assert inst.modeles() == MODELES  # un modèle à la fois ; pas de facultatif refusé (réponse vide)
     assert any(a.startswith("READ-HOST Télécharger aussi le modèle facultatif") for a in inst.appels)
 

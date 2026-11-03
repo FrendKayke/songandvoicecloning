@@ -541,19 +541,32 @@ def en_images(fichier, format_label="PNG", ppp=150, texte_pages="", nom="", prog
 
 
 # --- PDF → texte / Word -------------------------------------------------------------------------------------------
-def en_texte(fichier, word=True, nom="", progress=gr.Progress()):
-    """Texte du PDF (.txt, une page après l'autre) et document Word (.docx, un saut de page par page). Sans
-    reconnaissance de caractères : un PDF scanné (images seules) ne donne pas de texte. Renvoie (message, fichiers, dossier)."""
+def en_texte(fichier, word=True, nom="", lire_scans=True, progress=gr.Progress()):
+    """Texte du PDF (.txt, une page après l'autre) et document Word (.docx, un saut de page par page). Pages scannées
+    (images sans texte) : lues par reconnaissance de caractères (ocr.py) si `lire_scans`. Renvoie (message,
+    fichiers, dossier)."""
     chemin = _pdf(fichier)
     lecteur = _lire(chemin)
     total = len(lecteur.pages)
     textes = []
     for i, page in enumerate(lecteur.pages):
-        progress(i / total, desc=f"Page {i + 1}/{total}…")
+        progress(i / total * (0.3 if lire_scans else 1), desc=f"Page {i + 1}/{total}…")
         textes.append((page.extract_text() or "").strip())
+    paragraphes = [t.splitlines() for t in textes]
+    scans = [i for i, t in enumerate(textes) if not t]
+    lues = 0
+    if scans and lire_scans:
+        from . import ocr
+
+        images = ocr.pages_pdf(chemin, scans)
+        for i, page in zip(scans, ocr.lire_images(images, progress, 0.3, 0.65)):
+            textes[i], paragraphes[i] = ocr.texte_de(page), ocr.paragraphes(page)
+            lues += 1 if page["blocs"] else 0
     if not any(textes):
-        raise gr.Error("Aucun texte dans ce PDF : ce sont des images (document scanné). La reconnaissance de "
-                       "caractères n'est pas installée ; passe par « PDF en images » puis un outil d'OCR.")
+        raise gr.Error("Aucun texte dans ce PDF : ce sont des images (document scanné). Coche « Lire aussi les "
+                       "pages scannées » ou passe par l'onglet « 🔍 OCR (scans, photos) »." if not lire_scans else
+                       "Aucun texte lisible dans ce PDF, même en lisant les images (pages blanches ou photos sans "
+                       "texte ?).")
     dossier = _dossier(nom or chemin.stem, "texte")
     base = _nom(nom, chemin.stem)
     txt = dossier / f"{base}.txt"
@@ -564,8 +577,8 @@ def en_texte(fichier, word=True, nom="", progress=gr.Progress()):
         from docx.enum.text import WD_BREAK
 
         document = Document()
-        for i, t in enumerate(textes):
-            for ligne in (t or "(page sans texte)").splitlines():
+        for i, t in enumerate(paragraphes):
+            for ligne in t or ["(page sans texte)"]:
                 document.add_paragraph(ligne)
             if i < total - 1:
                 document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
@@ -575,6 +588,9 @@ def en_texte(fichier, word=True, nom="", progress=gr.Progress()):
     caracteres = sum(len(t) for t in textes)
     vides = sum(1 for t in textes if not t)
     note = f" ; {vides} page(s) sans texte (images ?)" if vides else ""
+    if lues:
+        note += (f" ; {lues} page(s) scannée(s) lue(s) par reconnaissance de caractères (relis les chiffres "
+                 "importants)")
     return (f"✅ {caracteres} caractères sur {total} page(s){note} : "
             + ", ".join(f"`{s.name}`" for s in sorties) + f" dans `{dossier}`. Le Word reprend le texte, pas la mise "
             "en page.", [str(s) for s in sorties], str(dossier))
