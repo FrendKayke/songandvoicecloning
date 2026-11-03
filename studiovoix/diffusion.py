@@ -300,16 +300,19 @@ def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024
 
 
 def sprite_dresseur(prompts, sorties, graines_, largeur=1024, hauteur=1024, etapes=30, guidage=7.0, negatif=None,
-                    lora_echelle=1.0, lora=None, progress=None):
+                    lora_echelle=1.0, lora=None, progress=None, image=None, masque=None, force=0.85):
     """SDXL + LoRA de sprites de dresseurs (ou `lora` = fichier d'un LoRA entraîné ici) : une image par chemin de
-    `sorties`. RESULTAT {fichiers, graines}."""
+    `sorties`. Avec image + masque (blanc = à redessiner) : repasse sur une zone seulement, `force` = part
+    redessinée (0–1). RESULTAT {fichiers, graines}."""
     _verifier("sprites_dresseur")
     sorties = [str(s) for s in sorties]
     return lancer("sprite_dresseur", {**_prompts(prompts, sorties), "sorties": sorties,
                                       "graines": [int(g) for g in graines_], "largeur": int(largeur),
                                       "hauteur": int(hauteur), "etapes": int(etapes), "guidage": float(guidage),
                                       "negatif": negatif or None, "lora_echelle": float(lora_echelle),
-                                      "lora": str(lora) if lora else None},
+                                      "lora": str(lora) if lora else None,
+                                      **({"image": str(image), "masque": str(masque), "force": float(force)}
+                                         if image else {})},
                   Path(sorties[0]).parent, "Sprites de dresseur", progress,
                   {1: "chargement de SDXL et du LoRA de sprites", 2: f"génération de {len(sorties)} sprite(s)"})
 

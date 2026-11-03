@@ -930,8 +930,9 @@ def _peft_requis():
 
 
 def sprite_dresseur(chemin_tache):
-    """Tâche : {prompt | prompts, negatif?, sorties, graines, largeur, hauteur, etapes, guidage, lora_echelle}.
-    StableDiffusionXLPipeline (fp16, ~7 Go : tout sur la carte) + LoRA au format Kohya (lora_te1/te2/unet, converti
+    """Tâche : {prompt | prompts, negatif?, sorties, graines, largeur, hauteur, etapes, guidage, lora_echelle,
+    image?, masque?, force?}. Avec image + masque : seule la zone blanche du masque est redessinée (repasse sur les
+    yeux d'un sprite, `StableDiffusionXLInpaintPipeline.from_pipe`, même LoRA). StableDiffusionXLPipeline (fp16, ~7 Go : tout sur la carte) + LoRA au format Kohya (lora_te1/te2/unet, converti
     par load_lora_weights). Clés de test : depot, lora (chemin local)."""
     import torch
     from diffusers import StableDiffusionXLPipeline
@@ -967,12 +968,23 @@ def sprite_dresseur(chemin_tache):
     largeur, hauteur = int(t.get("largeur", 1024)), int(t.get("hauteur", 1024))
     sorties, graines = t["sorties"], [int(g) for g in t["graines"]]
     prompts = _prompts(t, tous=True)
+    retouche = {}
+    if t.get("image"):  # repasse sur une zone (les yeux d'un sprite) : seul le blanc du masque est redessiné
+        from diffusers import StableDiffusionXLInpaintPipeline
+        from PIL import Image
+
+        # from_pipe : mêmes modules (UNet avec le LoRA, encodeurs, VAE), rien n'est rechargé
+        appel = StableDiffusionXLInpaintPipeline.from_pipe(pipe)
+        retouche = {"image": Image.open(t["image"]).convert("RGB"),
+                    "mask_image": Image.open(t["masque"]).convert("L"), "strength": float(t.get("force", 0.85))}
+    else:
+        appel = pipe
     print(f"PROGRESSION 2/2 génération de {len(sorties)} sprite(s)", flush=True)
     for i, (sortie, graine, prompt) in enumerate(zip(sorties, graines, prompts), 1):
-        im = _memoire(pipe)(
+        im = _memoire(appel)(
             prompt=prompt, negative_prompt=t.get("negatif") or NEGATIF_SPRITE_SDXL, height=hauteur, width=largeur,
             num_inference_steps=int(t.get("etapes", 30)), guidance_scale=float(t.get("guidage", 7.0)),
-            generator=torch.Generator("cpu").manual_seed(graine)).images[0]
+            generator=torch.Generator("cpu").manual_seed(graine), **retouche).images[0]
         Path(sortie).parent.mkdir(parents=True, exist_ok=True)
         im.save(sortie)
         print(f"Sprite {i}/{len(sorties)} : {sortie} (graine {graine})", flush=True)

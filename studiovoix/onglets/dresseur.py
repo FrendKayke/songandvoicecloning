@@ -139,6 +139,7 @@ def brancher(c, demo, o):
                            *listes, c.kit_graine, c.kit_nom, c.kit_variantes, c.kit_lora_marche, c.kit_lora_face,
                            c.kit_description],
                     [c.px_statut, c.px_galerie, c.px_fichiers, c.px_dossier, c.px_apercus, o.pixel_animer.px_sprite,
-                     c.kit_couleurs, c.kit_description])
+                     c.kit_couleurs, c.kit_description]
+                    ).then(lambda sprite: sprite, o.pixel_animer.px_sprite, o.yeux.ye_sprite)  # « Refaire les yeux »
     c.px_galerie.select(choisir, c.px_apercus, o.pixel_animer.px_sprite)
     c.btn_px_dossier.click(lambda d: open_folder(d) if d else None, c.px_dossier)

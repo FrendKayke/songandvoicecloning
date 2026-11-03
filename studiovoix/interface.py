@@ -16,7 +16,7 @@ from .onglets import (alleger_3d, bande_son, bibliotheque, bruitages, chanson, c
                       pdf_signer, pdf_texte, personnages_cartes,
                       photos, photos_lot, pixel_animer, pixel_convertir, pixel_personnages, dresseur, plans, remix,
                       revision_3d, rigging_3d, serie, serie_musique, sous_titres, sprites_lora, synthese, tileset3d,
-                      videos, voix_off)
+                      videos, voix_off, yeux)
 from .onglets.chanson import apercu_description, maj_mode
 from .onglets.synthese import synthese_puis_rvc
 
@@ -54,6 +54,7 @@ GROUPES = [
         ("pixel_personnages", pixel_personnages, "🧙 Personnages pixel art d'après une photo"),
         ("pixel_animer", pixel_animer, "🎞️ Animer un sprite"),
         ("dresseur", dresseur, "🎒 Kit de dresseur"),
+        ("yeux", yeux, "👁️ Refaire les yeux"),
         ("sprites_lora", sprites_lora, "🧪 Entraîner un modèle de sprites"),
     ]),
     ("🎬 Vidéo", [
