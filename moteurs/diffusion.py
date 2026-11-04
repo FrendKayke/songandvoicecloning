@@ -841,7 +841,10 @@ def _sur_carte(pipe, *noms):
         classe = type(pipe)
         pipe.__class__ = type(classe.__name__, (classe,), {
             "_sur_carte_fixe": True, "_execution_device": property(lambda self: torch.device("cuda"))})
-    for nom in ("text_encoder", "transformer", "vae"):
+    import torch.nn as nn
+
+    modules = [nom for nom, m in pipe.components.items() if isinstance(m, nn.Module)]  # SDXL : unet, text_encoder_2…
+    for nom in modules:
         m = getattr(pipe, nom, None)
         if m is not None and nom not in noms and m.device.type != "cpu":
             m.to("cpu")
@@ -979,21 +982,37 @@ def sprite_dresseur(chemin_tache):
         from safetensors.torch import load_file
 
         pipe.load_lora_weights(load_file(str(lora)), adapter_name="dresseur")
-        return pipe.to(device)
+        return pipe if device == "cuda" else pipe.to(device)
 
-    pipe = _garder(("SDXL sprites", depot, t.get("lora"), device), charger, 8, vers_cpu=lambda p_: p_.to("cpu"),
-                   vers_gpu=lambda p_: p_.to(device))
+    # Sur 12 Go, tout SDXL sur la carte (UNet 5,1 Go + encodeurs de texte 1,7 Go + VAE) plus les activations à 1024²
+    # avec guidage (lot de 2) et le LoRA non fusionné dépassait la mémoire : le pilote débordait en mémoire vive et
+    # chaque pas prenait ~40 s (4 000 s pour une repasse des yeux chez l'utilisateur le 04/11). Comme pour Z-Image :
+    # les encodeurs lisent les prompts puis repassent en mémoire vive, seuls l'UNet et le VAE restent sur la carte.
+    pipe = _garder(("SDXL sprites", depot, t.get("lora"), device), charger, 8,
+                   vers_cpu=(lambda p_: _sur_carte(p_)) if device == "cuda" else None)
     pipe.set_adapters(["dresseur"], [float(t.get("lora_echelle", 1.0))])
     largeur, hauteur = int(t.get("largeur", 1024)), int(t.get("hauteur", 1024))
     sorties, graines = t["sorties"], [int(g) for g in t["graines"]]
     prompts = _prompts(t, tous=True)
+    negatif = t.get("negatif") or NEGATIF_SPRITE_SDXL
+    if device == "cuda":  # l'UNet reste (6,8 Go avec les encodeurs : ça tient, et il n'est pas rechargé à chaque tâche)
+        _sur_carte(pipe, "unet", "vae", "text_encoder", "text_encoder_2")
+    plongements = {}
+    with torch.no_grad():
+        for p_ in dict.fromkeys(prompts):  # chaque prompt distinct encodé une fois, encodeurs sur la carte
+            plongements[p_] = pipe.encode_prompt(prompt=p_, negative_prompt=negatif, device=pipe._execution_device,
+                                                  do_classifier_free_guidance=True)
+    if device == "cuda":
+        _sur_carte(pipe, "unet", "vae")
     retouche = {}
     if t.get("image"):  # repasse sur une zone (les yeux d'un sprite) : seul le blanc du masque est redessiné
         from diffusers import StableDiffusionXLInpaintPipeline
         from PIL import Image
 
-        # from_pipe : mêmes modules (UNet avec le LoRA, encodeurs, VAE), rien n'est rechargé
+        # from_pipe : mêmes modules (UNet avec le LoRA, encodeurs, VAE), rien n'est rechargé ; même placement
         appel = StableDiffusionXLInpaintPipeline.from_pipe(pipe)
+        if device == "cuda":
+            _sur_carte(appel, "unet", "vae")
         retouche = {"image": Image.open(t["image"]).convert("RGB"),
                     "mask_image": Image.open(t["masque"]).convert("L"), "strength": float(t.get("force", 0.85))}
     else:
@@ -1029,8 +1048,10 @@ def sprite_dresseur(chemin_tache):
                       "Fallback Policy » sur « Prefer No Sysmem Fallback », puis relance avec 1 variante.", flush=True)
             return kwargs
 
+        pe, npe, ppe, nppe = plongements[prompt]
         im = _memoire(appel)(
-            prompt=prompt, negative_prompt=t.get("negatif") or NEGATIF_SPRITE_SDXL, height=hauteur, width=largeur,
+            prompt_embeds=pe, negative_prompt_embeds=npe, pooled_prompt_embeds=ppe,
+            negative_pooled_prompt_embeds=nppe, height=hauteur, width=largeur,
             num_inference_steps=etapes, guidance_scale=float(t.get("guidage", 7.0)),
             generator=torch.Generator("cpu").manual_seed(graine), callback_on_step_end=pas_fait,
             **retouche).images[0]
