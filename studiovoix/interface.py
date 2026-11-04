@@ -10,7 +10,7 @@ import gradio as gr
 
 from .onglets import (alleger_3d, bande_son, bibliotheque, bruitages, chanson, composer, conv_couper,
                       conv_diaporama, conv_format, conv_montage, conv_recoller, conv_reduire, conv_son, costumes,
-                      diagnostic, doublage, entrainement,
+                      diagnostic, doublage, entrainement, marche_convertir,
                       espace, fluidite, fond_video, galerie, hd2d, histoire, illustrations, images, karaoke, kit3d,
                       lot_3d, mini_videos, modeles, modeles_3d, nettoyer, pack, parlante, passage, pdf, pdf_compresser,
                       pdf_filigrane, pdf_fusion, pdf_images, pdf_numeroter, pdf_ocr, pdf_pages, pdf_pivoter, pdf_proteger,
@@ -56,6 +56,7 @@ GROUPES = [
         ("pixel_animer", pixel_animer, "🎞️ Animer un sprite"),
         ("dresseur", dresseur, "🎒 Kit de dresseur"),
         ("yeux", yeux, "👁️ Refaire les yeux"),
+        ("marche_convertir", marche_convertir, "🔁 Convertir des feuilles de marche"),
         ("sprites_lora", sprites_lora, "🧪 Entraîner un modèle de sprites"),
     ]),
     ("🎬 Vidéo", [

@@ -119,11 +119,47 @@ def lire_feuille(chemin, grille, cellule):
         im = ImageOps.exif_transpose(im).convert("RGBA")
     if np.array(im)[..., 3].min() == 255:
         im = px._sans_fond_uni(im)
-    a, _, _ = px.reduire(np.array(im))
     (cols, rows), (cw, ch) = grille, cellule
+    a = _bande_verticale(np.array(im), grille, cellule)  # bande à sa taille d'origine : pas de réduction devinée
+    if a.shape[1] != cols * cw or a.shape[0] != rows * ch:
+        a, _, _ = px.reduire(a)
+    if a.shape[1] != cols * cw or a.shape[0] != rows * ch:
+        a = _bande_verticale(a, grille, cellule)
     if a.shape[1] != cols * cw or a.shape[0] != rows * ch:
         a = _cases_plus_grandes(a, grille, cellule)
     return np.ascontiguousarray(a)
+
+
+def _bande_verticale(a, grille, cellule):
+    """Bande de Diamant / Perle / Platine (décompilation pret : 32×512 = 16 images de 32×32 l'une sous l'autre, 4 par
+    direction dans l'ordre haut, bas, gauche, droite, chacune debout, pas, debout, autre pas) → grille 3 colonnes du
+    style DS (debout, pas, autre pas). Toute autre image est rendue telle quelle."""
+    (cols, rows), (cw, ch) = grille, cellule
+    if cols != 3 or a.shape[1] != cw or a.shape[0] != rows * 4 * ch:
+        return a
+    images = a.reshape(rows, 4, ch, cw, 4)[:, [0, 1, 3]]
+    return images.transpose(0, 2, 1, 3, 4).reshape(rows * ch, cols * cw, 4)
+
+
+JETONS_CLIP = 75  # CLIP lit 77 jetons, début et fin compris : la suite d'une légende est ignorée (kohya et diffusers)
+
+
+def jetons_estimes(texte):
+    """Estimation sans tokeniseur du nombre de jetons CLIP (un par mot courant, un de plus par tranche de 8 lettres,
+    un par signe de ponctuation) : volontairement large."""
+    import re
+
+    mots = re.findall(r"[A-Za-z0-9]+|[^\sA-Za-z0-9]", texte)
+    return sum(1 + (len(m) - 1) // 8 if m[0].isalnum() else 1 for m in mots)
+
+
+def dans_le_budget(description, former):
+    """Retire les derniers éléments (séparés par des virgules) d'une description tant que la légende complète
+    former(description) dépasse JETONS_CLIP : le reste serait coupé sans prévenir, au milieu d'un mot."""
+    parties = [p.strip() for p in description.split(",") if p.strip()]
+    while len(parties) > 1 and jetons_estimes(former(", ".join(parties))) > JETONS_CLIP:
+        parties.pop()
+    return ", ".join(parties)
 
 
 def _cases_plus_grandes(a, grille, cellule):
@@ -188,7 +224,7 @@ def _legende(image, progress, grille=(4, 4), type_=MARCHE):
             texte = diffusion.decrire("sprite_face" if type_ == FACE else "feuille", "", image=image,
                                       progress=progress).strip().rstrip(".")
             if texte:
-                return former(texte)
+                return former(dans_le_budget(texte, former))
         except gr.Error as e:
             print(f"Légende impossible ({e}) : légende générique.", flush=True)
     return former("a trainer")
@@ -288,7 +324,7 @@ def guide(style, type_=MARCHE):
 **Étape 1 — Tes feuilles de marche** (champ « Feuilles de marche d'exemple »)
 - **Type de fichier** : images **PNG** (GIF, WebP et BMP acceptés ; évite le JPEG, sa compression brouille les pixels), ou une **archive .zip** qui les contient (les sous-dossiers sont lus). Une archive .7z ou .rar : décompresse-la d'abord, puis dépose les images ou refais un .zip.
 - **Une feuille = un seul personnage**, toutes ses poses de marche dans une grille, **sans marge, sans texte, sans autre personnage**.
-- **Grille du style « {style} »** : {cols} colonnes × {rows} lignes de cases de {cw}×{ch} pixels, soit **{w}×{h} pixels** de jeu. La feuille peut être agrandie d'un nombre entier de fois : {w * 2}×{h * 2} (×2), {w * 3}×{h * 3} (×3)… Des cases plus grandes sont acceptées si le personnage tient dans {cw}×{ch} (par exemple les feuilles RPG Maker XP de {cols}×{rows} cases de 32×48) : il est recadré. Les lignes vont dans l'ordre : {", ".join(sens)}.
+- **Grille du style « {style} »** : {cols} colonnes × {rows} lignes de cases de {cw}×{ch} pixels, soit **{w}×{h} pixels** de jeu. La feuille peut être agrandie d'un nombre entier de fois : {w * 2}×{h * 2} (×2), {w * 3}×{h * 3} (×3)… Des cases plus grandes sont acceptées si le personnage tient dans {cw}×{ch} (par exemple les feuilles RPG Maker XP de {cols}×{rows} cases de 32×48) : il est recadré.{" Les bandes de Diamant / Perle / Platine (32×512 : 16 images l'une sous l'autre, haut, bas, gauche, droite) sont aussi lues telles quelles." if cols == 3 else ""} Les lignes vont dans l'ordre : {", ".join(sens)}.
 - **Fond** : transparent, ou une couleur unie (retirée automatiquement).
 - **Combien** : {FEUILLES_MIN} au minimum, **50 à 100** pour un bon résultat (personnages variés : hommes, femmes, enfants, tenues et couleurs différentes).
 - Dès que tu déposes les fichiers, le tableau « Vérification » dit pour chacun s'il est bon, et pourquoi sinon.
@@ -518,7 +554,7 @@ def generer_faces(lora, description, sorties, graines, couleurs=15, contour=px.C
     infos = infos_modele(lora)
     toile, facteur = int(infos["toile"]), int(infos["facteur"])
     largeur, hauteur = taille_modele(infos)
-    prompt = _legende_face(description.strip().rstrip("."))
+    prompt = _legende_face(dans_le_budget(description.strip().rstrip("."), _legende_face))
     diffusion.sprite_dresseur(prompt, sorties, graines, largeur, hauteur, lora=str(fichier), progress=progress)
     sprites = []
     for s in sorties:
@@ -538,7 +574,8 @@ def _palette_hors_fond(image, couleurs):
 
 # --- Feuille de marche générée avec le modèle -----------------------------------------------------------------
 def prompt_feuille(description, grille=(4, 4)):
-    return _legende_texte(description.strip().rstrip("."), grille)
+    former = lambda d: _legende_texte(d, grille)  # noqa: E731
+    return former(dans_le_budget(description.strip().rstrip("."), former))
 
 
 def vers_feuille(image, grille, cellule, palette, contour=px.CONTOUR_DEFAUT, fond=FOND, facteur=FACTEUR):

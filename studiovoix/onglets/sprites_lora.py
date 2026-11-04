@@ -5,7 +5,7 @@ import inspect
 
 import gradio as gr
 
-from .. import dresseur, modele_sprites
+from .. import conversion_marche, dresseur, modele_sprites
 from ..outils import open_folder
 from .commun import espace_de_noms
 
@@ -112,6 +112,7 @@ def brancher(c, demo, o):
     c.btn_lo_entrainer.click(modele_sprites.entrainer, [c.lo_nom, c.lo_epoques, c.lo_dim, c.lo_graine],
                              [c.lo_msg, c.lo_fichier]).then(etat_modeles, None, c.lo_liste).then(
         dresseur.liste_loras_marche, None, o.dresseur.kit_lora_marche).then(
-        dresseur.liste_loras_face, None, o.dresseur.kit_lora_face)
+        dresseur.liste_loras_face, None, o.dresseur.kit_lora_face).then(
+        conversion_marche.liste_modeles, None, o.marche_convertir.mc_modele)
     demo.load(modele_sprites.etat_prerequis, None, c.lo_prerequis)
     c.btn_lo_dossier.click(lambda: open_folder(modele_sprites.cfg.LORAS_DIR, create=True))

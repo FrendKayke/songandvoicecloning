@@ -405,6 +405,15 @@ def _hors_ligne(actif):
 
 
 # --- Qwen3-VL : description d'image, reformulation de texte ------------------------------------------
+# légendes des modèles de sprites (entraînement et génération) : détaillées mais dans les 75 jetons de CLIP, gabarit
+# compris (« dark blue and orange outfit, no hat » ne disait ni la coupe ni le bas ni les chaussures, et une négation
+# ne s'apprend pas)
+LISTE_LEGENDE = ("as a comma-separated list of short English phrases, most important first, 25 to 35 words in all: "
+                 "gender and age (man, woman, boy, girl, old man…), skin tone, hair (color, length, style), headwear, "
+                 "top (kind and color), bottom (kind and color), shoes, then accessories, bag or held object. Name "
+                 "precise colors (light blue, dark green, beige, maroon…), never 'colorful' or 'outfit' alone. Only "
+                 "what is visible: never write what is absent (no 'no hat', no 'nothing held'). No name of any game "
+                 "or character. ")
 CONSIGNES = {
     "son": ("Describe, in English, the sound effect this image would make in a video game, as a prompt for a "
             "sound generator: sources of sound, material, intensity, environment. One or two sentences, "
@@ -497,24 +506,20 @@ CONSIGNES = {
                  "or existing work. Answer with that line only:\n\n"),
     # entraînement d'un modèle de feuilles de sprites : légende de chaque feuille de marche
     "feuille": ("The attached image is a pixel art walking sprite sheet of one video game character (the same "
-                "character seen from several sides, in a grid). Describe that character in one short English phrase "
-                "for a training caption: gender or age (man, woman, boy, girl, old man…), hair color and style, hat or "
-                "headwear, outfit and its colors, any held object. No name of any game or character. Answer with the "
-                "phrase only, for example: a young man with brown hair, red cap, blue jacket and backpack."),
+                "character seen from several sides, in a grid). Describe that character for a training caption, "
+                + LISTE_LEGENDE + "Answer with the list only, for example: a young man, light skin, short spiky brown "
+                "hair, red cap, blue zip jacket over a white shirt, black pants, red sneakers, yellow backpack."),
     # légende d'entraînement d'un modèle de sprites de face (même forme que « feuille »)
     "sprite_face": ("The attached image is a pixel art battle sprite of one video game character, seen from the "
-                    "front, full body. Describe that character in one short English phrase for a training caption: "
-                    "gender or age (man, woman, boy, girl, old man…), hair color and style, hat or headwear, outfit "
-                    "and its colors, pose, any held object. No name of any game or character. Answer with the phrase "
-                    "only, for example: a young woman with long red hair, white hat, blue dress, waving, holding a "
-                    "ball."),
+                    "front, full body. Describe that character for a training caption, " + LISTE_LEGENDE
+                    + "End with the pose. Answer with the list only, for example: a young woman, fair skin, long "
+                    "wavy red hair, white sun hat, light blue sleeveless dress, brown sandals, holding a ball, "
+                    "waving."),
     # kit de dresseur avec un modèle de feuilles entraîné : description courte de la personne, dans la forme des
     # légendes d'entraînement (« a man with brown hair, red cap, blue jacket »)
     "legende": ("The attached photo shows one or several people. Find the person designated in the request below and "
-                "apply every change it asks. Describe them in one short English phrase for a pixel art sprite "
-                "caption: gender or age (man, woman, boy, girl, old man…), hair color and style, hat or headwear, "
-                "outfit and its colors, any held object. No name of any game or existing work. Answer with the phrase "
-                "only:\n\n"),
+                "apply every change it asks. Describe them for a pixel art sprite caption, " + LISTE_LEGENDE
+                + "Answer with the list only:\n\n"),
     # kit de dresseur sans photo : le personnage décrit en français (« une dresseuse rousse, veste rouge ») ; la
     # description sert au modèle de sprites (SDXL comprend mal le français) et reste modifiable dans l'onglet
     "sprite_texte": ("Rewrite the following character request (often in French) into an English description of a "
@@ -530,11 +535,11 @@ CONSIGNES = {
                        "precise color names (for example 'dark chestnut brown', 'pale peach', 'light sky blue'); "
                        "choose simple plausible colors for what is not said. For a dress, give its color for both top "
                        "and bottom. Answer with that line only:\n\n"),
-    "legende_texte": ("Rewrite the following character description (possibly in French) as one short English phrase "
-                      "for a pixel art sprite caption: gender or age (man, woman, boy, girl, old man…), hair color "
-                      "and style, hat or headwear, outfit and its colors, any held object. No name of any game or "
-                      "existing work. Answer with the phrase only, for example: a young man with brown hair, red cap, "
-                      "blue jacket and backpack. Description:\n\n"),
+    "legende_texte": ("Rewrite the following character description (possibly in French) for a pixel art sprite "
+                      "caption, " + LISTE_LEGENDE + "Keep every detail of the description; where it says nothing, "
+                      "leave that item out. Answer with the list only, for example: a young man, light skin, short "
+                      "spiky brown hair, red cap, blue zip jacket over a white shirt, black pants, red sneakers, "
+                      "yellow backpack. Description:\n\n"),
     # onglet « Tileset en objets 3D » : ce que représente un morceau de tileset vu de dessus (une tuile « trou avec
     # échelle » redessinée telle quelle par FLUX.2 klein devenait un pavé plat chez l'utilisateur)
     "tuile3d": ("The attached image is one piece of a pixel art tileset from a top-down 2D video game: an object, a "

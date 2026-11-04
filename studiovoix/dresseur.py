@@ -45,7 +45,7 @@ STYLES = {
                   "pixels, thick dark outline, flat cel shading with two tones per color, no anti-aliasing"),
         "lancer": {"cellule": 64},
         "marche": {"grille": (4, 4), "cellule": (16, 24), "lignes": ["bas", "gauche", "droite", "haut"],
-                   "cycle": [0, 1, 2, 3]},
+                   "cycle": [0, 1, 2, 3], "hauteur": 20},  # hauteur habituelle du personnage (px)
     },
     "Noir et Blanc (DS, 80 px)": {
         "cle": "ds", "toile": 80, "hauteur": 74, "couleurs": 15, "agrandissement": 2,
@@ -53,7 +53,7 @@ STYLES = {
                   "proportions, thin dark outline, cel shading with three tones per color, no anti-aliasing"),
         "lancer": {"cellule": 80},
         "marche": {"grille": (3, 4), "cellule": (32, 32), "lignes": ["haut", "bas", "gauche", "droite"],
-                   "cycle": [0, 1, 0, 2]},
+                   "cycle": [0, 1, 0, 2], "hauteur": 26},
     },
 }
 FACE = "Sprite de combat de face"
