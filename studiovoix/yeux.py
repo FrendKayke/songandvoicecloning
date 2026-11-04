@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 from . import config as cfg
-from . import diffusion, dresseur, modele_sprites
+from . import diffusion, dresseur, modele_sprites, styles
 from . import pixel_art as px
 from .outils import chemin_fichier, nouveau_dossier
 
@@ -76,6 +76,11 @@ def masque(editeur, hauteur, largeur):
             peint = np.abs(comp - fond).sum(-1) > 30
     if peint is None or not peint.any():
         return np.zeros((hauteur, largeur), bool)
+    # une forme fermée tracée autour d'une zone la sélectionne entière (essai de l'utilisateur du 04/11 : la robe
+    # en trop entourée d'un trait, pas peinte ; seul le trait était refait)
+    from scipy.ndimage import binary_fill_holes
+
+    peint = binary_fill_holes(peint)
     couverture = np.asarray(Image.fromarray((peint * 255).astype(np.uint8)).resize((largeur, hauteur),
                                                                                   Image.Resampling.BOX)) / 255
     return couverture >= COUVERTURE_MIN
@@ -90,6 +95,23 @@ def _modele(nom):
         infos = modele_sprites.infos_modele(nom)
         return str(fichier), int(infos["facteur"]), modele_sprites.FOND, None
     return None, FACTEUR_SWIZAD, FOND_SWIZAD, None
+
+
+MOTS_FRANCAIS = {"les", "le", "la", "et", "des", "du", "une", "un", "refait", "refais", "refaire", "enleve", "enlever",
+                 "retire", "yeux", "bouche", "robe", "avec", "sans", "plus", "trop", "mets", "met"}
+
+
+def description_anglaise(description):
+    """La description sert au prompt de SDXL (anglais, ce qu'est le personnage). Une consigne en français (« refait
+    les yeux et enlève la robe en trop », essai de l'utilisateur du 04/11) n'y a pas sa place : ce qui est peint est
+    refait, et un morceau peint que SDXL remplit de fond est effacé. Renvoie (description gardée, remarque)."""
+    d = (description or "").strip()
+    mots = {styles._normal(m) for m in d.split()}
+    if d and (len(mots & MOTS_FRANCAIS) >= 2 or any(c in d for c in "éèêàùçâîôû")):
+        return "", ("La description (en français) n'a pas été envoyée à SDXL : c'est une description du personnage "
+                    "en anglais, pas une consigne. Ce qui est peint est refait, et ce que SDXL remplit de fond "
+                    "(un morceau en trop) est effacé.")
+    return d, None
 
 
 def _prompt(nom, description, gen):
@@ -157,12 +179,15 @@ def palette_du_sprite(sprite):
 
 def appliquer(sprite, zone, image, coin, facteur, fond, palette):
     """Le sprite avec ses pixels peints remplacés par ce que SDXL a dessiné (centre de chaque case, couleur
-    dominante ramenée à la palette ; une case de fond garde le pixel d'origine). Renvoie (sprite, pixels changés)."""
+    dominante ramenée à la palette). Là où SDXL a mis du fond : le pixel est effacé (transparent) s'il touche le
+    fond du sprite (un morceau en trop qu'on retire), sinon il garde sa couleur (le blanc d'un œil, quand le fond
+    de SDXL est blanc). Renvoie (sprite, pixels changés)."""
     a = np.asarray(image.convert("RGB")).astype(int)
     resultat = sprite.copy()
     y0, x0 = coin
     q0, q1 = facteur // 4, facteur - facteur // 4
     changes = 0
+    de_fond = np.zeros(zone.shape, bool)
     for y, x in zip(*np.nonzero(zone)):
         wy, wx = y - y0, x - x0
         bloc = a[wy * facteur + q0:wy * facteur + q1, wx * facteur + q0:wx * facteur + q1].reshape(-1, 3)
@@ -172,11 +197,24 @@ def appliquer(sprite, zone, image, coin, facteur, fond, palette):
         dominante = np.bincount(d.argmin(1), minlength=len(palette)).argmax()
         mediane = np.median(bloc, axis=0)
         if np.sqrt(((mediane - np.array(fond)) ** 2).sum()) < ECART_FOND:
-            continue  # SDXL a mis du fond ici : le pixel d'origine reste
+            de_fond[y, x] = True  # SDXL a mis du fond ici : effacé seulement s'il touche le fond (plus bas)
+            continue
         nouveau = np.append(palette[dominante], 255).astype(np.uint8)
         if not np.array_equal(nouveau, resultat[y, x]):
             changes += 1
         resultat[y, x] = nouveau
+    if de_fond.any():
+        from scipy.ndimage import binary_dilation, label
+
+        transparent = sprite[..., 3] == 0
+        bord = np.zeros(zone.shape, bool)
+        bord[0, :] = bord[-1, :] = bord[:, 0] = bord[:, -1] = True
+        morceaux, n = label(de_fond)
+        for k in range(1, n + 1):
+            m = morceaux == k
+            if (binary_dilation(m) & (transparent | bord) & ~m).any() or (m & bord).any():
+                changes += int((resultat[m][:, 3] > 0).sum())
+                resultat[m] = 0
     return resultat, changes
 
 
@@ -205,7 +243,8 @@ def retoucher(sprite_fichier, editeur, description="", modele=None, variantes=VA
         raise gr.Error("Peins au pinceau sur les yeux à refaire (dans la grande image), puis relance.")
     t0 = time.monotonic()
     description_kit, gen = _style_du_kit(chemin.parent)
-    description = (description or "").strip() or description_kit or ""
+    description, remarque = description_anglaise(description)
+    description = description or description_kit or ""
     lora, facteur, fond, _ = _modele(modele)
     prompt = _prompt(modele, description, gen or "gen3")
     try:
@@ -250,4 +289,6 @@ def retoucher(sprite_fichier, editeur, description="", modele=None, variantes=VA
            f"dans `{dossier}`.")
     if not any(lignes):
         msg += "\n\n⚠️ Aucun pixel n'a changé : augmente la force ou peins un peu plus large."
+    if remarque:
+        msg += "\n\n" + remarque
     return msg, apercus, fichiers, str(dossier)

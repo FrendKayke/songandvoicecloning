@@ -935,6 +935,9 @@ def _peft_requis():
                 "sprites) : lance METTRE_A_JOUR.bat pour l'installer.")
 
 
+PAS_LENT_S = 5  # s par pas de SDXL au-delà desquelles la carte déborde sûrement dans la mémoire vive
+
+
 def sprite_dresseur(chemin_tache):
     """Tâche : {prompt | prompts, negatif?, sorties, graines, largeur, hauteur, etapes, guidage, lora_echelle,
     image?, masque?, force?}. Avec image + masque : seule la zone blanche du masque est redessinée (repasse sur les
@@ -990,13 +993,35 @@ def sprite_dresseur(chemin_tache):
                     "mask_image": Image.open(t["masque"]).convert("L"), "strength": float(t.get("force", 0.85))}
     else:
         appel = pipe
+    memoire = ""
+    if device == "cuda":
+        # VAE de SDXL décodé en float32 (force_upcast) : à 1024², pic de plusieurs Go qui, ajouté à l'UNet, peut
+        # dépasser les 12 Go ; le pilote déborde alors en silence dans la mémoire vive (repasse des yeux de plus de
+        # 30 min chez l'utilisateur le 04/11). Par tuiles, le pic reste bas.
+        appel.vae.enable_tiling()
+        libre, total_carte = torch.cuda.mem_get_info()
+        memoire = f", carte : {libre / 2**30:.1f} Go libres sur {total_carte / 2**30:.1f}"
     print(f"SDXL prêt en {time.monotonic() - debut_chargement:.0f} s ({largeur}×{hauteur}, {pas} pas par image, "
-          f"{'repasse sur une zone' if retouche else 'image entière'}, sur {device})", flush=True)
+          f"{'repasse sur une zone' if retouche else 'image entière'}, sur {device}{memoire})", flush=True)
+    averti = []
     for i, (sortie, graine, prompt) in enumerate(zip(sorties, graines, prompts), 1):
         debut = time.monotonic()
+        temps_pas = [debut]
 
-        def pas_fait(_pipe, k, _t, kwargs, i=i):
+        def pas_fait(_pipe, k, _t, kwargs, i=i, temps_pas=temps_pas):
+            maintenant = time.monotonic()
+            duree_pas, temps_pas[0] = maintenant - temps_pas[0], maintenant
             print(f"PROGRESSION {min(total, 1 + (i - 1) * pas + k + 1)}/{total}", flush=True)
+            # sur une RTX 4070, un pas de SDXL à 1024² prend moins d'une seconde ; 5 s et plus = mémoire graphique
+            # débordée dans la mémoire vive (Sysmem Fallback) ou autre programme sur la carte
+            if device == "cuda" and k >= 1 and duree_pas > PAS_LENT_S and not averti:
+                averti.append(True)
+                occupe = torch.cuda.max_memory_allocated() / 2**30
+                print(f"AVERTISSEMENT : SDXL avance très lentement ({duree_pas:.0f} s par pas au lieu de moins d'une "
+                      f"seconde ; {occupe:.1f} Go utilisés par le modèle). La mémoire de la carte graphique déborde "
+                      "probablement dans la mémoire vive : ferme les autres programmes qui utilisent la carte (jeux, "
+                      "navigateur avec vidéo, Ollama), règle dans le Panneau de configuration NVIDIA « CUDA - Sysmem "
+                      "Fallback Policy » sur « Prefer No Sysmem Fallback », puis relance avec 1 variante.", flush=True)
             return kwargs
 
         im = _memoire(appel)(
@@ -1009,6 +1034,8 @@ def sprite_dresseur(chemin_tache):
         duree = time.monotonic() - debut
         print(f"Sprite {i}/{len(sorties)} : {sortie} (graine {graine}) en {duree:.0f} s, "
               f"{pas / max(duree, 1e-6):.2f} pas/s", flush=True)
+        if device == "cuda":
+            torch.cuda.empty_cache()
     _resultat({"fichiers": sorties, "graines": graines})
     print(f"TERMINE {sorties[0]}", flush=True)
 

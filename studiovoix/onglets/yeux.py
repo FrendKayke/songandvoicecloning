@@ -13,14 +13,18 @@ def construire():
         "à gauche de la grande image), peins sur les yeux ratés, puis lance. Le modèle de sprites redessine seulement cette zone, à "
         "l'échelle de ses pixels, et **seuls les pixels peints peuvent changer**, avec les couleurs du sprite. "
         "Plusieurs variantes sont proposées : garde celle qui te plaît (fichiers `…_yeux_<n>.png`). Le sprite de "
-        "face d'un kit de dresseur arrive ici tout seul."
+        "face d'un kit de dresseur arrive ici tout seul.\n\n"
+        "**Retirer un morceau en trop** (un bout de robe, une tache) : peins-le en entier, ou entoure-le d'un trait "
+        "fermé (l'intérieur est pris aussi) ; ce que le modèle remplit de fond est effacé. Pas besoin d'écrire de "
+        "consigne : la description sert seulement à dire en anglais qui est le personnage."
     )
     with gr.Row():
         with gr.Column(scale=1):
             ye_sprite = gr.Image(type="filepath", image_mode="RGBA", label="Sprite à corriger (PNG)", height=220)
             ye_modele = gr.Dropdown(dresseur.choix_loras_face(), value=dresseur.choix_loras_face()[-1],
                                     label="Modèle du sprite de face (le même que pour le kit)")
-            ye_description = gr.Textbox(label="Description du personnage (anglais, facultatif : reprise du kit)",
+            ye_description = gr.Textbox(label="Qui est le personnage, en anglais (facultatif, repris du kit ; pas une consigne)",
+                                        placeholder="a young woman with long curly black hair, blue mermaid dress",
                                         lines=2)
             with gr.Row():
                 ye_variantes = gr.Slider(1, 8, value=yeux.VARIANTES_DEFAUT, step=1, label="Variantes")

@@ -122,3 +122,32 @@ def test_cote_multiple_de_8():
     for f in range(2, 33):
         c = yeux.cote_fenetre(f)
         assert (c * f) % 8 == 0 and c * f <= yeux.COTE_IMAGE and c * f > yeux.COTE_IMAGE - 8 * max(1, f)
+
+
+def test_trait_ferme_autour_d_un_morceau_et_morceau_efface():
+    """Essai de l'utilisateur du 04/11 : la robe en trop entourée d'un trait (pas peinte) ; elle doit être prise en
+    entier, puis effacée là où le modèle met du fond. Un fond au milieu du visage (blanc d'un œil) reste."""
+    sprite = _sprite()
+    sprite[40:56, 56:70] = (120, 200, 210, 255)  # morceau de robe en trop, séparé du corps par du vide
+    k = yeux.AFFICHAGE
+    affichage = np.zeros((80 * k, 80 * k), bool)
+    yy, xx = np.mgrid[:80 * k, :80 * k]
+    rayon = np.hypot((yy - 48 * k) / (12 * k), (xx - 63 * k) / (10 * k))
+    affichage[(rayon > 0.95) & (rayon < 1.05)] = True  # un anneau seulement
+    zone = yeux.masque(_editeur(affichage), 80, 80) & (sprite[..., 3] > 0)
+    assert zone[40:56, 56:70].all() and not zone[:, :50].any()
+    image, _, coin, _ = yeux.preparer(sprite, zone, 12, modele_sprites.FOND)
+    sortie = np.asarray(image).copy()
+    y0, x0 = coin
+    sortie[(40 - y0) * 12:(56 - y0) * 12, (56 - x0) * 12:(70 - x0) * 12] = modele_sprites.FOND  # SDXL : du fond
+    nouveau, changes = yeux.appliquer(sprite, zone, Image.fromarray(sortie), coin, 12, modele_sprites.FOND,
+                                      yeux.palette_du_sprite(sprite))
+    assert (nouveau[40:56, 56:70, 3] == 0).all() and changes == 16 * 14
+    assert (nouveau[:, :50] == sprite[:, :50]).all()
+
+
+def test_consigne_en_francais_pas_envoyee_a_sdxl():
+    d, remarque = yeux.description_anglaise("refait les yeux et la bouche et enlève la robe en trop")
+    assert d == "" and "anglais" in remarque
+    assert yeux.description_anglaise("a woman with curly black hair, blue mermaid dress") == (
+        "a woman with curly black hair, blue mermaid dress", None)
