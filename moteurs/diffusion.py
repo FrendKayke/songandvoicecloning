@@ -289,6 +289,55 @@ def _garder(cle, fabrique, go, vers_cpu=None, vers_gpu=None):
     return objet
 
 
+def _programmes_carte():
+    """« nom (Mo), … » des programmes de calcul sur la carte d'après nvidia-smi (sous Windows la mémoire de chacun est
+    souvent « N/A ») ; None si nvidia-smi manque."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
+                            "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    elements = []
+    for ligne in r.stdout.splitlines():
+        morceaux = [m.strip() for m in ligne.split(",")]
+        if len(morceaux) >= 3 and morceaux[1]:
+            pid, nom, mo = morceaux[0], Path(morceaux[1]).name, morceaux[-1]
+            moi = " (ce moteur)" if pid == str(os.getpid()) else ""
+            elements.append(f"{nom}{moi}" + (f" ({mo} Mo)" if mo.isdigit() else ""))
+    return ", ".join(elements) or None
+
+
+MEMOIRE_MIN_GO = 1.0  # en dessous, après nos propres modèles, le calcul déborderait en mémoire vive : on refuse
+
+
+def _exiger_memoire_carte(quoi):
+    """Nos modèles sont placés : s'il reste moins de MEMOIRE_MIN_GO sur la carte, le calcul déborderait en mémoire
+    vive (40 fois plus lent : 4 000 s pour une repasse des yeux chez l'utilisateur le 04/11, « 0,0 Go libres sur
+    12,0 » après le placement de SDXL alors qu'il n'en prend que 7). Erreur nette avec les programmes sur la carte."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        libre, total = torch.cuda.mem_get_info()
+    except Exception:  # noqa: BLE001 - mesure facultative
+        return
+    if libre / 2**30 >= MEMOIRE_MIN_GO:
+        return
+    nous = torch.cuda.memory_reserved() / 2**30
+    autres = _programmes_carte()
+    _erreur(f"la carte graphique est pleine avant de commencer {quoi} ({libre / 2**30:.1f} Go libres sur "
+            f"{total / 2**30:.1f} ; nos modèles en prennent {nous:.1f} Go). Un autre programme occupe le reste"
+            + (f" : {autres}" if autres else "") + ". Ferme-le (jeu, navigateur avec vidéo, Ollama, autre outil "
+            "d'IA ; ACE-Step si sa libération automatique est désactivée dans Outils → Modèles), puis relance. "
+            "Calculer quand même déborderait en mémoire vive et prendrait des dizaines de minutes.", 3)
+
+
 def _verifier_memoire_carte():
     """Nos autres modèles viennent de quitter la carte : elle devrait être presque vide. Sinon un autre programme
     l'occupe (Ollama, jeu, autre application d'IA) et le pilote NVIDIA déborde en mémoire vive : tout devient très
@@ -304,9 +353,10 @@ def _verifier_memoire_carte():
         return
     print(f"Mémoire graphique libre : {libre / 1e9:.1f} Go sur {total / 1e9:.1f} Go.", flush=True)
     if libre < 0.6 * total:
+        autres = _programmes_carte()
         print(f"AVERTISSEMENT : seulement {libre / 1e9:.1f} Go libres sur {total / 1e9:.1f} Go de mémoire graphique "
-              "avant le chargement : un autre programme occupe la carte, la génération risque d'être très lente.",
-              flush=True)
+              "avant le chargement : un autre programme occupe la carte, la génération risque d'être très lente"
+              + (f" (sur la carte : {autres})" if autres else "") + ".", flush=True)
 
 
 def _oublier(cle):
@@ -1027,6 +1077,7 @@ def sprite_dresseur(chemin_tache):
         memoire = f", carte : {libre / 2**30:.1f} Go libres sur {total_carte / 2**30:.1f}"
     print(f"SDXL prêt en {time.monotonic() - debut_chargement:.0f} s ({largeur}×{hauteur}, {pas} pas par image, "
           f"{'repasse sur une zone' if retouche else 'image entière'}, sur {device}{memoire})", flush=True)
+    _exiger_memoire_carte("les sprites")
     averti = []
     for i, (sortie, graine, prompt) in enumerate(zip(sorties, graines, prompts), 1):
         debut = time.monotonic()
