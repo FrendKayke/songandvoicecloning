@@ -555,11 +555,12 @@ def _description_marche(photo, demande, couleurs, progress, description=None):
     texte = (demande or "").strip() or "the person in the photo"
     if diffusion.present("qwen"):
         if description:
-            return diffusion.decrire("legende_texte", description, progress=progress).strip()
+            return modele_sprites.sans_absences(diffusion.decrire("legende_texte", description, progress=progress))
         if photo:
-            return diffusion.decrire("legende", texte, image=photo, progress=progress).strip()
+            return modele_sprites.sans_absences(diffusion.decrire("legende", texte, image=photo, progress=progress))
         if (demande or "").strip():
-            return diffusion.decrire("legende_texte", demande.strip(), progress=progress).strip()
+            return modele_sprites.sans_absences(diffusion.decrire("legende_texte", demande.strip(),
+                                                                  progress=progress))
     texte = description or texte
     return f"{texte} ({couleurs})" if couleurs and not description else texte
 

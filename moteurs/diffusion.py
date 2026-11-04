@@ -407,13 +407,18 @@ def _hors_ligne(actif):
 # --- Qwen3-VL : description d'image, reformulation de texte ------------------------------------------
 # légendes des modèles de sprites (entraînement et génération) : détaillées mais dans les 75 jetons de CLIP, gabarit
 # compris (« dark blue and orange outfit, no hat » ne disait ni la coupe ni le bas ni les chaussures, et une négation
-# ne s'apprend pas)
-LISTE_LEGENDE = ("as a comma-separated list of short English phrases, most important first, 25 to 35 words in all: "
-                 "gender and age (man, woman, boy, girl, old man…), skin tone, hair (color, length, style), headwear, "
-                 "top (kind and color), bottom (kind and color), shoes, then accessories, bag or held object. Name "
-                 "precise colors (light blue, dark green, beige, maroon…), never 'colorful' or 'outfit' alone. Only "
-                 "what is visible: never write what is absent (no 'no hat', no 'nothing held'). No name of any game "
-                 "or character. ")
+# ne s'apprend pas). Ce qui se voit sur un sprite de 20 à 80 px : la silhouette (coiffure, coupe et longueur des
+# vêtements, corpulence) et les couleurs, pas les traits du visage. Une première version par cases (« headwear,
+# shoes… ») était remplie mot à mot par Qwen : « none, … none, no bag, no held object », chignon décrit « curly »,
+# robe portefeuille réduite à « light blue dress » (photo de l'utilisateur, 04/11)
+LISTE_LEGENDE = ("as a comma-separated list of short English phrases, 25 to 40 words in all, describing what shapes "
+                 "the character's silhouette and colors, most important first: gender and age, build or body shape "
+                 "(slim, stocky, pregnant…), skin tone; hairstyle exactly as seen (bun, ponytail, braids, loose, "
+                 "short, spiky…) with its color; each garment with its cut, length and precise color (for example "
+                 "'long pale blue wrap dress with V-neck and short flutter sleeves', 'red zip jacket over a white "
+                 "shirt'); headwear, shoes and accessories only if they are visible. Precise colors (light blue, "
+                 "dark green, beige, maroon…). Skip anything absent: never write 'none', 'no …' or 'without …'. "
+                 "Leave out small face details (eye shape, nose, lips). No name of any game or character. ")
 CONSIGNES = {
     "son": ("Describe, in English, the sound effect this image would make in a video game, as a prompt for a "
             "sound generator: sources of sound, material, intensity, environment. One or two sentences, "

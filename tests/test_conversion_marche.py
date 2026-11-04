@@ -56,6 +56,12 @@ def test_legende_dans_le_budget_de_clip():
     assert "yellow backpack" in prompt and "detail 19" not in prompt and prompt.endswith("on a magenta background")
     courte = "a girl, brown hair"
     assert modele_sprites.prompt_feuille(courte) == modele_sprites._legende_texte(courte)
+    # réponse réelle de Qwen avec la première consigne par cases (photo de l'utilisateur, 04/11)
+    qwen = ("woman, young, light skin, dark brown curly hair, none, light blue dress, light blue skirt, none, gold "
+            "pendant necklace, gold earrings, no bag, no held object")
+    assert modele_sprites.sans_absences(qwen) == ("woman, young, light skin, dark brown curly hair, light blue dress, "
+                                                  "light blue skirt, gold pendant necklace, gold earrings")
+    assert modele_sprites.sans_absences("a man, nose ring, notebook, without hat.") == "a man, nose ring, notebook"
 
 
 def test_mise_en_page_gba_vers_ds():

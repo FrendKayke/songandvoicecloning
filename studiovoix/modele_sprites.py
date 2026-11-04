@@ -153,10 +153,21 @@ def jetons_estimes(texte):
     return sum(1 + (len(m) - 1) // 8 if m[0].isalnum() else 1 for m in mots)
 
 
+ABSENCES = ("none", "nothing", "n/a", "no ", "without ", "not ")
+
+
+def sans_absences(description):
+    """Retire les éléments qui disent une absence (« none », « no bag », « without hat ») : Qwen en écrit malgré la
+    consigne, ils prennent des jetons et une négation pousse plutôt SDXL à dessiner l'objet."""
+    parties = [p.strip() for p in (description or "").strip().rstrip(".").split(",")]
+    gardees = [p for p in parties if p and not (p.lower() + " ").startswith(ABSENCES)]
+    return ", ".join(gardees)
+
+
 def dans_le_budget(description, former):
-    """Retire les derniers éléments (séparés par des virgules) d'une description tant que la légende complète
-    former(description) dépasse JETONS_CLIP : le reste serait coupé sans prévenir, au milieu d'un mot."""
-    parties = [p.strip() for p in description.split(",") if p.strip()]
+    """Retire les absences, puis les derniers éléments (séparés par des virgules) d'une description tant que la
+    légende complète former(description) dépasse JETONS_CLIP : le reste serait coupé sans prévenir."""
+    parties = [p.strip() for p in sans_absences(description).split(",") if p.strip()]
     while len(parties) > 1 and jetons_estimes(former(", ".join(parties))) > JETONS_CLIP:
         parties.pop()
     return ", ".join(parties)
