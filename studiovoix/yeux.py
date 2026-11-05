@@ -118,7 +118,7 @@ def _prompt(nom, description, gen):
     description = (description or "").strip().rstrip(".") or "a trainer"
     if nom and nom != dresseur.FACE_SWIZAD:
         return f"{modele_sprites._legende_face(description)}, {YEUX}"
-    return f"{dresseur.PROMPT_LORA.format(description=description, gen=gen)}, {YEUX}"
+    return f"{dresseur.prompt_lora(description, gen)}, {YEUX}"
 
 
 def fenetre(zone, cote, hauteur, largeur):

@@ -414,3 +414,20 @@ def test_mouchetures_nettoyees_detail_garde():
     s[4, 4] = (20, 20, 30, 255)            # œil : gardé
     n = pixel_art.nettoyer(s)
     assert tuple(n[2, 2, :3]) == (228, 210, 174) and tuple(n[4, 4, :3]) == (20, 20, 30)
+
+
+def test_lissage_par_majorite():
+    """Mouchetures jaune clair en quinconce sur un pantalon (sortie de SDXL relue sur sa grille) : `lisser` ramène
+    chaque pixel clair à la couleur majoritaire autour de lui ; l'œil noir, le reflet blanc (loin du jaune) et le
+    bord de la silhouette restent."""
+    s = np.zeros((11, 11, 4), np.uint8)
+    s[1:10, 1:10] = (230, 200, 40, 255)      # pantalon jaune, bord transparent autour
+    for y, x in ((3, 3), (3, 5), (5, 4), (4, 6), (6, 3), (6, 5)):
+        s[y, x] = (240, 220, 90, 255)        # mouchetures jaune clair en quinconce (écart 90)
+    s[8, 4] = (20, 20, 30, 255)              # œil
+    s[8, 5] = (255, 255, 255, 255)           # reflet (écart 300 au jaune)
+    s[1, 1] = (240, 220, 90, 255)            # sur le bord de la silhouette : gardé
+    l_ = pixel_art.lisser(s)
+    assert all(tuple(l_[y, x, :3]) == (230, 200, 40) for y, x in ((3, 3), (3, 5), (5, 4), (4, 6), (6, 3), (6, 5)))
+    assert tuple(l_[8, 4, :3]) == (20, 20, 30) and tuple(l_[8, 5, :3]) == (255, 255, 255)
+    assert tuple(l_[1, 1, :3]) == (240, 220, 90) and (l_[..., 3] == s[..., 3]).all()

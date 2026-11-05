@@ -244,6 +244,37 @@ def nettoyer(sprite, ecart=130):
     return s
 
 
+def lisser(sprite, ecart=150, seuil=5, passes=2):
+    """Mouchetures retirées par vote de majorité 3×3 : un pixel entouré de 8 pixels opaques dont au moins `seuil`
+    portent la même couleur, proche de la sienne (écart < `ecart` : même matière, pas un œil noir sur la peau, ni un
+    reflet blanc d'un œil, à 155 de la peau), prend cette couleur. Le bord de la silhouette (contour) n'est pas
+    touché. Sorties de SDXL + LoRA relues sur leur grille : 13 % de pixels sans voisin de leur couleur (sprites de
+    l'utilisateur du 05/11) ; `nettoyer` (3 côtés sur 4) n'en retirait presque aucun là où deux teintes alternent."""
+    s = sprite.copy()
+    for _ in range(passes):
+        a = s.astype(int)
+        h, w = s.shape[:2]
+        suivant = s.copy()
+        change = 0
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                if s[y, x, 3] == 0:
+                    continue
+                v = a[y - 1:y + 2, x - 1:x + 2].reshape(9, 4)
+                if (v[:, 3] == 0).any():  # bord de la silhouette ou contour : gardé
+                    continue
+                couleurs, n = np.unique(np.delete(v, 4, axis=0)[:, :3], axis=0, return_counts=True)
+                i = int(n.argmax())
+                c0 = a[y, x, :3]
+                if n[i] >= seuil and not (couleurs[i] == c0).all() and np.abs(couleurs[i] - c0).sum() < ecart:
+                    suivant[y, x, :3] = couleurs[i]
+                    change += 1
+        s = suivant
+        if not change:
+            break
+    return s
+
+
 def pixeliser_grille(image, couleurs=15, toile=64, contour=CONTOUR_DEFAUT, hauteur_min=32, toile_max=None):
     """Sprite d'une image déjà dessinée en gros pixels (SDXL + LoRA) : un pixel par case de sa grille
     (`grille_approchee`, couleur médiane du centre de la case), sans rééchantillonnage — le réduire à une hauteur
@@ -292,7 +323,7 @@ def pixeliser_grille(image, couleurs=15, toile=64, contour=CONTOUR_DEFAUT, haute
             break
         palette = np.vstack([palette, pixels[int(ecarts.argmax())].astype(np.uint8)])
     natif[op, :3] = palette[_plus_proche(natif[..., :3][op], palette)]
-    natif = contourer(nettoyer(natif), contour)
+    natif = contourer(lisser(nettoyer(natif)), contour)
     sprite = np.zeros((toile, toile, 4), np.uint8)
     x0 = (toile - wn) // 2
     sprite[toile - hn:, x0:x0 + wn] = natif

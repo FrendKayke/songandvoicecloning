@@ -71,8 +71,51 @@ MODES_FACE = [LORA, RECOLORER, DESSINER]
 VARIANTES_MAX = 6
 # Forme des légendes d'entraînement du LoRA (« a pixel image of a man with a pokeball », étiquette de génération :
 # gen3 = Rouge Feu / Vert Feuille et Émeraude, 164 images ; gen5 = Noir et Blanc, 6 images seulement)
-PROMPT_LORA = "a pixel image of {description}, {gen}, full body, standing, simple background"
+# Cadrage et étiquette juste après le sujet (première phrase), les détails ensuite : CLIP lit le prompt par tranches
+# de 75 jetons (moteur `_plongements_sdxl`), la première compte le plus ; avant, une description de trois phrases
+# repoussait « full body, standing, simple background » au-delà des 77 jetons, coupés sans prévenir → deux
+# personnages, objets et décors (essai de l'utilisateur du 05/11)
+PROMPT_LORA = "a pixel image of {sujet}, {gen}, full body, standing, simple background{details}"
 GEN = {"gba": "gen3", "ds": "gen5"}
+FORCE_PHOTO = 0.7  # part redessinée quand la photo sert de point de départ (img2img) : silhouette et pose gardées
+COTE_SDXL = 1024
+
+
+def prompt_lora(description, gen):
+    """Prompt du LoRA : « a pixel image of <sujet>, gen3, full body, standing, simple background. <détails> » ; le
+    sujet est la première phrase de la description, les détails les suivantes."""
+    d = " ".join((description or "").split()).rstrip(".")
+    sujet, _, details = d.partition(". ")
+    return PROMPT_LORA.format(sujet=sujet.rstrip(",. "), gen=gen, details=f". {details}" if details.strip() else "")
+
+
+def image_de_depart(photo, dossier, progress=None):
+    """La photo comme point de départ de SDXL (img2img) : personne détourée (BiRefNet s'il est installé, sinon la
+    photo entière), posée en pied au centre d'un carré blanc de COTE_SDXL px (le fond uni du LoRA). Renvoie le chemin.
+    Une photo de groupe donne un groupe : à réserver à une photo d'une seule personne."""
+    from PIL import ImageOps
+
+    source = Path(photo)
+    if diffusion.present("photo_detourage"):
+        detoure = Path(dossier) / "face_depart_detoure.png"
+        try:
+            diffusion.detourer_lot([source], [detoure], progress=progress)
+            if detoure.exists():
+                source = detoure
+        except gr.Error:
+            pass
+    im = ImageOps.exif_transpose(Image.open(source)).convert("RGBA")
+    boite = im.getchannel("A").getbbox() if source != Path(photo) else None
+    if boite:
+        im = im.crop(boite)
+    marge = int(COTE_SDXL * 0.06)
+    k = min((COTE_SDXL - 2 * marge) / im.width, (COTE_SDXL - 2 * marge) / im.height)
+    im = im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.Resampling.LANCZOS)
+    fond = Image.new("RGBA", (COTE_SDXL, COTE_SDXL), (255, 255, 255, 255))
+    fond.alpha_composite(im, ((COTE_SDXL - im.width) // 2, COTE_SDXL - marge - im.height))  # pieds en bas
+    sortie = Path(dossier) / "face_depart.png"
+    fond.convert("RGB").save(sortie)
+    return sortie
 
 POSE_FACE = ("Full body trainer battle sprite: the whole body from head to feet, slightly stylized proportions with a "
              "large head, three-quarter view, confident dynamic pose holding a small red and white ball, flat colors "
@@ -512,11 +555,13 @@ def _face_modele_entraine(style, photo, demande, couleurs, graine, variantes, do
     return sprites, prompt, texte
 
 
-def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, progress, description=None):
+def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, progress, description=None,
+               depart=False, force=FORCE_PHOTO):
     """Sprites de face par SDXL + LoRA de sprites de dresseurs : `variantes` images 1024², fond uni retiré (BiRefNet
     si présent, sinon par pixeliser), puis la grille et la palette du style. Description : celle de l'utilisateur,
     sinon Qwen3-VL d'après la photo ou la seule demande (traduite : SDXL comprend mal le français), qui donne déjà
-    les couleurs. Renvoie (liste de tableaux, prompt, description)."""
+    les couleurs. depart : la photo sert de point de départ (img2img, `force` = part redessinée) : silhouette, pose
+    et couleurs de la photo guident le modèle. Renvoie (liste de tableaux, prompt, description)."""
     st = STYLES[style]
     texte = _decrire_personnage(photo, demande, description, progress)
     if not texte or not (description or diffusion.present("qwen")):  # sans Qwen : demande telle quelle
@@ -524,9 +569,13 @@ def _face_lora(style, photo, demande, couleurs, graine, variantes, dossier, prog
         if couleurs:
             texte += f" ({couleurs})"
     description = texte.rstrip(".")
-    prompt = PROMPT_LORA.format(description=description, gen=GEN[st["cle"]])
+    prompt = prompt_lora(description, GEN[st["cle"]])
     sources = [dossier / f"face_{i}_source.png" for i in range(1, variantes + 1)]
-    diffusion.sprite_dresseur(prompt, sources, [graine + i for i in range(variantes)], progress=progress)
+    options = {}
+    if depart and photo:
+        progress(0.12, desc="Photo de départ (détourage)…")
+        options = {"image": image_de_depart(photo, dossier, progress), "force": float(force)}
+    diffusion.sprite_dresseur(prompt, sources, [graine + i for i in range(variantes)], progress=progress, **options)
     images = list(sources)
     if diffusion.present("photo_detourage"):
         detoures = [s.with_name(s.name.replace("_source", "_detoure")) for s in sources]
@@ -595,12 +644,13 @@ def liste_loras_face():
 
 
 def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_lancer, g_marche, graine,
-              nom="dresseur", variantes=2, lora_marche=None, lora_face=None, description=None,
-              progress=gr.Progress()):
+              nom="dresseur", variantes=2, lora_marche=None, lora_face=None, description=None, depart=False,
+              force=FORCE_PHOTO, progress=gr.Progress()):
     """Kit de dresseur, d'après une photo ou une simple description. lora_marche : nom d'un modèle entraîné pour la
     feuille de marche (sinon recoloriage d'un exemple). description : description anglaise du personnage (préparée
-    par `preparer_description` puis modifiée), prioritaire sur la photo et la demande. Renvoie (message, aperçus,
-    fichiers, dossier, sprite de face, couleurs utilisées, description utilisée)."""
+    par `preparer_description` puis modifiée), prioritaire sur la photo et la demande. depart : la photo (une seule
+    personne, en pied) sert de point de départ au LoRA de sWizad, `force` = part redessinée (0,3 à 0,95). Renvoie
+    (message, aperçus, fichiers, dossier, sprite de face, couleurs utilisées, description utilisée)."""
     if style not in STYLES:
         raise gr.Error("Choisis un style.")
     feuilles = [CLES_FEUILLES[f] for f in (feuilles or []) if f in CLES_FEUILLES]
@@ -672,10 +722,13 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
         else:
             progress(0.1, desc="Sprites de face (SDXL + LoRA de sprites de dresseurs)…")
             variantes_face, prompt, description = _face_lora(style, copie, demande, couleurs, graine, n_var, dossier,
-                                                             progress, description)
+                                                             progress, description, depart=bool(depart and copie),
+                                                             force=force)
         resultats["face"] = variantes_face[0]
         infos["feuilles"]["face"] = {"mode": "lora", "prompt": prompt, "variantes": len(variantes_face),
                                      "modele": lora_face or "sWizad/pokemon-trainer-sprite-pixelart"}
+        if depart and copie and not lora_face:
+            infos["feuilles"]["face"].update(depart=True, force=float(force))
         references.append(resultats["face"])
     if dessiner:
         progress(0.1, desc="Sprite de face d'après la photo (FLUX.2 klein)…")

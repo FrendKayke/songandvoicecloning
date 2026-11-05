@@ -59,8 +59,8 @@ def faux_klein(env, monkeypatch, tmp_path):
             im.save(s)
 
     def sprite_dresseur(prompts, sorties, graines, largeur=1024, hauteur=1024, etapes=30, guidage=7.0, negatif=None,
-                        lora_echelle=1.0, progress=None):
-        appels.append({"prompt": prompts, "sorties": [str(s) for s in sorties], "graines": list(graines)})
+                        lora_echelle=1.0, progress=None, **options):
+        appels.append({"prompt": prompts, "sorties": [str(s) for s in sorties], "graines": list(graines), **options})
         for s, g in zip(sorties, graines):
             im = Image.new("RGB", (largeur, hauteur), (255, 255, 255))
             d = ImageDraw.Draw(im)
@@ -314,3 +314,48 @@ def test_une_teinte_par_zone_du_gabarit():
     lum = [dresseur._lum(n[c]) for c in (clair, moyen, ombre)]
     assert lum[0] > lum[1] > lum[2]  # ombrage du gabarit gardé
     assert np.abs(np.array(n[peau]) - (250, 215, 190)).sum() < 30
+
+
+def test_prompt_du_lora_cadrage_apres_le_sujet():
+    """Description en trois phrases : le cadrage et l'étiquette suivent la première phrase (première tranche de 75
+    jetons de CLIP), les détails viennent après ; une phrase seule donne l'ancienne forme."""
+    assert dresseur.prompt_lora("a young woman with long red hair", "gen3") == (
+        "a pixel image of a young woman with long red hair, gen3, full body, standing, simple background")
+    p = dresseur.prompt_lora("A young man with short blond hair. He wears a yellow jacket.  Black pants.", "gen5")
+    assert p == ("a pixel image of A young man with short blond hair, gen5, full body, standing, simple background. "
+                 "He wears a yellow jacket. Black pants")
+
+
+def test_photo_comme_point_de_depart(faux_klein, monkeypatch):
+    """« Partir de la photo » : la personne (détourée si BiRefNet est là) est posée en pied sur un carré blanc de
+    1024 px, envoyée à SDXL comme image de départ avec la part redessinée ; sans photo, rien ne change."""
+    appels, photo, tmp = faux_klein
+    detoures = []
+
+    def detourer_lot(entrees, sorties, progress=None, **k):
+        im = Image.open(entrees[0]).convert("RGBA")
+        a = np.array(im)
+        a[..., 3] = 0
+        a[40:380, 100:200, 3] = 255  # la personne : une bande verticale
+        Image.fromarray(a, "RGBA").save(sorties[0])
+        detoures.append(str(sorties[0]))
+
+    monkeypatch.setattr(diffusion, "present", lambda nom: nom == "photo_detourage")
+    monkeypatch.setattr(diffusion, "detourer_lot", detourer_lot)
+    *_, dossier, face, _, _ = dresseur.creer_kit(GBA, str(photo), "la personne", "hair: brown", [dresseur.FACE],
+                                                dresseur.LORA, None, None, None, 4, variantes=1,
+                                                description="a man", depart=True, force=0.6, progress=no_progress)
+    assert detoures and appels[-1]["force"] == 0.6
+    depart = Image.open(appels[-1]["image"])
+    assert depart.size == (1024, 1024) and Path(appels[-1]["image"]).parent == Path(dossier)
+    a = np.array(depart)
+    perso = (a != 255).any(-1)
+    ys, xs = np.where(perso)
+    assert ys.max() == 1024 - int(1024 * 0.06) - 1 and ys.min() > 40  # pieds en bas, marge
+    assert abs((xs.min() + xs.max()) / 2 - 512) < 4  # centré
+    assert "masque" not in appels[-1]
+    infos = json.loads((Path(dossier) / "kit.json").read_text(encoding="utf-8"))
+    assert infos["feuilles"]["face"]["depart"] is True and infos["feuilles"]["face"]["force"] == 0.6
+    dresseur.creer_kit(GBA, None, "un homme", "hair: brown", [dresseur.FACE], dresseur.LORA, None, None, None, 4,
+                       variantes=1, description="a man", depart=True, progress=no_progress)
+    assert "image" not in appels[-1]

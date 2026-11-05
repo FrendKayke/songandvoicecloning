@@ -45,7 +45,9 @@ STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
 SDXL = "stabilityai/stable-diffusion-xl-base-1.0"
 LORA_DRESSEUR = ("sWizad/pokemon-trainer-sprite-pixelart", "pk_trainer_xl_v1.safetensors")
 NEGATIF_SPRITE_SDXL = ("photo, realistic, 3d render, blurry, smooth shading, gradient, anti-aliasing, text, watermark, "
-                       "signature, frame, multiple characters, cropped, deformed hands")
+                       "signature, frame, multiple characters, two people, duplicate, speech bubble, scenery, cropped, "
+                       "deformed hands")
+CLIP_TRANCHE = 75  # jetons lus d'un coup par les encodeurs CLIP de SDXL (77 avec le début et la fin)
 WHISPER = "openai/whisper-large-v3-turbo"  # MIT, 1,6 Go : transcription et sous-titres (99 langues)
 # Z-Image-Turbo (Alibaba Tongyi-MAI, Apache 2.0) : encodeur de texte (Qwen3-4B), VAE et réglages depuis le dépôt
 # officiel ; le transformeur (6 milliards de paramètres, 24,6 Go en fp32 dans le dépôt officiel) depuis sa version
@@ -996,6 +998,48 @@ def _peft_requis():
 PAS_LENT_S = 5  # s par pas de SDXL au-delà desquelles la carte déborde sûrement dans la mémoire vive
 
 
+def _plongements_sdxl(pipe, prompt, negatif, device):
+    """Plongements de SDXL pour un prompt de longueur quelconque. `encode_prompt` de diffusers coupe à 77 jetons sans
+    prévenir (CLIP) : la description d'un personnage en deux ou trois phrases perdait sa fin et le cadrage (« full
+    body, standing, simple background »), d'où deux personnages, des objets et des décors (kit de dresseur de
+    l'utilisateur, 05/11). Comme Automatic1111 et compel : le texte est découpé en tranches de CLIP_TRANCHE jetons,
+    chacune encodée avec début et fin, et les tranches sont mises bout à bout (l'attention croisée de l'UNet accepte
+    toute longueur) ; prompt et négatif ont le même nombre de tranches (tranches vides ajoutées) ; plongement global
+    (pooled) de la première tranche. Un prompt qui tient en une tranche donne exactement le résultat de diffusers.
+    Renvoie (prompt_embeds, negative_prompt_embeds, pooled, negative_pooled) et le nombre de tranches."""
+    import torch
+
+    def tranches(tokenizer, texte):
+        ids = tokenizer(texte or "", add_special_tokens=False, truncation=False, verbose=False).input_ids
+        morceaux = [ids[i:i + CLIP_TRANCHE] for i in range(0, len(ids), CLIP_TRANCHE)] or [[]]
+        return morceaux
+
+    def tenseur(tokenizer, morceau):
+        ids = [tokenizer.bos_token_id] + list(morceau) + [tokenizer.eos_token_id]
+        ids += [tokenizer.pad_token_id] * (CLIP_TRANCHE + 2 - len(ids))
+        return torch.tensor([ids], device=device)
+
+    paires = [(pipe.tokenizer, pipe.text_encoder), (pipe.tokenizer_2, pipe.text_encoder_2)]
+    decoupes = {texte: [tranches(tok, texte) for tok, _ in paires] for texte in (prompt, negatif or "")}
+    n = max(len(m) for ms in decoupes.values() for m in ms)
+    sorties = {}
+    for texte, ms in decoupes.items():
+        par_encodeur, pooled = [], None
+        for (tok, enc), morceaux in zip(paires, ms):
+            morceaux = morceaux + [[]] * (n - len(morceaux))
+            caches = []
+            for k, morceau in enumerate(morceaux):
+                sortie = enc(tenseur(tok, morceau), output_hidden_states=True)
+                if k == 0:
+                    pooled = sortie[0]  # CLIPTextModelWithProjection du second encodeur : plongement global
+                caches.append(sortie.hidden_states[-2])
+            par_encodeur.append(torch.cat(caches, dim=1))
+        sorties[texte] = (torch.cat(par_encodeur, dim=-1), pooled)
+    (pe, ppe), (npe, nppe) = sorties[prompt], sorties[negatif or ""]
+    dtype = pipe.unet.dtype
+    return (pe.to(dtype), npe.to(dtype), ppe.to(dtype), nppe.to(dtype)), n
+
+
 def sprite_dresseur(chemin_tache):
     """Tâche : {prompt | prompts, negatif?, sorties, graines, largeur, hauteur, etapes, guidage, lora_echelle,
     image?, masque?, force?}. Avec image + masque : seule la zone blanche du masque est redessinée (repasse sur les
@@ -1050,8 +1094,10 @@ def sprite_dresseur(chemin_tache):
     plongements = {}
     with torch.no_grad():
         for p_ in dict.fromkeys(prompts):  # chaque prompt distinct encodé une fois, encodeurs sur la carte
-            plongements[p_] = pipe.encode_prompt(prompt=p_, negative_prompt=negatif, device=pipe._execution_device,
-                                                  do_classifier_free_guidance=True)
+            plongements[p_], n_tranches = _plongements_sdxl(pipe, p_, negatif, pipe._execution_device)
+            if n_tranches > 1:
+                print(f"Prompt lu en {n_tranches} tranches de {CLIP_TRANCHE} jetons (CLIP en lit 75 d'un coup).",
+                      flush=True)
     if device == "cuda":
         _sur_carte(pipe, "unet", "vae")
     retouche = {}
@@ -1063,8 +1109,10 @@ def sprite_dresseur(chemin_tache):
         appel = StableDiffusionXLInpaintPipeline.from_pipe(pipe)
         if device == "cuda":
             _sur_carte(appel, "unet", "vae")
-        retouche = {"image": Image.open(t["image"]).convert("RGB"),
-                    "mask_image": Image.open(t["masque"]).convert("L"), "strength": float(t.get("force", 0.85))}
+        image = Image.open(t["image"]).convert("RGB")
+        # sans masque : toute l'image est redessinée à `force` près (img2img : une photo comme point de départ)
+        masque = Image.open(t["masque"]).convert("L") if t.get("masque") else Image.new("L", image.size, 255)
+        retouche = {"image": image, "mask_image": masque, "strength": float(t.get("force", 0.85))}
     else:
         appel = pipe
     memoire = ""

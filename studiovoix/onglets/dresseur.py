@@ -30,7 +30,12 @@ def construire():
         "sa feuille d'animation au sprite de face. **Sans photo** : décris simplement le personnage (en français), "
         "puis « 📝 Préparer la description » : Qwen3-VL l'écrit en anglais pour le modèle de sprites ; modifie-la à ta "
         "guise (couleur d'un vêtement, coiffure, accessoire) avant de créer le kit, elle fait foi pour toutes les "
-        "feuilles.")
+        "feuilles. **Plus de contexte** : la description est lue en entier (par tranches de 75 mots-jetons, la "
+        "première phrase compte le plus : mets-y l'essentiel) ; avec une photo d'une seule personne en pied, "
+        "« Partir de la photo » donne aussi sa silhouette, sa pose et ses couleurs au modèle. Les taches et "
+        "mouchetures (SDXL dessine des dégradés, le jeu n'a que 15 couleurs) sont lissées par vote de majorité ; "
+        "pour des sprites vraiment nets dans ton style, entraîne un modèle sur tes sprites de face (onglet "
+        "« Entraîner un modèle de sprites »).")
     _style0 = next(iter(dresseur.STYLES))
     with gr.Row():
         kit_photo = gr.Image(type="filepath", label="Photo de la personne (facultative)", height=300)
@@ -61,6 +66,13 @@ def construire():
             kit_lora_marche = gr.Dropdown(_loras, value=_loras[1] if len(_loras) > 1 else dresseur.MARCHE_EXEMPLE,
                                           label="Feuille de marche : modèle entraîné (onglet « Entraîner un modèle "
                                                 "de sprites ») ou recoloriage d'un exemple")
+            with gr.Row():
+                kit_depart = gr.Checkbox(
+                    value=False, scale=2,
+                    label="Partir de la photo (LoRA de sWizad ; une seule personne, en pied) : sa silhouette, sa pose "
+                          "et ses couleurs guident le modèle, en plus de la description")
+                kit_force = gr.Slider(0.3, 0.95, value=dresseur.FORCE_PHOTO, step=0.05, scale=1,
+                                      label="Part redessinée (bas = plus proche de la photo, haut = plus « sprite »)")
             with gr.Row():
                 kit_variantes = gr.Slider(1, dresseur.VARIANTES_MAX, value=2, step=1,
                                           label="Variantes du sprite de face (modèle de sprites)")
@@ -108,9 +120,9 @@ def construire():
 
 
 def _kit(*args, progress=gr.Progress()):
-    *args, description = args
+    *args, description, depart, force = args
     msg, apercus, fichiers, dossier, sprite, couleurs, description = dresseur.creer_kit(
-        *args, description=description, progress=progress)
+        *args, description=description, depart=depart, force=force, progress=progress)
     return msg, apercus, fichiers, dossier, apercus, sprite, couleurs, description
 
 
@@ -137,7 +149,7 @@ def brancher(c, demo, o):
     c.btn_kit_couleurs.click(dresseur.lire_couleurs, [c.kit_photo, c.kit_demande, c.kit_description], c.kit_couleurs)
     c.btn_kit.click(_kit, [c.kit_style, c.kit_photo, c.kit_demande, c.kit_couleurs, c.kit_feuilles, c.kit_mode_face,
                            *listes, c.kit_graine, c.kit_nom, c.kit_variantes, c.kit_lora_marche, c.kit_lora_face,
-                           c.kit_description],
+                           c.kit_description, c.kit_depart, c.kit_force],
                     [c.px_statut, c.px_galerie, c.px_fichiers, c.px_dossier, c.px_apercus, o.pixel_animer.px_sprite,
                      c.kit_couleurs, c.kit_description]
                     ).then(lambda sprite: sprite, o.pixel_animer.px_sprite, o.yeux.ye_sprite)  # « Refaire les yeux »
