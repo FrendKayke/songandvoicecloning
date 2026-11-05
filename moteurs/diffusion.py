@@ -1084,6 +1084,8 @@ def sprite_dresseur(chemin_tache):
     # les encodeurs lisent les prompts puis repassent en mémoire vive, seuls l'UNet et le VAE restent sur la carte.
     pipe = _garder(("SDXL sprites", depot, t.get("lora"), device), charger, 8,
                    vers_cpu=(lambda p_: _sur_carte(p_)) if device == "cuda" else None)
+    if pipe.unet.dtype != dtype:  # pipeline gardée passée en float32 par un ancien from_pipe sans torch_dtype
+        pipe.to(dtype=dtype)
     pipe.set_adapters(["dresseur"], [float(t.get("lora_echelle", 1.0))])
     largeur, hauteur = int(t.get("largeur", 1024)), int(t.get("hauteur", 1024))
     sorties, graines = t["sorties"], [int(g) for g in t["graines"]]
@@ -1105,8 +1107,11 @@ def sprite_dresseur(chemin_tache):
         from diffusers import StableDiffusionXLInpaintPipeline
         from PIL import Image
 
-        # from_pipe : mêmes modules (UNet avec le LoRA, encodeurs, VAE), rien n'est rechargé ; même placement
-        appel = StableDiffusionXLInpaintPipeline.from_pipe(pipe)
+        # from_pipe : mêmes modules (UNet avec le LoRA, encodeurs, VAE), rien n'est rechargé ; même placement.
+        # torch_dtype OBLIGATOIRE : par défaut from_pipe fait new_pipeline.to(dtype=float32) (diffusers 0.39,
+        # pipeline_utils.py) sur les modules PARTAGÉS : l'UNet passait de 5 à 10 Go sur la carte, 0,0 Go libre et
+        # 50 s par pas en débordement dans la mémoire vive (journal de l'utilisateur du 05/11)
+        appel = StableDiffusionXLInpaintPipeline.from_pipe(pipe, torch_dtype=dtype)
         if device == "cuda":
             _sur_carte(appel, "unet", "vae")
         image = Image.open(t["image"]).convert("RGB")
