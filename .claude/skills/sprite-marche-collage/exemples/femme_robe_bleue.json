@@ -1,0 +1,50 @@
+{
+ "nom": "femme_robe_bleue",
+ "base": "D:/RPG Maker/Assets/sprites_dresseurs_dataset/datasets/6_marche_ds_bandes_dppt/images/Pt_npc_mom.png",
+ "photo": null,
+ "_note": "Femme enceinte : chignon bas brun très foncé, longue robe bleu pâle à manches courtes, pendentif doré. Base = mom de Platine (palette : 0 #000000 contour, 1-4 #292931 #394252 #396394 #6b8cce cheveux bleus ET bas, 5 #73737b, 6 #7b4242 / 11 #dea57b / 14 #ffd6bd peau, 7 #843939 / 9 #b56b8c barrette rouge et chaussures, 8 #a59cad / 10 #c6c6d6 / 12 #efefff haut blanc, 13 #ff94ad).",
+ "zones": {"corps": 21, "jambes": 26, "pieds": 28},
+ "rampes": {
+  "cheveux": ["#140e0e", "#221715", "#36231d", "#52372b", "#6e4c3a"],
+  "robe": ["#deeef8", "#b8d0e4", "#84a0c0"],
+  "peau": ["#ffe0ce", "#ecb496", "#b27066"],
+  "divers": ["#462820", "#ecbe3c", "#5c4038"]
+ },
+ "iris": {"base": "#396394", "blanc": ["#c6c6d6", "#efefff"], "y_min": 16, "cible": "divers:0"},
+ "couleurs": {
+  "tete": {
+   "#292931": "cheveux:0", "#394252": "cheveux:1", "#396394": "cheveux:2", "#6b8cce": "cheveux:3", "#73737b": "cheveux:4",
+   "#b56b8c": "cheveux:1", "#843939": "cheveux:1",
+   "#ffd6bd": "peau:0", "#dea57b": "peau:1", "#7b4242": "peau:2"
+  },
+  "corps": {
+   "#c6c6d6": "robe:1", "#a59cad": "robe:1", "#efefff": "robe:0", "#73737b": "robe:2", "#ff94ad": "robe:0",
+   "#b56b8c": "robe:1", "#843939": "robe:2",
+   "#292931": "robe:2", "#394252": "robe:2", "#396394": "robe:2", "#6b8cce": "robe:2",
+   "#ffd6bd": "peau:0", "#dea57b": "peau:1", "#7b4242": "peau:2"
+  },
+  "jambes": {
+   "#c6c6d6": "robe:1", "#a59cad": "robe:1", "#efefff": "robe:0", "#73737b": "robe:2", "#ff94ad": "robe:0",
+   "#b56b8c": "robe:1", "#843939": "robe:2",
+   "#292931": "robe:2", "#394252": "robe:2", "#396394": "robe:2", "#6b8cce": "robe:2",
+   "#ffd6bd": "robe:1", "#dea57b": "robe:2", "#7b4242": "robe:2"
+  },
+  "pieds": {
+   "#c6c6d6": "robe:1", "#a59cad": "robe:1", "#efefff": "robe:0", "#73737b": "robe:2", "#ff94ad": "robe:0",
+   "#b56b8c": "divers:2", "#843939": "robe:2",
+   "#292931": "robe:2", "#394252": "robe:2", "#396394": "robe:2", "#6b8cce": "robe:2",
+   "#ffd6bd": "robe:1", "#dea57b": "robe:2", "#7b4242": "robe:2"
+  }
+ },
+ "ajouts": [
+  {"_note": "chignon bas vu de dos", "sens": ["haut"], "y": 16, "x": 13,
+   "motif": [".0000.", "045330", "043320", "033220", ".0220.", "..00.."],
+   "legende": {"2": "cheveux:1", "3": "cheveux:2", "4": "cheveux:3", "5": "cheveux:4"}},
+  {"_note": "chignon bas de profil, collé à l'arrière de la tête", "sens": ["gauche", "droite"], "y": 17, "x": "arriere",
+   "lignes_tete": [15, 20], "dx": -1,
+   "motif": ["000.", "4320", "3220", "000."],
+   "legende": {"2": "cheveux:1", "3": "cheveux:2", "4": "cheveux:3"}},
+  {"_note": "pendentif doré", "sens": ["bas"], "y": 23, "x": 15, "motif": ["o"], "legende": {"o": "divers:1"}}
+ ],
+ "ventre": {"lignes": [24, 25], "couleur": "robe:1"}
+}
