@@ -32,6 +32,9 @@ FOND = (255, 0, 255)  # magenta : jamais dans un sprite, retiré sans erreur apr
 DECLENCHEUR = "pixelsheet"
 FACTEUR = 8  # pixels de l'image d'entraînement par pixel du jeu (64×96 → 512×768)
 REPETITIONS = 10  # passages par feuille et par époque (dossier « 10_pixelsheet » de kohya)
+# passages automatiques : ~800 images vues par époque (60 feuilles → 10, comme avant ; 1 079 sprites de face → 1 :
+# avec 10, un entraînement de 6 époques faisait 64 740 pas, bien plus qu'il n'en faut pour un style)
+CIBLE_PAR_EPOQUE = 800
 FEUILLES_MIN = 8
 LEGENDE = "{declencheur}, walking sprite sheet, {cols} by {rows} grid, {description}, on a magenta background"
 IMAGES = (".png", ".gif", ".webp", ".bmp", ".jpg", ".jpeg")  # lues par Pillow ; JPEG déconseillé (artefacts)
@@ -242,10 +245,50 @@ def _legende(image, progress, grille=(4, 4), type_=MARCHE):
 
 
 def _jeu(nom):
-    """Dossier des images d'entraînement d'un modèle (« 10_pixelsheet » ou « 10_pixelsprite »)."""
+    """Dossier des images d'entraînement d'un modèle (« 10_pixelsheet » ou « 10_pixelsprite » ; le nombre devant est
+    celui des passages par image, changé par `entrainer`)."""
     infos = infos_modele(nom)
-    declencheur = DECLENCHEUR_FACE if infos.get("type") == FACE else DECLENCHEUR
-    return dossier_lora(nom) / "jeu" / f"{REPETITIONS}_{infos.get('declencheur', declencheur)}"
+    declencheur = infos.get("declencheur", DECLENCHEUR_FACE if infos.get("type") == FACE else DECLENCHEUR)
+    existants = sorted(d for d in (dossier_lora(nom) / "jeu").glob(f"*_{declencheur}")
+                       if d.is_dir() and d.name.split("_", 1)[0].isdigit())
+    return existants[0] if existants else dossier_lora(nom) / "jeu" / f"{REPETITIONS}_{declencheur}"
+
+
+def repetitions_auto(n_images):
+    """Passages par image et par époque pour voir ~CIBLE_PAR_EPOQUE images par époque (1 à REPETITIONS)."""
+    return max(1, min(REPETITIONS, round(CIBLE_PAR_EPOQUE / max(1, n_images))))
+
+
+def versions(nom):
+    """Versions enregistrées d'un modèle : {"Époque N": fichier} des sauvegardes intermédiaires, puis « Finale »."""
+    nom = _slug(nom, "sprites")
+    v = {}
+    for f in sorted(dossier_lora(nom).glob(f"{nom}-[0-9][0-9][0-9][0-9][0-9][0-9].safetensors")):
+        v[f"Époque {int(f.stem.rsplit('-', 1)[1])}"] = f
+    finale = dossier_lora(nom) / f"{nom}-finale.safetensors"
+    if finale.is_file() or fichier_lora(nom).is_file():
+        v[FINALE] = finale if finale.is_file() else fichier_lora(nom)
+    return v
+
+
+FINALE = "Finale (dernière époque)"
+
+
+def utiliser_version(nom, version):
+    """Met la version choisie à la place du modèle utilisé par le kit (la finale est gardée à côté)."""
+    nom = _slug(nom, "sprites")
+    v = versions(nom)
+    if version not in v:
+        raise gr.Error(f"Version « {version} » introuvable pour « {nom} ».")
+    finale = dossier_lora(nom) / f"{nom}-finale.safetensors"
+    if not finale.is_file():
+        shutil.copy2(fichier_lora(nom), finale)
+    if v[version] != fichier_lora(nom):
+        shutil.copy2(v[version], fichier_lora(nom))
+    infos = infos_modele(nom)
+    infos["version"] = version
+    (dossier_lora(nom) / "modele.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
+    return f"✅ « {nom} » utilise maintenant la version « {version} » (kit de dresseur, Refaire les yeux)."
 
 
 # --- Guide et vérification des fichiers (affichés dans l'onglet) ----------------------------------------------
@@ -506,8 +549,10 @@ def preparer(feuilles, nom, style, legender=True, type_=MARCHE, progress=gr.Prog
 
 
 # --- Entraînement ----------------------------------------------------------------------------------------------
-def entrainer(nom, epoques=EPOQUES_DEFAUT, dim=DIM_DEFAUT, graine=0, progress=gr.Progress()):
-    """Lance kohya sd-scripts sur data/loras/<nom>/jeu. Renvoie (message, fichier du LoRA)."""
+def entrainer(nom, epoques=EPOQUES_DEFAUT, dim=DIM_DEFAUT, graine=0, repetitions=0, sauver_chaque=0,
+              progress=gr.Progress()):
+    """Lance kohya sd-scripts sur data/loras/<nom>/jeu. `repetitions` = passages par image et par époque (0 = auto),
+    `sauver_chaque` = une version gardée toutes les N époques (0 = finale seule). Renvoie (message, fichier du LoRA)."""
     nom = _slug(nom, "sprites")
     dossier = dossier_lora(nom)
     jeu = dossier / "jeu"
@@ -520,8 +565,17 @@ def entrainer(nom, epoques=EPOQUES_DEFAUT, dim=DIM_DEFAUT, graine=0, progress=gr
     if snapshot is None:
         raise gr.Error("SDXL incomplet (model_index.json absent) : retélécharge « SDXL + LoRA de sprites ».")
     infos = json.loads((dossier / "modele.json").read_text(encoding="utf-8"))
+    images = _jeu(nom)
+    n_images = len(list(images.glob("*.png")))
+    rep = int(repetitions or 0) or repetitions_auto(n_images)
+    voulu = images.with_name(f"{rep}_{images.name.split('_', 1)[1]}")
+    if voulu != images:  # kohya lit les passages dans le nom du dossier
+        images.rename(voulu)
+    for ancien in [*dossier.glob(f"{nom}-[0-9][0-9][0-9][0-9][0-9][0-9].safetensors"),
+                   dossier / f"{nom}-finale.safetensors"]:
+        ancien.unlink(missing_ok=True)
     tache = {"sdxl": str(snapshot), "jeu": str(jeu), "sortie": str(dossier), "nom": nom, "epoques": int(epoques),
-             "dim": int(dim), "graine": int(graine or 0) or 42}
+             "dim": int(dim), "graine": int(graine or 0) or 42, "sauver_chaque": int(sauver_chaque or 0)}
     tache["largeur"], tache["hauteur"] = taille_modele(infos)
     fichier = dossier / "tache_entrainement.json"
     fichier.write_text(json.dumps(tache, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -538,10 +592,16 @@ def entrainer(nom, epoques=EPOQUES_DEFAUT, dim=DIM_DEFAUT, graine=0, progress=gr
     lancer_moteur([cfg.ENTRAINEMENT_PYTHON, str(script()), "entrainer", str(fichier)], cfg.SDSCRIPTS_DIR, env,
                   "Entraînement", suivi, attendu=fichier_lora(nom),
                   annonce=lambda texte: progress(0.02, desc=f"Entraînement : {texte}"))
+    infos.pop("version", None)
     infos["entrainement"] = {"epoques": int(epoques), "dim": int(dim), "graine": tache["graine"],
-                             "duree_s": round(time.monotonic() - debut)}
+                             "repetitions": rep, "images": n_images, "pas": n_images * rep * int(epoques),
+                             "sauver_chaque": int(sauver_chaque or 0), "duree_s": round(time.monotonic() - debut)}
     (dossier / "modele.json").write_text(json.dumps(infos, ensure_ascii=False, indent=1), encoding="utf-8")
-    return (f"✅ Modèle « {nom} » entraîné en {(time.monotonic() - debut) / 60:.0f} min : `{fichier_lora(nom)}`. "
+    autres = [k for k in versions(nom) if k != FINALE]
+    return (f"✅ Modèle « {nom} » entraîné en {(time.monotonic() - debut) / 60:.0f} min ({n_images} images × {rep} "
+            f"passages × {int(epoques)} époques = {n_images * rep * int(epoques)} pas) : `{fichier_lora(nom)}`. "
+            + (f"Versions intermédiaires gardées : {', '.join(autres)} (liste « Version utilisée »). " if autres else "")
+            +
             "Il est maintenant proposé dans le kit de dresseur ("
             + ("sprite de face" if infos.get("type") == FACE else "feuille de marche") + ").", str(fichier_lora(nom)))
 

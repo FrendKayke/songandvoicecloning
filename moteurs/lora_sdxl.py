@@ -88,7 +88,7 @@ def arguments(t):
         "--cache_text_encoder_outputs_to_disk", "--gradient_checkpointing", "--sdpa",
         f"--seed={int(t.get('graine', 42))}", f"--tokenizer_cache_dir={dossier_tokeniseurs()}",
         "--max_data_loader_n_workers=0",
-    ]
+    ] + ([f"--save_every_n_epochs={int(t['sauver_chaque'])}"] if int(t.get("sauver_chaque") or 0) > 0 else [])
 
 
 def entrainer(chemin_tache):

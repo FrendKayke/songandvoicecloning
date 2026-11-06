@@ -26,8 +26,12 @@ FAUX_KOHYA = textwrap.dedent("""
     for i in (1, 2, 3):
         print(f"PROGRESSION {i}/3 entraînement", flush=True)
     s = Path(t["sortie"]) / (t["nom"] + ".safetensors")
+    passages = [d.name.split("_")[0] for d in Path(t["jeu"]).iterdir()]
+    k = int(t.get("sauver_chaque") or 0)
+    for e in range(k, t["epoques"], k) if k else []:
+        (Path(t["sortie"]) / f"{t['nom']}-{e:06d}.safetensors").write_bytes(f"lora epoque {e}".encode())
     s.write_bytes(b"lora " + json.dumps({"epoques": t["epoques"], "dim": t["dim"], "graine": t["graine"],
-                                          "taille": [t["largeur"], t["hauteur"]]}).encode())
+                                          "taille": [t["largeur"], t["hauteur"]], "passages": passages}).encode())
     print("RESULTAT " + json.dumps({"lora": str(s), "duree_s": 3}), flush=True)
     print("TERMINE " + str(s), flush=True)
 """)
@@ -116,7 +120,8 @@ def test_entrainement_puis_feuille_generee(faux_entrainement, monkeypatch):
     msg, fichier = modele_sprites.entrainer("marche_gba", epoques=6, dim=16, graine=7,
                                             progress=lambda p, desc="": etapes.append(desc))
     assert Path(fichier) == cfg.LORAS_DIR / "marche_gba" / "marche_gba.safetensors" and "entraîné" in msg
-    assert json.loads(Path(fichier).read_bytes()[5:]) == {"epoques": 6, "dim": 16, "graine": 7, "taille": [512, 768]}
+    assert json.loads(Path(fichier).read_bytes()[5:]) == {"epoques": 6, "dim": 16, "graine": 7, "taille": [512, 768],
+                                                    "passages": ["10"]}
     assert any("pas 2/3" in e for e in etapes)
     assert modele_sprites.loras() == {"marche_gba": Path(fichier)}
     infos = json.loads((cfg.LORAS_DIR / "marche_gba" / "modele.json").read_text(encoding="utf-8"))
@@ -322,3 +327,34 @@ def test_modele_de_sprites_de_face(faux_entrainement, tmp_path, monkeypatch):
     with pytest.raises(gr.Error, match="entraîné pour le style"):
         dresseur.creer_kit(DS, None, "x", "", [dresseur.FACE], dresseur.LORA, None, None, None, 5,
                            lora_face="face_gba", description="x", progress=no_progress)
+
+
+def test_passages_automatiques_et_versions_intermediaires(faux_entrainement, monkeypatch):
+    """1 000 sprites : 1 passage par époque (10 faisaient 64 740 pas en 6 époques) ; versions gardées toutes les
+    2 époques, l'une d'elles mise à la place du modèle puis la finale remise."""
+    assert modele_sprites.repetitions_auto(60) == 10 and modele_sprites.repetitions_auto(1079) == 1
+    assert modele_sprites.repetitions_auto(160) == 5
+    nom = "face_beaucoup"
+    jeu = cfg.LORAS_DIR / nom / "jeu" / f"{modele_sprites.REPETITIONS}_{modele_sprites.DECLENCHEUR_FACE}"
+    jeu.mkdir(parents=True)
+    for i in range(1, 1001):
+        (jeu / f"{i:04d}.png").write_bytes(b"png")
+    (cfg.LORAS_DIR / nom / "modele.json").write_text(json.dumps(
+        {"nom": nom, "type": "face", "toile": 80, "facteur": 12, "taille": [960, 960],
+         "declencheur": modele_sprites.DECLENCHEUR_FACE}), encoding="utf-8")
+    msg, fichier = modele_sprites.entrainer(nom, epoques=6, dim=16, sauver_chaque=2, progress=no_progress)
+    assert json.loads(Path(fichier).read_bytes()[5:])["passages"] == ["1"]
+    assert "1000 images × 1 passages × 6 époques = 6000 pas" in msg
+    assert modele_sprites._jeu(nom).name == f"1_{modele_sprites.DECLENCHEUR_FACE}"
+    v = modele_sprites.versions(nom)
+    assert list(v) == ["Époque 2", "Époque 4", modele_sprites.FINALE]
+    modele_sprites.utiliser_version(nom, "Époque 4")
+    assert Path(fichier).read_bytes() == b"lora epoque 4"
+    assert modele_sprites.infos_modele(nom)["version"] == "Époque 4"
+    modele_sprites.utiliser_version(nom, modele_sprites.FINALE)
+    assert Path(fichier).read_bytes().startswith(b"lora {")
+    # passages imposés : le dossier est renommé, les anciennes versions effacées
+    _, fichier = modele_sprites.entrainer(nom, epoques=4, dim=16, repetitions=3, progress=no_progress)
+    assert json.loads(Path(fichier).read_bytes()[5:])["passages"] == ["3"]
+    assert list(modele_sprites.versions(nom)) == [modele_sprites.FINALE]
+    assert modele_sprites.infos_modele(nom)["entrainement"]["pas"] == 12000

@@ -55,12 +55,23 @@ def construire():
     gr.Markdown("#### 3️⃣ Entraîner")
     with gr.Row():
         lo_epoques = gr.Slider(4, 30, value=modele_sprites.EPOQUES_DEFAUT, step=1, label="Époques",
-                               info="Passages sur toutes les feuilles (×10 répétitions). 12 ≈ 1 h pour 60 feuilles.")
+                               info="Tours complets sur toutes les images. 12 ≈ 1 h pour 60 feuilles.")
+        lo_repetitions = gr.Slider(0, 20, value=0, step=1, label="Passages par image et par époque",
+                                   info="0 = auto (~800 images vues par époque : 10 pour 60 feuilles, 1 pour "
+                                        "1 000 sprites). Pas total = images × passages × époques ; pour un style, "
+                                        "10 000 à 20 000 pas suffisent.")
+        lo_sauver = gr.Slider(0, 10, value=0, step=1, label="Garder une version toutes les N époques",
+                              info="0 = finale seule. Sinon, compare les versions et garde la meilleure "
+                                   "(trop entraîné = recopie les sprites d'origine).")
         lo_dim = gr.Slider(8, 64, value=modele_sprites.DIM_DEFAUT, step=8, label="Dimension du LoRA",
                            info="Plus grand = plus de détails appris, plus de mémoire.")
         lo_graine = gr.Number(value=0, precision=0, label="Graine (0 = 42)")
         btn_lo_entrainer = gr.Button("2️⃣ Entraîner (environ une heure)", variant="primary")
     lo_msg = gr.Markdown()
+    with gr.Row():
+        lo_version = gr.Dropdown([], label="Version utilisée", info="Versions gardées pendant l'entraînement")
+        btn_lo_version = gr.Button("✅ Utiliser cette version")
+    lo_version_msg = gr.Markdown()
     lo_fichier = gr.File(label="Modèle entraîné (LoRA SDXL, .safetensors)", interactive=False)
     gr.Markdown("#### 4️⃣ S'en servir : onglet 🎒 Kit de dresseur → liste « Feuille de marche » ou « Modèle du sprite "
                 "de face »")
@@ -98,6 +109,12 @@ def _nom_par_defaut(style, type_, nom):
     return nom
 
 
+def _liste_versions(nom):
+    v = list(modele_sprites.versions(nom)) if (nom or "").strip() else []
+    actuelle = modele_sprites.infos_modele(nom.strip()).get("version") if v else None
+    return gr.update(choices=v, value=actuelle if actuelle in v else (v[-1] if v else None))
+
+
 def brancher(c, demo, o):
     """Événements de l'onglet ; o donne accès aux composants des autres onglets."""
     for evt in (c.lo_style.change, c.lo_type.change):
@@ -109,10 +126,14 @@ def brancher(c, demo, o):
                             [c.lo_prep_msg, c.lo_legendes])
     c.btn_lo_legendes.click(modele_sprites.enregistrer_legendes, [c.lo_nom, c.lo_legendes], c.lo_leg_msg)
     c.btn_lo_relire.click(modele_sprites.legendes, c.lo_nom, c.lo_legendes)
-    c.btn_lo_entrainer.click(modele_sprites.entrainer, [c.lo_nom, c.lo_epoques, c.lo_dim, c.lo_graine],
+    c.btn_lo_entrainer.click(modele_sprites.entrainer, [c.lo_nom, c.lo_epoques, c.lo_dim, c.lo_graine,
+                                                        c.lo_repetitions, c.lo_sauver],
                              [c.lo_msg, c.lo_fichier]).then(etat_modeles, None, c.lo_liste).then(
+        _liste_versions, c.lo_nom, c.lo_version).then(
         dresseur.liste_loras_marche, None, o.dresseur.kit_lora_marche).then(
         dresseur.liste_loras_face, None, o.dresseur.kit_lora_face).then(
         conversion_marche.liste_modeles, None, o.marche_convertir.mc_modele)
+    c.lo_nom.change(_liste_versions, c.lo_nom, c.lo_version)
+    c.btn_lo_version.click(modele_sprites.utiliser_version, [c.lo_nom, c.lo_version], c.lo_version_msg)
     demo.load(modele_sprites.etat_prerequis, None, c.lo_prerequis)
     c.btn_lo_dossier.click(lambda: open_folder(modele_sprites.cfg.LORAS_DIR, create=True))

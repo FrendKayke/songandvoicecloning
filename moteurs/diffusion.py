@@ -573,9 +573,12 @@ CONSIGNES = {
     # légende d'entraînement d'un modèle de sprites de face (même forme que « feuille »)
     "sprite_face": ("The attached image is a pixel art battle sprite of one video game character, seen from the "
                     "front, full body. Describe that character for a training caption, " + LISTE_LEGENDE
-                    + "End with the pose. Answer with the list only, for example: a young woman, fair skin, long "
-                    "wavy red hair, white sun hat, light blue sleeveless dress, brown sandals, holding a ball, "
-                    "waving."),
+                    + "Look at THIS character: sprites show old men, children, muscular fighters, people sitting, "
+                    "kneeling or kicking, all skin tones; never assume a young woman standing. End with the pose. "
+                    "Answer with the list only, in the form of these examples (different characters, do not copy "
+                    "their words): 'elderly man, tan skin, white mustache, flat cap, brown vest over a white shirt, "
+                    "gray trousers, leaning on a cane' ; 'little girl, brown skin, two black puffs of hair, yellow "
+                    "raincoat, red boots, jumping'."),
     # kit de dresseur avec un modèle de feuilles entraîné : description courte de la personne, dans la forme des
     # légendes d'entraînement (« a man with brown hair, red cap, blue jacket »)
     "legende": ("The attached photo shows one or several people. Find the person designated in the request below and "
