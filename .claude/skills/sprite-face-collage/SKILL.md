@@ -12,7 +12,8 @@ longue). Quelques allers-retours suffisent.
 
 Données : `D:\RPG Maker\Assets\sprites_dresseurs_dataset\datasets\` — `3_face_ds_diamant_perle\images\` (273 sprites
 officiels `gen4__…Spr_DP_*` + fanmade, 80×80, ≤ 16 couleurs, alpha net : **à préférer**, même style que les bandes de
-marche Platine), `2_face_ds_noir_blanc` (Noir et Blanc, 80×80), `1_face_gba_rfvf` (GBA 64×64). Lancer les scripts avec
+marche Platine), `2_face_ds_noir_blanc` (Noir et Blanc / Noir 2 Blanc 2, 80×80 : 207 officiels `gen5__…Spr_BW_*` /
+`Spr_B2W2_*` + 872 fanmade ; plus de poses calmes, mains devant soi), `1_face_gba_rfvf` (GBA 64×64). Lancer les scripts avec
 le Python de l'application (`.venv/Scripts/python.exe`, numpy + Pillow).
 
 ## Démarche
@@ -26,8 +27,9 @@ le Python de l'application (`.venv/Scripts/python.exe`, numpy + Pillow).
    ```
    python scripts/inspecter.py planche <dossier> --filtre Spr_DP_ --noms Lady,Reporter,Beauty --sortie <scratchpad>/planche.png
    ```
-   Sans `--noms`, toute la liste (273 sprites, 35 lignes) : la lire par morceaux ou filtrer par classe (`Lady`,
-   `Lass`, `Beauty`, `Ace_Trainer`, `Hiker`, `Gentleman`, `School_Kid`…).
+   Sans `--noms`, toute la liste (273 sprites, 35 lignes) : la lire par morceaux ou filtrer par classe ; `--noms` compare la classe sans le jeu
+   (`Lady` prend `DP_Lady`, `BW_Lady` et `B2W2_Lady`), `--filtre gen5__` garde les officiels de Noir et Blanc. Classes (`Lady`,
+   `Lass`, `Beauty`, `Ace_Trainer`, `Hiker`, `Gentleman`, `School_Kid`, `Maid`, `Nurse`, `Socialite`…).
 3. **Lire sa palette** :
    ```
    python scripts/inspecter.py palette <sprite.png> --sortie <scratchpad>/palette/
@@ -37,7 +39,9 @@ le Python de l'application (`.venv/Scripts/python.exe`, numpy + Pillow).
    tous les 5 px. Pour un relevé exact (rectangles, ajouts), imprimer le sprite en texte (un caractère hexadécimal par
    couleur, `.` = transparent) avec quelques lignes de numpy : plus sûr que de lire les chiffres sur l'image.
 4. **Écrire la recette** JSON (format : `references/recette.md` ; exemple complet : `exemples/femme_robe_bleue.json`,
-   reporter → femme enceinte en robe bleu pâle) : zones par lignes (tête, haut, bas, jambes, pieds), rectangles pour
+   reporter → femme enceinte en robe bleu pâle ;
+   `exemples/femme_robe_bleue_noir_blanc.json` : la même d'après la Maid de Noir 2 / Blanc 2, coiffe changée en chignon,
+   Poké Ball tenue changée en mains jointes) : zones par lignes (tête, haut, bas, jambes, pieds), rectangles pour
    les cas particuliers (bouche, boucle d'oreille, objet à effacer, manches), rampes de couleurs (du plus clair au
    plus foncé, écarts de clarté proches de ceux de la base pour garder l'ombrage), correspondances, ajouts.
 5. **Lancer** :
@@ -53,6 +57,7 @@ le Python de l'application (`.venv/Scripts/python.exe`, numpy + Pillow).
    - trou ou bord ouvert après un effacement → `"contour_auto": true` referme la silhouette en noir ;
    - objet tenu effacé → recolorer en peau les pixels de la main qui le tenaient (rectangle « poing ») ;
    - bouche ouverte de la base (personnage qui parle) → rectangle « bouche » : rouge vif → peau, rouge foncé → lèvres ;
+   - ajout posé sur le bord de la silhouette : `contour_auto` le repeint en noir → le décaler d'un pixel vers l'intérieur ;
    - motif généré par script : un index négatif en Python pose le pixel à l'autre bout de la ligne.
 7. Envoyer l'aperçu à l'utilisateur (SendUserFile) et dire honnêtement les limites : pose et coiffure de la base,
    ventre ou silhouette particulière seulement suggérés.

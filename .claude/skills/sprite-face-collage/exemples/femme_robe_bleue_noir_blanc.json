@@ -1,0 +1,144 @@
+{
+ "nom": "femme_robe_bleue_nb",
+ "base": "D:/RPG Maker/Assets/sprites_dresseurs_dataset/datasets/2_face_ds_noir_blanc/images/gen5__bulbagarden__Spr_B2W2_Maid.png",
+ "photo": null,
+ "_note": "Même femme, style Noir 2 / Blanc 2. Base = Maid (0 #000000, 1 #314a4a / 2 #426b6b robe verte, 3 #4a3119 / 5 #734a42 / 8 #ad736b cheveux, 4 #4a4a52 / 6 #737b8c / 10 #bdbdbd / 13 #efefff coiffe, tablier, bas et chaussures, 7 #7b4a5a / 9 #bd7b63 / 12 #dea57b / 14 #ffd6bd peau, 11 #ce4242 Poké Ball tenue devant le ventre).",
+ "zones": {
+  "tete": 0,
+  "corps": 25,
+  "jambes": 70,
+  "pieds": 74
+ },
+ "rectangles": [
+  {
+   "nom": "col",
+   "x": [
+    27,
+    33
+   ],
+   "y": [
+    32,
+    35
+   ]
+  },
+  {
+   "nom": "balle",
+   "x": [
+    22,
+    32
+   ],
+   "y": [
+    36,
+    43
+   ]
+  }
+ ],
+ "contour_auto": true,
+ "rampes": {
+  "cheveux": [
+   "#1a1012",
+   "#2a1c17",
+   "#3a2820",
+   "#5a3e32"
+  ],
+  "robe": [
+   "#deeef8",
+   "#b8d0e4",
+   "#84a0c0",
+   "#5f7a9c"
+  ],
+  "peau": [
+   "#ffe0ce",
+   "#ecb496",
+   "#c88870",
+   "#8a5a62"
+  ],
+  "or": [
+   "#f4d470",
+   "#d8a830"
+  ],
+  "chaussures": [
+   "#c8a890",
+   "#8a6450",
+   "#5c4038",
+   "#3a2824"
+  ]
+ },
+ "couleurs": {
+  "*": {
+   "#ffd6bd": "peau:0",
+   "#dea57b": "peau:1",
+   "#bd7b63": "peau:2",
+   "#7b4a5a": "peau:3"
+  },
+  "tete": {
+   "#4a3119": "cheveux:0",
+   "#734a42": "cheveux:1",
+   "#ad736b": "cheveux:2",
+   "#efefff": "cheveux:2",
+   "#bdbdbd": "cheveux:1",
+   "#737b8c": "cheveux:1",
+   "#4a4a52": "cheveux:0"
+  },
+  "corps": {
+   "#efefff": "robe:0",
+   "#bdbdbd": "robe:1",
+   "#737b8c": "robe:2",
+   "#4a4a52": "robe:3",
+   "#426b6b": "robe:2",
+   "#314a4a": "robe:3"
+  },
+  "col": {
+   "#efefff": "peau:0",
+   "#bdbdbd": "peau:1",
+   "#737b8c": "peau:2"
+  },
+  "balle": {
+   "#ce4242": "peau:1",
+   "#efefff": "peau:0",
+   "#bdbdbd": "peau:1",
+   "#000000": "peau:3"
+  },
+  "jambes": {
+   "#4a4a52": "peau:3",
+   "#737b8c": "peau:2",
+   "#bdbdbd": "peau:1",
+   "#426b6b": "robe:2",
+   "#314a4a": "robe:3"
+  },
+  "pieds": {
+   "#4a4a52": "chaussures:2",
+   "#737b8c": "chaussures:1",
+   "#bdbdbd": "chaussures:0",
+   "#426b6b": "chaussures:1",
+   "#314a4a": "chaussures:3"
+  }
+ },
+ "ajouts": [
+  {
+   "_note": "boucle d'oreille dorée",
+   "x": 33,
+   "y": 23,
+   "motif": [
+    "o"
+   ],
+   "legende": {
+    "o": "or:0"
+   }
+  },
+  {
+   "_note": "chaîne et pendentif doré",
+   "x": 29,
+   "y": 33,
+   "motif": [
+    "c..",
+    ".c.",
+    "..o"
+   ],
+   "legende": {
+    "c": "or:1",
+    "o": "or:0"
+   }
+  }
+ ]
+}

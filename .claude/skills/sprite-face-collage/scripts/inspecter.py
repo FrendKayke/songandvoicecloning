@@ -20,8 +20,14 @@ from PIL import Image, ImageDraw
 
 
 def court(chemin):
+    """Nom affiché : jeu + classe (« BW_Lady », « DP_Reporter »)."""
     nom = os.path.splitext(os.path.basename(chemin))[0]
-    return re.sub(r"^.*?Spr_(DP_|Pt_|HGSS_)?", "", nom)
+    return re.sub(r"^.*?Spr_", "", nom)
+
+
+def classe(chemin):
+    """Classe sans le jeu (« Lady ») : comparée à --noms."""
+    return re.sub(r"^(DP|Pt|HGSS|BW|B2W2|BW2|E|FRLG|RS)_", "", court(chemin))
 
 
 def planche(chemins, sortie, k=3):
@@ -107,7 +113,7 @@ def main():
             fichiers = [f for f in fichiers if a.filtre in os.path.basename(f)]
         if a.noms:
             garder = {n.strip().lower() for n in a.noms.split(",")}
-            fichiers = [f for f in fichiers if court(f).lower() in garder]
+            fichiers = [f for f in fichiers if classe(f).lower() in garder]
         planche(fichiers, a.sortie)
     else:
         palette(a.chemins[0], a.sortie)
