@@ -67,7 +67,17 @@ RECOLORER = "Recolorer le sprite d'exemple (style exact, forme de l'exemple)"
 MARCHE_EXEMPLE = "— recolorer un sprite d'exemple —"
 FACE_SWIZAD = "— LoRA de dresseurs de sWizad (par défaut) —"
 DESSINER = "Dessiner avec FLUX.2 klein d'après la photo (style approché)"
-MODES_FACE = [LORA, RECOLORER, DESSINER]
+PIXEL = "Dessiner d'après la photo avec FLUX.2 klein + LoRA pixel art (ressemblance, visage lisible)"
+MODES_FACE = [LORA, PIXEL, RECOLORER, DESSINER]
+# Prompt du LoRA de Limbicnation (déclencheur « pixel art sprite … game asset ») ; fond blanc uni demandé : avec
+# « transparent background », klein peint un damier gris (essai du 06/11), que BiRefNet doit ensuite retirer.
+# « simple shapes, flat colors » : à 80 px, un personnage très détaillé (guerrier en armure) devenait illisible.
+# Pose imposée au début : la description « sprite » de Qwen (2 à 3 phrases) recopiait la pose de la photo (bébé
+# assis, regard de côté) et klein dessinait le personnage assis (essai du 06/11) : description courte de la
+# silhouette (`_description_marche`, consigne LISTE_LEGENDE, sans pose).
+PROMPT_PIXEL = ("pixel art sprite, 16-bit pixel art, the same person as in image 1 drawn as a full body game "
+                "character standing upright, facing the viewer, arms at the sides, feet apart, {description}, simple "
+                "shapes, flat colors, game asset, plain white background")
 VARIANTES_MAX = 6
 # Forme des légendes d'entraînement du LoRA (« a pixel image of a man with a pokeball », étiquette de génération :
 # gen3 = Rouge Feu / Vert Feuille et Émeraude, 164 images ; gen5 = Noir et Blanc, 6 images seulement)
@@ -539,6 +549,40 @@ def _face_dessinee(style, photo, demande, couleurs, graine, dossier, progress, d
     return np.array(sprite), prompt
 
 
+def _face_pixel(style, photo, demande, couleurs, graine, variantes, dossier, progress, description=None):
+    """Sprites de face d'après la photo : FLUX.2 klein (la photo en référence : la personne est reconnaissable)
+    + LoRA « pixel art sprite » de Limbicnation, BiRefNet, puis la toile, la hauteur et la palette du style.
+    Essayé sur la RTX 4070 le 06/11 (photo du bébé de l'utilisateur) : visage et yeux lisibles à 80 px, ce que SDXL
+    ne donnait pas. Renvoie (liste de tableaux, prompt, description)."""
+    st = STYLES[style]
+    if not diffusion.present("sprites_pixel"):
+        progress(0.05, desc="Téléchargement du LoRA pixel art (0,3 Go, une seule fois)…")
+        for _ in diffusion.download(["sprites_pixel"]):
+            pass
+        if not diffusion.present("sprites_pixel"):
+            raise gr.Error("Le LoRA pixel art (Limbicnation/pixel-art-lora) n'a pas pu être téléchargé : vérifie la "
+                           "connexion, ou télécharge-le dans Outils → Modèles.")
+    texte = description or _description_marche(photo, demande, couleurs, progress) or "the person"
+    description = texte.strip().rstrip(".")
+    prompt = PROMPT_PIXEL.format(description=description)
+    sources = [dossier / f"face_{i}_source.png" for i in range(1, variantes + 1)]
+    diffusion.personnage(prompt, [photo], sources, [graine + i for i in range(variantes)], 768, 1024,
+                         progress=progress, lora_pixel=True)
+    images = list(sources)
+    if diffusion.present("photo_detourage"):
+        detoures = [s.with_name(s.name.replace("_source", "_detoure")) for s in sources]
+        try:
+            diffusion.detourer_lot(sources, detoures, progress=progress)
+            images = [d if d.exists() else s for d, s in zip(detoures, sources)]
+        except gr.Error:
+            pass
+    sprites = []
+    for im in images:
+        sprite, _ = px.pixeliser(Image.open(im), st["hauteur"], st["couleurs"], st["toile"], px.CONTOUR_DEFAUT)
+        sprites.append(px.lisser(px.nettoyer(np.array(sprite))))
+    return sprites, prompt, description
+
+
 def _face_modele_entraine(style, photo, demande, couleurs, graine, variantes, dossier, progress, description,
                           lora_face):
     """Sprites de face avec un modèle entraîné sur les sprites de l'utilisateur (onglet « Entraîner un modèle de
@@ -659,7 +703,11 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
     photo = chemin_fichier(photo)
     description = (description or "").strip()
     dessiner = "face" in feuilles and mode_face == DESSINER
+    pixel = "face" in feuilles and mode_face == PIXEL
     lora = "face" in feuilles and mode_face == LORA
+    if pixel and not photo:
+        raise gr.Error("Pour dessiner le sprite de face d'après la photo, ajoute la photo (sans photo, choisis le "
+                       "modèle de sprites de dresseurs : une description suffit).")
     if dessiner and not photo:
         raise gr.Error("Pour dessiner le sprite de face avec FLUX.2 klein, ajoute la photo (sans photo, choisis le "
                        "modèle de sprites de dresseurs : une description suffit).")
@@ -677,7 +725,7 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
                        "sprites », ou choisis le recoloriage d'un exemple.")
     gabarits = {}
     for f in feuilles:
-        if f == "face" and (dessiner or lora):
+        if f == "face" and (dessiner or lora or pixel):
             continue
         if f == "marche" and lora_marche:
             continue
@@ -688,7 +736,7 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
         gabarits[f] = lire_gabarit(chemin, style, f)  # exemple d'un autre style : mis à la taille de celui-ci
     if lora or lora_marche:
         diffusion.verifier("sprites_dresseur")
-    if gabarits or dessiner:
+    if gabarits or dessiner or pixel:
         diffusion.verifier("personnages")
     dossier = nouveau_dossier(cfg.PIXEL_DIR, _slug(nom, "dresseur"))
     graine = int(graine or 0) or diffusion.graines(1)[0]
@@ -729,6 +777,15 @@ def creer_kit(style, photo, demande, couleurs, feuilles, mode_face, g_face, g_la
                                      "modele": lora_face or "sWizad/pokemon-trainer-sprite-pixelart"}
         if depart and copie and not lora_face:
             infos["feuilles"]["face"].update(depart=True, force=float(force))
+        references.append(resultats["face"])
+    if pixel:
+        n_var = max(1, min(VARIANTES_MAX, int(variantes or 1)))
+        progress(0.1, desc="Sprites de face d'après la photo (FLUX.2 klein + LoRA pixel art)…")
+        variantes_face, prompt, description = _face_pixel(style, copie, demande, couleurs, graine, n_var, dossier,
+                                                          progress, description)
+        resultats["face"] = variantes_face[0]
+        infos["feuilles"]["face"] = {"mode": "pixel", "prompt": prompt, "variantes": len(variantes_face),
+                                     "modele": "Limbicnation/pixel-art-lora"}
         references.append(resultats["face"])
     if dessiner:
         progress(0.1, desc="Sprite de face d'après la photo (FLUX.2 klein)…")

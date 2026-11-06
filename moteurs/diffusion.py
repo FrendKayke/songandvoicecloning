@@ -44,6 +44,9 @@ STABLE_AUDIO = "stabilityai/stable-audio-open-1.0"
 # (klein / Z-Image : illustration pixelisée, constaté chez l'utilisateur le 29/10).
 SDXL = "stabilityai/stable-diffusion-xl-base-1.0"
 LORA_DRESSEUR = ("sWizad/pokemon-trainer-sprite-pixelart", "pk_trainer_xl_v1.safetensors")
+# LoRA « pixel art sprite » pour FLUX.2 klein 4B (Limbicnation, Apache 2.0, données CC0, 0,3 Go) : sprites de
+# personnages d'après une photo (kit de dresseur), essayé sur la RTX 4070 le 06/11
+LORA_PIXEL = ("Limbicnation/pixel-art-lora", "pytorch_lora_weights.safetensors")
 NEGATIF_SPRITE_SDXL = ("photo, realistic, 3d render, blurry, smooth shading, gradient, anti-aliasing, text, watermark, "
                        "signature, frame, multiple characters, two people, duplicate, speech bubble, scenery, cropped, "
                        "deformed hands")
@@ -148,6 +151,7 @@ MODELES = {
     # l'encodeur de texte et le tokeniseur viennent de Z-Image (« zimage » doit être présent aussi)
     "personnages": [(KLEIN, ["model_index.json", "scheduler/*", "vae/*", "transformer/config.json"]),
                     (KLEIN_GGUF[0], [KLEIN_GGUF[1]])],
+    "sprites_pixel": [(LORA_PIXEL[0], [LORA_PIXEL[1]])],
     "video": [(WAN, ["model_index.json", "scheduler/*", "text_encoder/*", "tokenizer/*", "vae/*",
                      "transformer/config.json"]),
               (WAN_GGUF[0], [WAN_GGUF[1]])],
@@ -1221,6 +1225,8 @@ def personnage(chemin_tache):
 
     pipe = _garder(("FLUX.2 klein", depot, depot_encodeur, t.get("gguf"), sans_encodeur, device), charger, 13,
                    vers_cpu=lambda p_: _sur_carte(p_))
+    lora = t.get("lora") or (hf_hub_download(*LORA_PIXEL) if t.get("lora_pixel") else None)
+    _lora_klein(pipe, lora, float(t.get("lora_echelle", 1.0)))
     prompts = _prompts(t)
     if sans_encodeur:  # 3 couches cachées de l'encodeur mises bout à bout
         plongements = {p_: torch.randn(1, 24, pipe.transformer.config.joint_attention_dim, dtype=dtype)
@@ -1235,6 +1241,28 @@ def personnage(chemin_tache):
     print(f"{len(references)} image(s) de référence du personnage.", flush=True)
     _generer(pipe, t, {"image": references, "guidance_scale": 1.0}, etapes=4,
              plongements=[plongements[p_] for p_ in _prompts(t, tous=True)])
+
+
+def _lora_klein(pipe, lora, echelle):
+    """LoRA facultatif sur FLUX.2 klein (style pixel art…) : chargé une fois par fichier (adaptateur nommé d'après
+    son chemin), activé pour la tâche qui le demande, désactivé pour les autres (la pipeline est gardée en cache).
+    Chargé par son contenu, comme pour SDXL (diffusers refuse un chemin en mode hors ligne)."""
+    import hashlib
+
+    deja = [n for noms in pipe.get_list_adapters().values() for n in noms] if hasattr(pipe, "get_list_adapters") else []
+    if not lora:
+        if deja:
+            pipe.disable_lora()
+        return
+    _peft_requis()
+    nom = "lora_" + hashlib.sha1(str(lora).encode("utf-8")).hexdigest()[:10]
+    if nom not in deja:
+        from safetensors.torch import load_file
+
+        pipe.load_lora_weights(load_file(str(lora)), adapter_name=nom)
+        print(f"LoRA chargé : {Path(lora).name}", flush=True)
+    pipe.enable_lora()
+    pipe.set_adapters([nom], [echelle])
 
 
 # --- Wan 2.2 : vidéo à partir d'un texte ou d'une image ----------------------------------------------------

@@ -42,8 +42,9 @@ NOUVELLES = {PEAU: (250, 220, 200), CHEVEUX: (230, 200, 60), CHEVEUX_OMBRE: (190
 def faux_klein(env, monkeypatch, tmp_path):
     appels = []
 
-    def personnage(prompt, references, sorties, graines, largeur, hauteur, progress=None):
-        appels.append({"prompt": prompt, "references": [str(r) for r in references], "taille": (largeur, hauteur)})
+    def personnage(prompt, references, sorties, graines, largeur, hauteur, progress=None, **options):
+        appels.append({"prompt": prompt, "references": [str(r) for r in references], "taille": (largeur, hauteur),
+                       "graines": list(graines), **options})
         if "Recolor" not in prompt:  # sprite de face dessiné d'après la photo
             im = Image.new("RGB", (largeur, hauteur), (255, 255, 255))
             d = ImageDraw.Draw(im)
@@ -359,3 +360,31 @@ def test_photo_comme_point_de_depart(faux_klein, monkeypatch):
     dresseur.creer_kit(GBA, None, "un homme", "hair: brown", [dresseur.FACE], dresseur.LORA, None, None, None, 4,
                        variantes=1, description="a man", depart=True, progress=no_progress)
     assert "image" not in appels[-1]
+
+
+def test_face_klein_lora_pixel(faux_klein, monkeypatch):
+    """Mode « klein + LoRA pixel art » : la photo en référence, le LoRA demandé, une image par variante, le LoRA
+    téléchargé s'il manque ; sprites à la toile du style."""
+    appels, photo, tmp = faux_klein
+    with pytest.raises(gr.Error, match="ajoute la photo"):
+        dresseur.creer_kit(DS, None, "une femme", "", [dresseur.FACE], dresseur.PIXEL, None, None, None, 1,
+                           progress=no_progress)
+    presents = {"qwen"}
+    telecharges = []
+    monkeypatch.setattr(diffusion, "present", lambda nom: nom in presents)
+    monkeypatch.setattr(diffusion, "download", lambda noms: telecharges.extend(noms) or presents.update(noms) or
+                        iter(["ok"]))
+    monkeypatch.setattr(diffusion, "decrire", lambda mode, texte, image=None, progress=None:
+                        "a toddler boy, short light brown hair, red jacket.")
+    msg, _, _, dossier, face, _, description = dresseur.creer_kit(
+        DS, str(photo), "", "", [dresseur.FACE], dresseur.PIXEL, None, None, None, 7, variantes=3,
+        progress=no_progress)
+    assert telecharges == ["sprites_pixel"]
+    assert len(appels) == 1 and appels[0]["lora_pixel"] is True and appels[0]["graines"] == [7, 8, 9]
+    assert appels[0]["references"][0].endswith("photo.jpg") and appels[0]["taille"] == (768, 1024)
+    assert appels[0]["prompt"].startswith("pixel art sprite, 16-bit pixel art, the same person as in image 1")
+    assert "a toddler boy, short light brown hair, red jacket" in appels[0]["prompt"]
+    assert description == "a toddler boy, short light brown hair, red jacket"
+    assert Image.open(face).size == (80, 80)
+    infos = json.loads((Path(dossier) / "kit.json").read_text(encoding="utf-8"))
+    assert infos["feuilles"]["face"]["mode"] == "pixel" and infos["feuilles"]["face"]["variantes"] == 3

@@ -43,6 +43,9 @@ MODELES = {
                ["text_encoder/model-00001-of-00003.safetensors", "vae/diffusion_pytorch_model.safetensors",
                 ("unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q8_0.gguf")]),
     # encodeur de texte et tokeniseur repris de Z-Image (identiques) : « zimage » est aussi nécessaire
+    # LoRA « pixel art sprite » pour klein (Limbicnation, Apache 2.0, 0,3 Go) : sprites d'après une photo (kit)
+    "sprites_pixel": ("Limbicnation/pixel-art-lora", "LoRA pixel art pour FLUX.2 klein (sprites d'après une photo)",
+                      ["pytorch_lora_weights.safetensors"]),
     "personnages": ("black-forest-labs/FLUX.2-klein-4B", "FLUX.2 klein 4B (personnages récurrents)",
                     ["vae/diffusion_pytorch_model.safetensors", "transformer/config.json",
                      ("unsloth/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf")]),
@@ -286,15 +289,17 @@ def image(prompt, sorties, graines_, largeur=1024, hauteur=1024, etapes=9, progr
                   {1: "chargement de Z-Image-Turbo", 2: f"génération de {len(sorties)} image(s)"})
 
 
-def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024, etapes=4, progress=None):
+def personnage(prompt, references, sorties, graines_, largeur=1024, hauteur=1024, etapes=4, progress=None,
+               lora_pixel=False, lora_echelle=1.0):
     """FLUX.2 klein 4B : images du personnage des `references` (1 à 4 images) dans la scène du prompt (un texte, ou
-    une liste d'un texte par image)."""
+    une liste d'un texte par image). lora_pixel : LoRA « pixel art sprite » (Limbicnation) en plus."""
     _verifier("zimage", "personnages")
     sorties = [str(s) for s in sorties]
     return lancer("personnage", {**_prompts(prompt, sorties), "references": [str(r) for r in references],
                                  "sorties": sorties,
                                  "graines": [int(g) for g in graines_], "largeur": int(largeur),
-                                 "hauteur": int(hauteur), "etapes": int(etapes)},
+                                 "hauteur": int(hauteur), "etapes": int(etapes),
+                                 **({"lora_pixel": True, "lora_echelle": float(lora_echelle)} if lora_pixel else {})},
                   Path(sorties[0]).parent, "FLUX.2 klein", progress,
                   {1: "chargement de FLUX.2 klein", 2: f"génération de {len(sorties)} image(s) du personnage"})
 

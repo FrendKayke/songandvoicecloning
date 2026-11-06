@@ -473,7 +473,7 @@ try {
     Step 17 'Modèles de diffusion (~100 Go)'
     $m = Join-Path $Dif '.modeles-ok'
     # Modèles téléchargés d'office (Stable Audio à part : il demande un jeton).
-    $ModelesDif = @(@('qwen', 'forme3d', 'forme3d_vues', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'transcription', 'fluidite', 'parlante', 'sprites_dresseur', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
+    $ModelesDif = @(@('qwen', 'forme3d', 'forme3d_vues', 'texture3d', 'zimage', 'personnages', 'photo_detourage', 'photo_qualite', 'video', 'transcription', 'fluidite', 'parlante', 'sprites_dresseur', 'sprites_pixel', 'detourage') | Where-Object { -not (Test-Retire "diffusion:$_") })
     # Modèles facultatifs : choisis dans l'onglet Modèles (fichier écrit par l'application) ou acceptés ici une fois
     # (réponse gardée dans diffusion\facultatifs.txt : la question n'est pas reposée à chaque mise à jour)
     $Facultatifs = [ordered]@{ 'qwen_libre' = 'Qwen3-VL sans refus (assistant de prompts sans refus, 8,9 Go)' }

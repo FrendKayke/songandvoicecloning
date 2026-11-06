@@ -91,7 +91,7 @@ def brancher(c, demo, o):
         models_status_md, None, c.status)
     for b, fn in ((c.b_ace, acestep.download), (c.b_sv, seedvc.download), (c.b_dm, demucs.download),
                   (c.b_cb, chatterbox.download), (c.b_nt, nettoyage.download), (c.b_rvc, rvc.download),
-                  (c.b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "zimage", "personnages", "photo_detourage", "photo_qualite"])),
+                  (c.b_dif, lambda: diffusion.download(["qwen", "forme3d", "texture3d", "zimage", "personnages", "sprites_pixel", "photo_detourage", "photo_qualite"])),
                   (c.b_vid, lambda: diffusion.download(["video"])),
                   (c.b_qwen_libre, lambda: diffusion.download(["qwen_libre"])),
                   (c.b_spr, lambda: diffusion.download(["sprites_dresseur"])),
