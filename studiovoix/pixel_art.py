@@ -464,6 +464,55 @@ def _transparent(im):
     return im.convert("RGBA").getchannel("A").getextrema()[0] < 128
 
 
+# Pixel Art Fixer (Retro Diffusion, MIT, copié dans studiovoix/pixelfixer) : retrouve la grille d'une image qui
+# imite le pixel art (ChatGPT, Gemini, sprite agrandi d'un facteur non entier, JPEG…) et refait un vrai pixel par
+# case. Notre `reduire` ne reconnaît que les agrandissements entiers sans flou. Sur 4 Mpx au plus (limite de l'outil).
+FIXER_PIXELS_MAX = 4_000_000
+PAS_MIN_FIXER = 1.5  # grille trouvée plus fine : l'image est déjà à ses vrais pixels
+
+
+def retrouver_pixels(im):
+    """Image qui imite le pixel art → (image RGBA à ses vrais pixels, infos {pas, colonnes, lignes, confiance}).
+    Transparence franche (majorité de chaque case, puis 0 ou 255). Image déjà à ses vrais pixels : rendue telle
+    quelle (pas = 1)."""
+    from .pixelfixer.api import process
+
+    im = im.convert("RGBA")
+    reduction = 1.0
+    if im.width * im.height > FIXER_PIXELS_MAX:
+        reduction = math.sqrt(FIXER_PIXELS_MAX / (im.width * im.height)) * 0.99
+        im = im.resize((max(16, int(im.width * reduction)), max(16, int(im.height * reduction))),
+                       Image.Resampling.BOX)
+    if min(im.size) < 16:
+        return im, {"pas": 1.0, "colonnes": im.width, "lignes": im.height, "confiance": "high"}
+    r = process(np.array(im), return_png=False)
+    pas = (r["step_x"] + r["step_y"]) / 2 / reduction
+    if pas < PAS_MIN_FIXER:
+        return im, {"pas": 1.0, "colonnes": im.width, "lignes": im.height, "confiance": r["confidence"]}
+    a = np.array(r["array"], np.uint8)
+    a[..., 3] = np.where(a[..., 3] >= 128, 255, 0)
+    return Image.fromarray(a, "RGBA"), {"pas": round(pas, 2), "colonnes": r["cols"], "lignes": r["rows"],
+                                        "confiance": r["confidence"]}
+
+
+def pixeliser_vrais_pixels(petit, hauteur, couleurs, toile, contour):
+    """Sprite d'une image déjà à ses vrais pixels (`retrouver_pixels`) : si le sujet tient dans la toile du style
+    (pas plus haut que `hauteur`), ses pixels sont gardés tels quels, posés en bas au centre sur des positions
+    entières (aucun rééchantillonnage) ; sinon il est réduit à `hauteur` depuis ces pixels nets."""
+    im = petit.convert("RGBA")
+    if np.array(im)[..., 3].min() == 255:
+        im = _sans_fond_uni(im)
+    opaque = np.array(im)[..., 3] >= 128
+    if not opaque.any():
+        raise gr.Error("L'image est vide (rien d'opaque).")
+    lignes, colonnes = np.where(opaque)
+    h, w = lignes.max() + 1 - lignes.min(), colonnes.max() + 1 - colonnes.min()
+    if h <= hauteur and w <= toile:
+        cadre = (float(colonnes.min() - (toile - w) // 2), float(lignes.max() + 1 - toile), 1.0)
+        return pixeliser(im, h, couleurs, toile, contour, cadre=cadre)
+    return pixeliser(im, hauteur, couleurs, toile, contour)
+
+
 def _detourer(source, dossier, progress):
     """Fond retiré par BiRefNet si le modèle est là, sinon fond uni retiré par `pixeliser`."""
     if not diffusion.present("photo_detourage"):
@@ -474,14 +523,17 @@ def _detourer(source, dossier, progress):
 
 
 def convertir(images, exemples, hauteur, couleurs, toile, agrandissement, contour, detourer, nom="pixel_art",
-              progress=gr.Progress()):
-    """Chaque image → sprite (taille d'origine et agrandi). Renvoie (message, aperçus, fichiers, dossier)."""
+              deja_pixel=False, progress=gr.Progress()):
+    """Chaque image → sprite (taille d'origine et agrandi). deja_pixel : l'image imite déjà le pixel art (faite par
+    une autre IA, agrandie d'un facteur non entier…) : ses vrais pixels sont d'abord retrouvés (Pixel Art Fixer,
+    `<nom>_pixels.png`), puis gardés tels quels s'ils tiennent dans la toile. Renvoie (message, aperçus, fichiers,
+    dossier)."""
     images = [chemin_fichier(i) for i in (images or [])]
     if not images:
         raise gr.Error("Ajoute une ou plusieurs images à convertir.")
     style = _style(exemples, hauteur, couleurs, toile, agrandissement, contour)
     dossier = nouveau_dossier(cfg.PIXEL_DIR, _slug(nom, "pixel_art"))
-    apercus, fichiers, erreurs = [], [], []
+    apercus, fichiers, erreurs, grilles = [], [], [], []
     for n, source in enumerate(images, 1):
         progress((n - 1) / len(images), desc=f"Image {n}/{len(images)}…")
         base = _slug(Path(source).stem, f"image_{n}")
@@ -493,7 +545,17 @@ def convertir(images, exemples, hauteur, couleurs, toile, agrandissement, contou
                 copie = dossier / f"{base}_source.png"
                 im.save(copie)
                 im = _detourer(copie, dossier, progress)
-            sprite, _ = pixeliser(im, style["hauteur"], style["couleurs"], style["toile"], style["contour"])
+            if deja_pixel:
+                progress((n - 0.5) / len(images), desc=f"Image {n}/{len(images)} : grille des pixels…")
+                petit, infos = retrouver_pixels(im)
+                petit.save(dossier / f"{base}_pixels.png")
+                fichiers.append(str(dossier / f"{base}_pixels.png"))
+                grilles.append(f"{Path(source).name} : pixels de {infos['pas']:g} px → {petit.width}×{petit.height}"
+                               + (" (grille incertaine)" if infos["confiance"] == "low" else ""))
+                sprite, _ = pixeliser_vrais_pixels(petit, style["hauteur"], style["couleurs"], style["toile"],
+                                                   style["contour"])
+            else:
+                sprite, _ = pixeliser(im, style["hauteur"], style["couleurs"], style["toile"], style["contour"])
         except (OSError, ValueError) as e:
             erreurs.append(f"{Path(source).name} : {e}")
             continue
@@ -507,6 +569,8 @@ def convertir(images, exemples, hauteur, couleurs, toile, agrandissement, contou
     if not apercus:
         raise gr.Error("Aucune image convertie : " + " ; ".join(erreurs))
     msg = f"✅ {len(apercus)} sprite(s) : {resume_style({**style, 'contour': style['contour'] or (0, 0, 0)})} Dossier : {dossier}"
+    if grilles:
+        msg += "\n\nVrais pixels retrouvés (fichiers `_pixels.png`) : " + " ; ".join(grilles)
     if erreurs:
         msg += "\n\n⚠️ " + " ; ".join(erreurs)
     return msg, apercus, fichiers, str(dossier)

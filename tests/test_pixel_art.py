@@ -431,3 +431,30 @@ def test_lissage_par_majorite():
     assert all(tuple(l_[y, x, :3]) == (230, 200, 40) for y, x in ((3, 3), (3, 5), (5, 4), (4, 6), (6, 3), (6, 5)))
     assert tuple(l_[8, 4, :3]) == (20, 20, 30) and tuple(l_[8, 5, :3]) == (255, 255, 255)
     assert tuple(l_[1, 1, :3]) == (240, 220, 90) and (l_[..., 3] == s[..., 3]).all()
+
+
+def test_vrais_pixels_d_une_image_agrandie_d_un_facteur_non_entier(env, tmp_path):
+    """Pixel Art Fixer : un sprite de 24×32 agrandi ×6,4 (non entier) et flouté retrouve ses vrais pixels, gardés
+    tels quels dans la toile (pas de rééchantillonnage)."""
+    from PIL import ImageFilter
+
+    rng = np.random.default_rng(3)
+    petit = np.zeros((32, 24, 4), np.uint8)
+    couleurs = np.array([[200, 40, 40], [40, 160, 60], [240, 200, 160], [30, 30, 30]], np.uint8)
+    petit[2:31, 3:21, :3] = couleurs[rng.integers(0, 4, (29, 18))]
+    petit[2:31, 3:21, 3] = 255
+    grand = Image.fromarray(petit, "RGBA").resize((154, 205), Image.Resampling.NEAREST)
+    fond = Image.new("RGBA", grand.size, (255, 255, 255, 255))
+    fond.alpha_composite(grand)
+    source = tmp_path / "chatgpt.png"
+    fond.convert("RGB").filter(ImageFilter.GaussianBlur(0.6)).save(source)
+    retrouve, infos = pixel_art.retrouver_pixels(Image.open(source))
+    assert abs(infos["pas"] - 6.4) < 0.3 and retrouve.size == (24, 32)
+    a = np.array(retrouve)[2:31, 3:21, :3].astype(int)
+    assert (np.abs(a - petit[2:31, 3:21, :3]).max(axis=-1) < 40).mean() > 0.9
+    msg, apercus, fichiers, dossier = pixel_art.convertir([str(source)], None, 60, 16, 64, 2, False, False,
+                                                          deja_pixel=True, progress=lambda *a, **k: None)
+    assert "→ 24×32" in msg
+    sprite = np.array(Image.open(Path(dossier) / "chatgpt.png"))
+    lignes = np.where(sprite[..., 3] > 0)[0]
+    assert lignes.max() - lignes.min() + 1 == 29  # le personnage garde sa taille : pas de rééchantillonnage

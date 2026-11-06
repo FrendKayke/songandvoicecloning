@@ -1,0 +1,3 @@
+Pixel Art Fixer (Retro Diffusion, MIT) : https://github.com/Retro-Diffusion/pixel-art-fixer
+Copie du paquet Python python/pixelfixer au commit ef376e5 (cli.py retiré), sans modification.
+Dépendances : numpy, scipy, opencv (opencv-python-headless, déjà installé avec onnxtr), Pillow.
