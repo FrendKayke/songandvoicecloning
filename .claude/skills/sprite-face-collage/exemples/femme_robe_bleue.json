@@ -1,0 +1,240 @@
+{
+ "nom": "femme_robe_bleue",
+ "base": "D:/RPG Maker/Assets/sprites_dresseurs_dataset/datasets/3_face_ds_diamant_perle/images/gen4__bulbagarden__Spr_DP_Reporter.png",
+ "photo": null,
+ "_note": "Femme enceinte : cheveux brun très foncé tirés en arrière, robe bleu pâle à manches papillon, pendentif et boucles d'oreilles dorés. Base = Reporter de Diamant / Perle (0 #000000 contour, 2 #394a4a / 3 #397373 cheveux ET chaussures, 4 #5a5a62 / 6 #8b8b94 haut, 11 #eeeeff / 9 #bdbdc5 / 1 #313141 jupe, 13 #ffd5bd / 10 #dea47b / 8 #bd7b62 / 5 #7b4a5a peau, 12 #ff6239 / 7 #b44a41 micro, boucle d'oreille et bouche).",
+ "zones": {
+  "tete": 0,
+  "haut": 30,
+  "jupe": 46,
+  "jambes": 63,
+  "pieds": 74
+ },
+ "rectangles": [
+  {
+   "nom": "boucle",
+   "x": [
+    35,
+    38
+   ],
+   "y": [
+    24,
+    27
+   ]
+  },
+  {
+   "nom": "micro",
+   "x": [
+    49,
+    57
+   ],
+   "y": [
+    26,
+    29
+   ]
+  },
+  {
+   "nom": "poing",
+   "x": [
+    51,
+    56
+   ],
+   "y": [
+    30,
+    32
+   ]
+  },
+  {
+   "nom": "manche",
+   "x": [
+    34,
+    38
+   ],
+   "y": [
+    31,
+    36
+   ]
+  },
+  {
+   "nom": "manche",
+   "x": [
+    45,
+    49
+   ],
+   "y": [
+    32,
+    38
+   ]
+  },
+  {
+   "nom": "bouche",
+   "x": [
+    39,
+    44
+   ],
+   "y": [
+    25,
+    28
+   ]
+  },
+  {
+   "nom": "genou",
+   "x": [
+    35,
+    40
+   ],
+   "y": [
+    59,
+    62
+   ]
+  }
+ ],
+ "contour_auto": true,
+ "rampes": {
+  "cheveux": [
+   "#24181a",
+   "#3c2820",
+   "#5a3c2e"
+  ],
+  "robe": [
+   "#deeef8",
+   "#b8d0e4",
+   "#84a0c0",
+   "#5f7a9c"
+  ],
+  "peau": [
+   "#ffe0ce",
+   "#ecb496",
+   "#c88870",
+   "#8a5a62"
+  ],
+  "or": [
+   "#f4d470",
+   "#d8a830",
+   "#9c7020"
+  ],
+  "chaussures": [
+   "#c8a890",
+   "#8a6450",
+   "#5c4038",
+   "#3a2824"
+  ]
+ },
+ "couleurs": {
+  "*": {
+   "#ffd5bd": "peau:0",
+   "#dea47b": "peau:1",
+   "#bd7b62": "peau:2",
+   "#7b4a5a": "peau:3"
+  },
+  "tete": {
+   "#394a4a": "cheveux:0",
+   "#397373": "cheveux:1"
+  },
+  "boucle": {
+   "#ff6239": "or:0",
+   "#b44a41": "or:1",
+   "#394a4a": "cheveux:0",
+   "#397373": "cheveux:1"
+  },
+  "micro": {
+   "#000000": "transparent",
+   "#313141": "transparent",
+   "#ff6239": "transparent",
+   "#b44a41": "transparent",
+   "#8b8b94": "transparent",
+   "#bdbdc5": "transparent",
+   "#eeeeff": "transparent",
+   "#7b4a5a": "transparent"
+  },
+  "poing": {
+   "#313141": "peau:2",
+   "#bdbdc5": "peau:1",
+   "#eeeeff": "peau:0",
+   "#8b8b94": "peau:1"
+  },
+  "manche": {
+   "#ffd5bd": "robe:0",
+   "#dea47b": "robe:1",
+   "#bd7b62": "robe:2",
+   "#7b4a5a": "robe:3",
+   "#5a5a62": "robe:2",
+   "#8b8b94": "robe:1",
+   "#313141": "robe:3"
+  },
+  "haut": {
+   "#5a5a62": "robe:1",
+   "#8b8b94": "robe:0",
+   "#313141": "robe:3"
+  },
+  "jupe": {
+   "#eeeeff": "robe:0",
+   "#bdbdc5": "robe:1",
+   "#313141": "robe:3",
+   "#5a5a62": "robe:2",
+   "#8b8b94": "robe:1"
+  },
+  "jambes": {
+   "#5a5a62": "robe:2"
+  },
+  "pieds": {
+   "#394a4a": "chaussures:2",
+   "#397373": "chaussures:1",
+   "#5a5a62": "chaussures:2",
+   "#eeeeff": "chaussures:0",
+   "#313141": "chaussures:3",
+   "#bdbdc5": "chaussures:0"
+  },
+  "bouche": {
+   "#b44a41": "#c0605a",
+   "#ff6239": "peau:1",
+   "#bd7b62": "peau:2"
+  },
+  "genou": {
+   "#ffd5bd": "robe:0",
+   "#dea47b": "robe:0",
+   "#bd7b62": "robe:1",
+   "#7b4a5a": "robe:2",
+   "#5a5a62": "robe:2",
+   "#8b8b94": "robe:1"
+  }
+ },
+ "ajouts": [
+  {
+   "_note": "chaîne et pendentif doré",
+   "x": 39,
+   "y": 34,
+   "motif": [
+    "c..",
+    ".c.",
+    ".c.",
+    "..o"
+   ],
+   "legende": {
+    "c": "or:1",
+    "o": "or:0"
+   }
+  },
+  {
+   "_note": "robe allongée jusqu'aux mollets",
+   "x": 32,
+   "y": 62,
+   "motif": [
+    "....0bbbbbbbbbmmmmmm0",
+    "....0bbbbbbbbbbmmmmmm0",
+    "...0bbbbbbbbbbbmmmmmm0",
+    "...0bbbbbbbbbbbmmmmmmm0",
+    "..0bbbbbbbbbbbbmmmmmmm0",
+    "..0bbbbbbbbbbbbbmmmmmmm0",
+    ".0bbbbbbbbbbbbbmmmmmmmm0",
+    ".0ffffffffffffffffffffff0",
+    "0000000000000000000000000"
+   ],
+   "legende": {
+    "b": "robe:0",
+    "m": "robe:1",
+    "f": "robe:2"
+   }
+  }
+ ]
+}
